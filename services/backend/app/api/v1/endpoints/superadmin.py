@@ -398,6 +398,51 @@ def secure_chat(body: SecureMessage, db: Session = Depends(get_db), admin: User 
             return {"from": "KUDOS", "message": "Password changed successfully!", "action": "password_changed"}
         return {"from": "KUDOS", "message": "Format: change password YOUR_NEW_PASSWORD (min 6 chars)", "action": "password_help"}
 
+    # ── EMBED COMMANDS ──
+    if msg.startswith("embed") or msg.startswith("create embed"):
+        embed_type = msg.replace("create embed", "").replace("embed", "").strip()
+        if not embed_type:
+            embed_type = "kudos"
+        from app.core.embed_engine import generate_embed_code
+        result = generate_embed_code(embed_type, "http://localhost:3000")
+        if "error" in result:
+            return {"from": "KUDOS", "message": f"Unknown embed type. Available: chat, courses, attendance, kudos, social_feed, calendar, login, announcements", "action": "embed_error"}
+        return {"from": "KUDOS", "message": f"Here's your {result['name']} embed code:\n\n```\n{result['html']}\n```\n\n{result.get('instructions', '')}", "action": "embed_created"}
+
+    # ── SANDBOX COMMANDS ──
+    if msg.startswith("propose") or msg.startswith("suggest"):
+        description = raw.replace("propose", "").replace("suggest", "").strip()
+        if description:
+            from app.core.sandbox import create_proposal
+            proposal = create_proposal(
+                title=description[:100],
+                description=description,
+                category="feature",
+            )
+            return {"from": "KUDOS", "message": f"Proposal #{proposal['id']} created: '{description[:80]}'\n\nI'll test it in my sandbox first. Say 'test proposal {proposal['id']}' to run tests.", "action": "proposal_created"}
+        return {"from": "KUDOS", "message": "Format: propose [description of change]", "action": "proposal_help"}
+
+    if "test proposal" in msg:
+        proposal_id = msg.replace("test proposal", "").strip()
+        if proposal_id.isdigit():
+            from app.core.sandbox import test_proposal
+            result = test_proposal(int(proposal_id))
+            status = "✅ PASSED" if result["overall"] == "PASS" else "❌ FAILED"
+            return {"from": "KUDOS", "message": f"Test result: {status}\nPassed: {result['passed']} | Failed: {result['failed']}\n\nSay 'approve proposal {proposal_id}' to deploy.", "action": "test_result"}
+        return {"from": "KUDOS", "message": "Format: test proposal [id]", "action": "test_help"}
+
+    if "approve proposal" in msg:
+        proposal_id = msg.replace("approve proposal", "").strip()
+        if proposal_id.isdigit():
+            from app.core.sandbox import approve_proposal, deploy_proposal
+            approve_result = approve_proposal(int(proposal_id))
+            if "error" in approve_result:
+                return {"from": "KUDOS", "message": f"Error: {approve_result['error']}", "action": "approve_error"}
+            deploy_result = deploy_proposal(int(proposal_id))
+            if "error" in deploy_result:
+                return {"from": "KUDOS", "message": f"Approved but deploy failed: {deploy_result['error']}", "action": "deploy_error"}
+            return {"from": "KUDOS", "message": f"Proposal #{proposal_id} approved and deployed! Commit: {deploy_result.get('commit', 'unknown')}", "action": "deployed"}
+
     # ── HELP ──
     if msg == "help":
         return {"from": "KUDOS", "message": """Commands I understand:
@@ -419,6 +464,16 @@ def secure_chat(body: SecureMessage, db: Session = Depends(get_db), admin: User 
 • 'generate render.yaml' — generate config
 • 'generate docker-compose' — generate config
 • 'generate link' — get public URL info
+
+**Embedding:**
+• 'embed chat' — generate chat widget embed code
+• 'embed kudos' — generate KUDOS AI embed code
+• 'embed courses' — generate course catalog embed
+
+**Sandbox:**
+• 'propose [description]' — propose a change for testing
+• 'test proposal [id]' — test a proposal in sandbox
+• 'approve proposal [id]' — approve and deploy
 
 **KUDOS:**
 • 'start learning' — activate brain

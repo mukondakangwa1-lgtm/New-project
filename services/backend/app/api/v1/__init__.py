@@ -7,7 +7,7 @@ from app.api.v1.endpoints import (
     health, auth, users, courses, timetable, social, chat,
     kudos, connectors, guardian, search_connectors, arena, social_learning, llm_api,
     assignments, study_groups, calendar_goals, exams, analytics, code_agent,
-    internet_archive, auto_learner, speaking, kudos_root, superadmin, shield,
+    internet_archive, auto_learner, speaking, kudos_root, superadmin, shield, embed,
 )
 
 api_router = APIRouter()
@@ -38,3 +38,4 @@ api_router.include_router(speaking.router, prefix="/studio", tags=["Speaking & B
 api_router.include_router(kudos_root.router, prefix="/root", tags=["KUDOS Root"])
 api_router.include_router(superadmin.router, prefix="/superadmin", tags=["Superadmin Dashboard"])
 api_router.include_router(shield.router, prefix="/shield", tags=["KUDOS Shield"])
+api_router.include_router(embed.router, prefix="/tools", tags=["Embed & Sandbox"])
