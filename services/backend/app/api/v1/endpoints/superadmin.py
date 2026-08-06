@@ -398,6 +398,24 @@ def secure_chat(body: SecureMessage, db: Session = Depends(get_db), admin: User 
             return {"from": "KUDOS", "message": "Password changed successfully!", "action": "password_changed"}
         return {"from": "KUDOS", "message": "Format: change password YOUR_NEW_PASSWORD (min 6 chars)", "action": "password_help"}
 
+    # ── DEVICE ANALYSIS COMMANDS ──
+    if msg == "devices" or msg == "connected devices":
+        from app.core.device_analyzer import get_device_report
+        report = get_device_report()
+        return {"from": "KUDOS", "message": f"Device Report:\n• Total: {report['total_devices']} devices\n• Active: {report['active_devices']}\n• Bots: {report['bots_detected']}\n• Blocked: {report['blocked_devices']}\n\nOS: {report['os_breakdown']}\nBrowsers: {report['browser_breakdown']}", "action": "device_report"}
+
+    if msg == "system info" or msg == "server info":
+        from app.core.device_analyzer import get_system_info, scan_open_ports
+        info = get_system_info()
+        ports = scan_open_ports()
+        port_str = ", ".join(f"{p['port']}({p['service']})" for p in ports) or "none"
+        return {"from": "KUDOS", "message": f"System Info:\n• Host: {info.get('hostname')}\n• OS: {info.get('os')} {info.get('architecture')}\n• CPU: {info.get('cpu_count')} cores\n• RAM: {info.get('ram_total_mb', '?')}MB ({info.get('ram_usage_percent', '?')}% used)\n• Disk: {info.get('disk_free_gb', '?')}GB free\n• IP: {info.get('ip_address')}\n• Open ports: {port_str}", "action": "system_info"}
+
+    if msg == "network" or msg == "network info":
+        from app.core.device_analyzer import get_network_info
+        info = get_network_info()
+        return {"from": "KUDOS", "message": f"Network Info:\n{info.get('listening_ports', 'No data available')[:500]}", "action": "network_info"}
+
     # ── EMBED COMMANDS ──
     if msg.startswith("embed") or msg.startswith("create embed"):
         embed_type = msg.replace("create embed", "").replace("embed", "").strip()
@@ -464,6 +482,11 @@ def secure_chat(body: SecureMessage, db: Session = Depends(get_db), admin: User 
 • 'generate render.yaml' — generate config
 • 'generate docker-compose' — generate config
 • 'generate link' — get public URL info
+
+**System:**
+• 'devices' — connected device report
+• 'system info' — server info (CPU, RAM, disk, ports)
+• 'network' — network connections
 
 **Embedding:**
 • 'embed chat' — generate chat widget embed code

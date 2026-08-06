@@ -661,6 +661,9 @@ def seed_connectors():
         {"name": "MDN Web Docs", "type": "website", "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript", "config": '{"max_pages": 10}'},
         {"name": "W3Schools", "type": "website", "url": "https://www.w3schools.com/", "config": '{"max_pages": 10}'},
         {"name": "OWASP", "type": "website", "url": "https://owasp.org/www-project-top-ten/", "config": '{"max_pages": 5}'},
+        {"name": "FMHY", "type": "website", "url": "https://fmhy.net", "config": '{"max_pages": 15, "max_depth": 2}'},
+        {"name": "Wikipedia: Cybersecurity", "type": "website", "url": "https://en.wikipedia.org/wiki/Computer_security", "config": '{"max_pages": 5}'},
+        {"name": "Wikipedia: Docker", "type": "website", "url": "https://en.wikipedia.org/wiki/Docker_(software)", "config": '{"max_pages": 3}'},
     ]
 
     count = 0
@@ -682,8 +685,21 @@ def seed_connectors():
 if __name__ == "__main__":
     print("🧠 Seeding KUDOS knowledge base (final version)...\n")
     doc_count = seed_documents()
-    # Also seed deployment knowledge
+    # Also seed advanced knowledge
     for doc_data in DEPLOYMENT_KNOWLEDGE:
+        existing = db.query(KudosDocument).filter(KudosDocument.title == doc_data["title"]).first()
+        if not existing:
+            doc = KudosDocument(
+                uploaded_by=admin.id, title=doc_data["title"],
+                filename=doc_data["filename"], file_type="txt",
+                content=doc_data["content"], summary=doc_data["content"][:300].strip(),
+                tags=doc_data["tags"], is_approved=True,
+            )
+            db.add(doc)
+            doc_count += 1
+            print(f"✅ {doc_data['title']}")
+    # Also seed advanced knowledge
+    for doc_data in ADVANCED_KNOWLEDGE:
         existing = db.query(KudosDocument).filter(KudosDocument.title == doc_data["title"]).first()
         if not existing:
             doc = KudosDocument(
@@ -742,6 +758,378 @@ Each platform auto-generates a public URL.
 Custom domains available in settings.
 SSL/HTTPS is automatic on all platforms.
 Share the URL with anyone worldwide.
+""",
+    },
+]
+
+# ──────────────────────────────────────────────
+# FMHY, SANDBOXES, TERMINALS, SYSTEM CONTROL
+# ──────────────────────────────────────────────
+
+ADVANCED_KNOWLEDGE = [
+    {
+        "title": "FMHY - Free Media Resources Guide",
+        "filename": "fmhy.txt",
+        "tags": "fmhy,free,resources,media,software,books,music,video,learning",
+        "content": """
+FMHY (Free Media Heck Yeah) — fmhy.net — is the ultimate directory of free resources on the internet.
+
+What FMHY Offers:
+- Free software downloads (open source alternatives)
+- Free books and textbooks (Z-Library, Project Gutenberg, Open Library)
+- Free courses (MIT OCW, Coursera, edX, Khan Academy)
+- Free movies and TV (legal streaming)
+- Free music (Spotify alternatives, free music libraries)
+- Free tools for every purpose
+- Free API lists
+- Developer resources
+- Privacy tools
+- AI tools and models
+
+How to Use FMHY:
+1. Go to fmhy.net
+2. Browse categories in the sidebar
+3. Each category has vetted, safe links
+4. Everything is free and legal (or open source)
+
+Key Categories for Students:
+- Textbooks: Free textbook alternatives to expensive ones
+- Courses: MIT OpenCourseWare, freeCodeCamp, The Odin Project
+- Software: LibreOffice (free MS Office), GIMP (free Photoshop)
+- Tools: Notion, Obsidian, VS Code (all free)
+- AI: Free AI tools, ChatGPT alternatives, open source models
+
+FMHY is maintained by the community and updated regularly.
+KUDOS can use FMHY to find free resources for any topic.
+""",
+    },
+    {
+        "title": "Sandbox & Virtual Environment Mastery",
+        "filename": "sandbox_vm.txt",
+        "tags": "sandbox,virtual,vm,docker,container,isolation,testing",
+        "content": """
+Sandboxes and Virtual Machines — Isolated environments for safe testing.
+
+Types of Sandboxes:
+1. Python venv: python3 -m venv .venv (isolated Python packages)
+2. Docker containers: Isolated application environments
+3. Virtual Machines: Full OS emulation (VirtualBox, VMware, QEMU)
+4. Cloud sandboxes: AWS CloudShell, Google Cloud Shell
+5. Browser sandboxes: iframes, Web Workers, Service Workers
+6. Process sandboxes: chroot, namespaces, seccomp
+
+Docker Sandbox:
+# Create isolated container
+docker run -it --rm python:3.11 bash
+# Now you're inside a sandbox — changes don't affect host
+
+# Run code safely
+docker run --rm -v $(pwd):/app -w /app python:3.11 python script.py
+
+# Network isolation
+docker run --network none python:3.11  # No network access
+
+Virtual Machine Sandbox:
+# Install VirtualBox
+sudo apt install virtualbox
+
+# Create VM
+VBoxManage createvm --name "TestVM" --ostype Ubuntu_64 --register
+
+# Start VM
+VBoxManage startvm "TestVM"
+
+# Snapshot (save state)
+VBoxManage snapshot "TestVM" take "clean-state"
+
+# Restore snapshot
+VBoxManage snapshot "TestVM" restore "clean-state"
+
+Python Sandbox:
+# Restrict execution
+import sys
+from io import StringIO
+
+# Capture output
+old_stdout = sys.stdout
+sys.stdout = buffer = StringIO()
+exec(code)  # Run code safely
+output = buffer.getvalue()
+sys.stdout = old_stdout
+
+KUDOS Sandbox:
+- KUDOS tests changes in isolated environment
+- Runs pytest before presenting to superadmin
+- File backups before modifications
+- Rollback capability
+- Approval workflow
+
+Cloud Sandboxes:
+- AWS CloudShell: Free terminal in browser
+- Google Cloud Shell: Free Linux environment
+- Gitpod: Cloud dev environment
+- GitHub Codespaces: VS Code in browser
+- Replit: Online IDE with instant run
+""",
+    },
+    {
+        "title": "Terminal & Command Line Mastery",
+        "filename": "terminal.txt",
+        "tags": "terminal,command,cli,shell,bash,linux,system",
+        "content": """
+Terminal Mastery — Control any system from the command line.
+
+Bash Essentials:
+# Navigation
+pwd                    # Where am I?
+ls -la                 # List files (detailed)
+cd /path/to/dir        # Change directory
+cd ..                  # Go up one level
+cd ~                   # Go home
+
+# File Operations
+touch file.txt         # Create empty file
+mkdir -p dir/subdir    # Create directories
+cp file.txt backup.txt # Copy
+mv file.txt new.txt    # Move/rename
+rm file.txt            # Delete
+rm -rf directory       # Delete directory (careful!)
+chmod 755 script.sh    # Make executable
+
+# Text Processing
+cat file.txt           # View file
+less file.txt          # View with pagination
+head -20 file.txt      # First 20 lines
+tail -20 file.txt      # Last 20 lines
+grep "pattern" file    # Search in file
+sed 's/old/new/g' file # Replace text
+awk '{print $1}' file  # Extract columns
+
+# Process Management
+ps aux                 # List all processes
+top                    # Monitor processes
+kill PID               # Kill process
+kill -9 PID            # Force kill
+nohup command &        # Run in background
+jobs                   # List background jobs
+fg %1                  # Bring to foreground
+
+# Networking
+ip addr                # Show IP addresses
+ping host              # Test connectivity
+curl url               # HTTP request
+wget url               # Download file
+ss -tuln               # Show listening ports
+netstat -tulpn         # Network connections
+
+# System Info
+uname -a               # System info
+df -h                  # Disk usage
+free -h                # Memory usage
+uptime                 # System uptime
+whoami                 # Current user
+sudo command           # Run as admin
+
+# Pipes & Redirection
+command > file         # Redirect output to file
+command >> file        # Append to file
+command | grep text    # Pipe to another command
+command 2>&1           # Redirect errors
+
+# SSH
+ssh user@host          # Connect to remote server
+scp file user@host:/path # Copy file to remote
+ssh-keygen -t ed25519  # Generate SSH key
+
+# Cron Jobs (scheduled tasks)
+crontab -e             # Edit cron jobs
+# Format: minute hour day month weekday command
+# Example: 0 2 * * * /path/to/backup.sh  # Run at 2am daily
+
+# Systemd Services
+systemctl start service
+systemctl stop service
+systemctl restart service
+systemctl status service
+systemctl enable service  # Start on boot
+""",
+    },
+    {
+        "title": "System Administration & Control",
+        "filename": "sysadmin.txt",
+        "tags": "sysadmin,system,admin,control,server,monitoring,security",
+        "content": """
+System Administration — Control and monitor any Linux system.
+
+User Management:
+useradd -m username    # Create user
+passwd username        # Set password
+usermod -aG sudo user  # Add to sudo group
+deluser username       # Delete user
+cat /etc/passwd        # List users
+
+Service Management:
+systemctl list-units --type=service  # List all services
+systemctl start nginx
+systemctl stop nginx
+systemctl restart nginx
+systemctl enable nginx   # Start on boot
+journalctl -u nginx -f   # View logs
+
+Firewall (UFW):
+ufw enable
+ufw allow 22/tcp      # SSH
+ufw allow 80/tcp      # HTTP
+ufw allow 443/tcp     # HTTPS
+ufw status
+
+Process Monitoring:
+htop                   # Interactive process viewer
+ps aux | grep python   # Find Python processes
+lsof -i :8000          # What's using port 8000
+strace -p PID          # Trace system calls
+
+Log Management:
+tail -f /var/log/syslog
+journalctl -f
+dmesg | tail           # Kernel messages
+
+Backup:
+tar -czf backup.tar.gz /path/to/dir
+rsync -avz src/ dest/  # Sync directories
+
+Performance:
+iostat                 # Disk I/O
+vmstat                 # Memory/CPU
+sar                    # System activity
+
+Security Hardening:
+- Disable root login: PermitRootLogin no in /etc/ssh/sshd_config
+- Use SSH keys only: PasswordAuthentication no
+- Enable firewall: ufw enable
+- Regular updates: apt update && apt upgrade
+- Fail2ban: blocks brute force attempts
+""",
+    },
+    {
+        "title": "Code Execution & Testing",
+        "filename": "code_execution.txt",
+        "tags": "code,execution,testing,python,shell,automation",
+        "content": """
+How KUDOS Executes and Tests Code Safely:
+
+Python Execution:
+import subprocess
+result = subprocess.run(
+    ["python3", "-c", "print('Hello from sandbox')"],
+    capture_output=True, text=True, timeout=10
+)
+print(result.stdout)
+
+Safe Code Testing:
+# 1. Syntax check
+subprocess.run(["python3", "-m", "py_compile", "file.py"])
+
+# 2. Import check
+subprocess.run(["python3", "-c", "import app.main"])
+
+# 3. Run tests
+subprocess.run(["python3", "-m", "pytest", "tests/", "-q"])
+
+# 4. Lint
+subprocess.run(["ruff", "check", "app/"])
+
+KUDOS Testing Workflow:
+1. Receive request from superadmin
+2. Write code changes to files
+3. Run syntax check (py_compile)
+4. Run import check
+5. Run pytest suite
+6. If all pass → create proposal
+7. If any fail → fix and retry
+8. Present results to superadmin
+9. Superadmin approves → git commit → git push
+
+Shell Script Execution:
+subprocess.run(["bash", "-c", "echo Hello && date"], capture_output=True)
+
+HTTP Testing:
+import httpx
+res = httpx.get("http://localhost:8000/health")
+assert res.status_code == 200
+
+Database Testing:
+from sqlalchemy import create_engine
+engine = create_engine("sqlite:///test.db")
+# Run queries safely in test database
+
+KUDOS Self-Testing:
+- Tests run before every proposal
+- Results logged for superadmin review
+- Failed tests block deployment
+- Automatic retry on transient failures
+""",
+    },
+    {
+        "title": "Device Analysis & Network Security",
+        "filename": "device_analysis.txt",
+        "tags": "device,network,security,fingerprint,monitoring,protection",
+        "content": """
+How KUDOS Analyzes and Protects Against Connected Devices:
+
+Device Fingerprinting:
+- User-Agent: OS, browser, device type
+- IP Address: Geographic location, ISP
+- Request patterns: Pages visited, timing
+- Headers: Language, encoding, capabilities
+
+What KUDOS Learns From Each Device:
+- Operating system (Windows, macOS, Linux, Android, iOS)
+- Browser (Chrome, Firefox, Safari, Edge, Brave)
+- Whether it's a bot or human
+- Geographic location (from IP)
+- Visit frequency and patterns
+- Pages accessed
+
+Threat Detection:
+- Bot detection: User-Agent analysis
+- Rate limiting: Too many requests
+- Path scanning: Probing for vulnerabilities
+- SQL injection attempts: Malicious input
+- XSS attempts: Script injection
+- Brute force: Repeated failed logins
+
+Protection Measures:
+- Auto-block suspicious IPs
+- Rate limiting per device
+- Request logging for audit
+- Fingerprint tracking
+- Threat level scoring (low, medium, high, critical)
+- Automatic response to attacks
+
+KUDOS Learns:
+- Normal traffic patterns
+- Peak usage times
+- Popular pages and features
+- User behavior patterns
+- Attack patterns to defend against
+- Device types used by users
+
+Network Monitoring:
+- Track all incoming connections
+- Monitor bandwidth usage
+- Detect unusual traffic patterns
+- Alert on suspicious activity
+- Log everything for analysis
+
+Self-Protection:
+- Never expose internal paths
+- Validate all input
+- Sanitize all output
+- Encrypt sensitive data
+- Rotate secrets regularly
+- Monitor file integrity
+- Auto-heal on corruption
 """,
     },
 ]

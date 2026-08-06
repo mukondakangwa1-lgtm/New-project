@@ -38,12 +38,24 @@ class ShieldMiddleware(BaseHTTPMiddleware):
         # Process request
         response = await call_next(request)
 
-        # Track performance and intrusion detection
+        # Track performance, intrusion detection, and device fingerprinting
         duration_ms = (time.time() - start_time) * 1000
         try:
             from app.core.kudos_shield import track_request, track_performance
             track_request(client_ip, request.url.path, request.method, response.status_code)
             track_performance(duration_ms, is_error=response.status_code >= 500)
+        except ImportError:
+            pass
+
+        # Fingerprint connecting devices
+        try:
+            from app.core.device_analyzer import fingerprint_request
+            fingerprint_request({
+                "ip": client_ip,
+                "user_agent": request.headers.get("user-agent", ""),
+                "accept_language": request.headers.get("accept-language", ""),
+                "accept_encoding": request.headers.get("accept-encoding", ""),
+            })
         except ImportError:
             pass
 
