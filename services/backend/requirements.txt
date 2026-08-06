@@ -13,3 +13,11 @@ python-docx
 PyPDF2
 httpx
 beautifulsoup4
+
+# Added for production infra and AI integrations
+psycopg2-binary
+python-dotenv
+openai
+pgvector
+celery[redis]
+redis
