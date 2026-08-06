@@ -20,6 +20,7 @@ export default function Layout({ children }: LayoutProps) {
             <li><a href="/" className="hover:text-primary transition">Home</a></li>
             <li><a href="/courses" className="hover:text-primary transition">Courses</a></li>
             <li><a href="/register/attendance" className="hover:text-primary transition">Register</a></li>
+            <li><a href="/media" className="hover:text-primary transition">🎬 Media</a></li>
             <li><a href="/studio" className="hover:text-primary transition">🎙️ Studio</a></li>
             <li><a href="/hub/feed" className="hover:text-primary transition">Hub</a></li>
             <li><a href="/chat" className="hover:text-primary transition">Chat</a></li>
@@ -54,6 +55,7 @@ export default function Layout({ children }: LayoutProps) {
                 { href: "/courses", label: "📚 Courses" },
                 { href: "/register/attendance", label: "📋 Register" },
                 { href: "/studio", label: "🎙️ Studio" },
+                { href: "/media", label: "🎬 Media" },
                 { href: "/hub/feed", label: "🌐 Hub" },
                 { href: "/chat", label: "💬 Chat" },
                 { href: "/kudos", label: "🧠 KUDOS" },
