@@ -1,0 +1,3 @@
+"""
+Digital Campus - Core Package
+"""

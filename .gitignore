@@ -1,0 +1,11 @@
+**pycache**/
+*.py[cod]
+.env
+node_modules/
+.next/
+*.db
+
+# Virtual environments
+.venv/
+venv/
+
