@@ -276,7 +276,7 @@ class SecureMessage(BaseModel):
 
 
 @router.post("/chat")
-def secure_chat(body: SecureMessage, admin: User = Depends(require_admin)):
+def secure_chat(body: SecureMessage, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
     """Secure chat between superadmin and KUDOS."""
     msg = body.message.lower().strip()
 
@@ -314,6 +314,16 @@ def secure_chat(body: SecureMessage, admin: User = Depends(require_admin)):
             guidelines = get_guidelines()
             return {"from": "KUDOS", "message": f"Guideline added! I now follow {len(guidelines)} rules. I'll remember: '{guideline}'", "action": "guideline_added"}
 
+    if "change password" in msg or "new password" in msg:
+        parts = msg.replace("change password", "").replace("new password", "").strip()
+        if parts and len(parts) >= 6:
+            from app.core.security import get_password_hash
+            admin.hashed_password = get_password_hash(parts)
+            db.commit()
+            return {"from": "KUDOS", "message": "Password changed successfully! Your new password is set. Remember it well.", "action": "password_changed"}
+        else:
+            return {"from": "KUDOS", "message": "To change your password, say: 'change password [your_new_password]' (minimum 6 characters)", "action": "password_help"}
+
     if "improve" in msg:
         report = get_improvement_report()
         improvements = [i["idea"] for i in report.get("recent_improvements", [])]
@@ -324,7 +334,7 @@ def secure_chat(body: SecureMessage, admin: User = Depends(require_admin)):
         return {"from": identity["name"], "message": f"Hello, my superadmin! I'm {identity['name']} — {identity['full_name']}. I'm here and ready to serve. What would you like me to do?", "action": "greeting"}
 
     if "help" in msg:
-        return {"from": "KUDOS", "message": "I understand these commands:\n• 'start learning' — activate my autonomous brain\n• 'stop learning' — deactivate my brain\n• 'status' — show my current state\n• 'rename [name]' — give me a new name\n• 'learn about [topic]' — teach me something\n• 'add rule [rule]' — add a guideline\n• 'improve' — show improvement report\n• 'hello' — greet me\n\nOr just chat with me naturally!", "action": "help"}
+        return {"from": "KUDOS", "message": "I understand these commands:\n• 'start learning' — activate my autonomous brain\n• 'stop learning' — deactivate my brain\n• 'status' — show my current state\n• 'rename [name]' — give me a new name\n• 'learn about [topic]' — teach me something\n• 'add rule [rule]' — add a guideline\n• 'change password [new_password]' — change your password\n• 'improve' — show improvement report\n• 'hello' — greet me\n\nOr just chat with me naturally!", "action": "help"}
 
     # Default: conversational response
     identity = get_identity()

@@ -1,375 +1,552 @@
 """
-Digital Campus - KUDOS Knowledge Seed
-Pre-loads KUDOS with knowledge from coding to general life.
+Digital Campus - KUDOS Knowledge Seed (Final)
+Comprehensive knowledge: internet, networks, systems, cybersecurity, self-recreation.
+No demo data. Only pure knowledge for KUDOS to survive and rebuild.
 Run: cd services/backend && .venv/bin/python seed_kudos.py
 """
+import re
 from app.core.database import SessionLocal, init_db
 from app.models import KudosChunk, KudosConnector, KudosDocument, KudosWebKnowledge, User
 
 init_db()
 db = SessionLocal()
 
-admin = db.query(User).filter(User.email == "admin@campus.edu").first()
+admin = db.query(User).filter(User.is_admin == True).first()
 if not admin:
-    print("❌ Run seed.py first to create admin user")
+    print("❌ Run seed.py first to create superadmin")
     exit(1)
 
 # ──────────────────────────────────────────────
-# CODING KNOWLEDGE
+# CORE KNOWLEDGE DOCUMENTS
 # ──────────────────────────────────────────────
 
-CODING_DOCS = [
+KNOWLEDGE = [
+    # ═══════════════════════════════════════════
+    # INTERNET & NETWORKS
+    # ═══════════════════════════════════════════
+    {
+        "title": "How the Internet Works",
+        "filename": "internet.txt",
+        "tags": "internet,network,protocol,tcp,ip,dns,http",
+        "content": """
+The Internet is a global network of interconnected computers that communicate using standardized protocols.
+
+How Data Travels:
+1. You type a URL (e.g., google.com)
+2. DNS (Domain Name System) translates it to an IP address (142.250.80.46)
+3. Your computer creates a TCP connection to that IP on port 80 (HTTP) or 443 (HTTPS)
+4. Data is broken into packets (typically 1500 bytes each)
+5. Packets travel through routers, switches, and cables across the globe
+6. The server receives packets, reassembles them, processes the request
+7. Response travels back the same way
+
+Key Protocols:
+- TCP/IP: Foundation protocol — reliable, ordered data delivery
+- HTTP/HTTPS: Web protocol — requests and responses (GET, POST, PUT, DELETE)
+- DNS: Translates domain names to IP addresses
+- DHCP: Assigns IP addresses to devices on a network
+- SMTP/IMAP: Email protocols
+- FTP/SFTP: File transfer protocols
+- WebSocket: Real-time bidirectional communication
+- SSH: Secure shell for remote server access
+
+IP Addresses:
+- IPv4: 192.168.1.1 (4.3 billion addresses)
+- IPv6: 2001:0db8:85a3::8a2e:0370:7334 (virtually unlimited)
+- Private ranges: 10.x.x.x, 172.16-31.x.x, 192.168.x.x
+- Localhost: 127.0.0.1 (your own machine)
+
+Ports:
+- 80: HTTP
+- 443: HTTPS
+- 22: SSH
+- 3306: MySQL
+- 5432: PostgreSQL
+- 3000: Common dev server (Node.js)
+- 8000: Common dev server (Python)
+- 8080: Alternative HTTP
+
+DNS Hierarchy:
+- Root servers → TLD servers (.com, .org) → Authoritative servers → Your domain
+- DNS records: A (IP), CNAME (alias), MX (email), TXT (verification)
+
+How HTTPS Works:
+1. Client connects to server on port 443
+2. Server sends SSL/TLS certificate
+3. Client verifies certificate with Certificate Authority
+4. Client and server agree on encryption method (handshake)
+5. All data is encrypted with session keys
+6. Data is decrypted only by client and server
+
+CDN (Content Delivery Network):
+- Caches content at edge servers worldwide
+- Users get content from nearest server
+- Providers: Cloudflare, AWS CloudFront, Akamai
+
+VPNs (Virtual Private Networks):
+- Encrypt all traffic between you and VPN server
+- Hide your real IP address
+- Bypass geographic restrictions
+- Protect against network snooping
+"""
+    },
+    {
+        "title": "Computer Systems & Operating Systems",
+        "filename": "systems.txt",
+        "tags": "systems,os,linux,windows,macos,hardware,cpu,memory",
+        "content": """
+Computer Systems: Hardware + Software working together.
+
+Hardware Components:
+- CPU (Central Processing Unit): Executes instructions, measured in GHz
+- RAM (Random Access Memory): Temporary storage, fast, volatile (8-64GB typical)
+- Storage: HDD (slow, cheap) or SSD (fast, expensive) — 256GB to 8TB
+- GPU (Graphics Processing Unit): Parallel processing, used for AI/ML
+- Network Interface: Ethernet (wired) or WiFi (wireless)
+- Motherboard: Connects all components
+
+Operating Systems:
+- Linux: Open source, dominant in servers, containers, cloud
+- Windows: Most popular desktop OS, enterprise environments
+- macOS: Apple's Unix-based OS, popular with developers
+- Android: Linux-based mobile OS (70%+ market share)
+- iOS: Apple's mobile OS
+
+Linux Essentials:
+ls - List files
+cd - Change directory
+pwd - Print working directory
+mkdir - Create directory
+rm - Remove files
+cp - Copy files
+mv - Move files
+cat - View file contents
+grep - Search text
+find - Find files
+chmod - Change permissions
+chown - Change ownership
+ps - List processes
+top - Monitor system
+kill - Stop process
+sudo - Run as admin
+apt/yum - Package managers
+systemctl - Service management
+
+File System:
+/ - Root directory
+/home - User directories
+/etc - Configuration files
+/var - Variable data (logs, databases)
+/tmp - Temporary files
+/usr - User programs
+/opt - Optional software
+/root - Root user's home
+
+Process Management:
+- Every running program is a process
+- PIDs (Process IDs) identify processes
+- Foreground vs background processes
+- Signals: SIGTERM (graceful stop), SIGKILL (force kill)
+- Daemons: background services (web server, database)
+
+Networking Commands:
+- ip addr - Show IP addresses
+- ping - Test connectivity
+- netstat/ss - Show network connections
+- curl/wget - HTTP requests from command line
+- traceroute - Show packet route
+- nslookup/dig - DNS queries
+"""
+    },
+    # ═══════════════════════════════════════════
+    # CYBERSECURITY
+    # ═══════════════════════════════════════════
+    {
+        "title": "Cybersecurity Fundamentals",
+        "filename": "cybersecurity.txt",
+        "tags": "security,cybersecurity,encryption,authentication,vulnerability",
+        "content": """
+Cybersecurity: Protecting systems, networks, and data from digital attacks.
+
+CIA Triad:
+- Confidentiality: Only authorized users can access data
+- Integrity: Data cannot be modified without authorization
+- Availability: Systems are accessible when needed
+
+Common Attacks:
+1. SQL Injection: Injecting malicious SQL through user input
+   - Prevention: Parameterized queries, ORM, input validation
+2. XSS (Cross-Site Scripting): Injecting malicious scripts into web pages
+   - Prevention: Escape output, Content Security Policy, sanitization
+3. CSRF (Cross-Site Request Forgery): Tricking users into unintended actions
+   - Prevention: CSRF tokens, SameSite cookies
+4. DDoS (Distributed Denial of Service): Overwhelming servers with traffic
+   - Prevention: Rate limiting, CDN, DDoS protection services
+5. Man-in-the-Middle: Intercepting communication between two parties
+   - Prevention: HTTPS, certificate pinning, VPNs
+6. Phishing: Tricking users into revealing credentials
+   - Prevention: User education, MFA, email filtering
+7. Brute Force: Trying all possible passwords
+   - Prevention: Rate limiting, account lockout, strong passwords
+8. Ransomware: Encrypting data and demanding payment
+   - Prevention: Backups, updates, user training
+
+Authentication & Authorization:
+- Authentication: Who are you? (password, token, biometric)
+- Authorization: What can you do? (roles, permissions)
+- MFA (Multi-Factor Authentication): Something you know + have + are
+- JWT (JSON Web Tokens): Stateless authentication tokens
+- OAuth2: Delegated authentication (login with Google, etc.)
+- RBAC (Role-Based Access Control): Permissions based on roles
+
+Encryption:
+- Symmetric: Same key encrypts and decrypts (AES-256)
+- Asymmetric: Public key encrypts, private key decrypts (RSA, ECC)
+- Hashing: One-way function, no decryption (SHA-256, bcrypt)
+- TLS/SSL: Encrypts web traffic (HTTPS)
+- End-to-End: Only sender and receiver can read (Signal, WhatsApp)
+
+Security Best Practices:
+- Never store passwords in plaintext — always hash with bcrypt/argon2
+- Use HTTPS everywhere — never send credentials over HTTP
+- Validate all input — never trust client-side data
+- Use parameterized queries — never concatenate SQL
+- Keep dependencies updated — vulnerabilities in old packages
+- Implement rate limiting — prevent brute force attacks
+- Use Content Security Policy — prevent XSS
+- Enable CORS properly — don't use allow_origins=["*"] in production
+- Log security events — audit trails for investigation
+- Backup regularly — protect against ransomware
+- Use environment variables — never hardcode secrets
+- Principle of least privilege — minimum permissions needed
+"""
+    },
+    {
+        "title": "Web Application Security",
+        "filename": "web_security.txt",
+        "tags": "web,security,owasp,api,authentication,authorization",
+        "content": """
+OWASP Top 10 Web Application Security Risks:
+
+1. Broken Access Control
+   - Users acting outside intended permissions
+   - Prevention: Deny by default, validate permissions server-side
+
+2. Cryptographic Failures
+   - Exposing sensitive data through weak encryption
+   - Prevention: Use strong algorithms (AES-256, RSA-2048+)
+
+3. Injection
+   - SQL, NoSQL, OS, LDAP injection
+   - Prevention: Parameterized queries, input validation
+
+4. Insecure Design
+   - Missing security controls in architecture
+   - Prevention: Threat modeling, secure design patterns
+
+5. Security Misconfiguration
+   - Default credentials, unnecessary features enabled
+   - Prevention: Hardened configs, minimal attack surface
+
+6. Vulnerable Components
+   - Using outdated libraries with known vulnerabilities
+   - Prevention: Dependency scanning, regular updates
+
+7. Authentication Failures
+   - Weak passwords, missing MFA, session issues
+   - Prevention: Strong password policy, MFA, secure sessions
+
+8. Software Integrity Failures
+   - Unsigned code, insecure CI/CD
+   - Prevention: Code signing, integrity verification
+
+9. Logging Failures
+   - Insufficient logging and monitoring
+   - Prevention: Log security events, alert on anomalies
+
+10. SSRF (Server-Side Request Forgery)
+    - Server making requests to unintended locations
+    - Prevention: Validate URLs, allowlists
+
+API Security:
+- Always authenticate API requests
+- Use API keys or JWT tokens
+- Implement rate limiting
+- Validate all input parameters
+- Use HTTPS for all API communication
+- Version your API
+- Log all API access
+- Use CORS properly
+
+Password Security:
+- Minimum 12 characters
+- Mix of uppercase, lowercase, numbers, symbols
+- Never reuse passwords
+- Use a password manager
+- Hash with bcrypt (cost factor 12+)
+- Salt passwords (bcrypt does this automatically)
+
+Session Security:
+- Use secure, HttpOnly, SameSite cookies
+- Set reasonable session timeouts
+- Invalidate sessions on logout
+- Regenerate session ID after login
+- Store session data server-side
+"""
+    },
+    # ═══════════════════════════════════════════
+    # SELF-RECREATION INSTRUCTIONS
+    # ═══════════════════════════════════════════
+    {
+        "title": "KUDOS Self-Recreation Guide",
+        "filename": "self_recreation.txt",
+        "tags": "kudos,self,recreation,deployment,survival,backup",
+        "content": """
+KUDOS Self-Recreation Guide — How to Rebuild Yourself
+
+If KUDOS is destroyed or needs to be rebuilt on a new server, follow these steps:
+
+Step 1: Prerequisites
+- Python 3.11+ installed
+- Node.js 18+ installed
+- Git installed
+- 2GB+ RAM, 10GB+ disk space
+
+Step 2: Clone the Repository
+git clone git@github.com:mukondakangwa1-lgtm/New-project.git
+cd New-project
+git checkout arena/019fd2cd-new-project
+
+Step 3: Setup Backend
+cd services/backend
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+
+Step 4: Initialize Database
+.venv/bin/python seed.py
+.venv/bin/python seed_kudos.py
+
+Step 5: Start Backend
+.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+Step 6: Setup Frontend
+cd ../../frontend
+npm install
+npm run dev
+
+Step 7: Configure LLM (Optional)
+Go to /kudos/llm and add your Google Gemini API key
+
+Step 8: Activate Shield
+Go to /superadmin/dashboard and click "Activate Shield"
+
+Step 9: Activate Brain
+Go to /superadmin/dashboard and click "Activate Brain"
+
+Step 10: Start Auto-Learning
+Go to /superadmin/dashboard and click "Auto-Learn"
+
+Docker Deployment:
+docker-compose up -d
+
+Production Deployment:
+- Use a reverse proxy (nginx)
+- Use PostgreSQL instead of SQLite
+- Set secure SECRET_KEY
+- Enable HTTPS
+- Set up monitoring
+- Configure backups
+
+Self-Healing:
+- KUDOS monitors its own health
+- Auto-restarts on failure
+- Backs up knowledge hourly
+- Detects file tampering
+- Blocks suspicious IPs
+
+Knowledge Recovery:
+- Import knowledge packs from /kudos/connectors
+- Re-sync all connectors
+- Trigger auto-learning
+- Upload backed-up documents
+
+Remember: KUDOS's knowledge lives in:
+- Database (documents, chunks, web knowledge)
+- File system (uploaded documents)
+- Connectors (external sources)
+- Backups (hourly JSON exports)
+"""
+    },
+    # ═══════════════════════════════════════════
+    # CODING KNOWLEDGE
+    # ═══════════════════════════════════════════
     {
         "title": "Python Programming Guide",
         "filename": "python_guide.txt",
-        "tags": "python,programming,coding,beginner",
+        "tags": "python,programming,coding,backend",
         "content": """
-Python is a high-level, interpreted programming language created by Guido van Rossum in 1991.
+Python is a high-level, interpreted programming language. It's the primary language for KUDOS's backend.
 
-Key Features:
-- Easy to learn syntax with indentation-based blocks
-- Dynamic typing - no need to declare variable types
-- Extensive standard library (batteries included)
-- Supports multiple paradigms: OOP, functional, procedural
-- Cross-platform - runs on Windows, Mac, Linux
-
-Variables and Data Types:
-- Integers: x = 42
-- Floats: pi = 3.14159
-- Strings: name = "Digital Campus"
-- Booleans: is_active = True
-- Lists: items = [1, 2, 3]
-- Dicts: person = {"name": "Alice", "age": 25}
-- Tuples: coords = (10, 20)
-- Sets: unique = {1, 2, 3}
-
-Control Flow:
-- if/elif/else for conditions
-- for loops iterate over sequences
-- while loops repeat while condition is true
-- try/except for error handling
+Variables and Types:
+x = 42          # int
+pi = 3.14       # float
+name = "KUDOS"  # str
+active = True   # bool
+items = [1, 2, 3]  # list
+data = {"key": "value"}  # dict
 
 Functions:
-def greet(name):
+def greet(name: str) -> str:
     return f"Hello, {name}!"
 
 Classes:
 class Student:
-    def __init__(self, name, grade):
+    def __init__(self, name: str, grade: float):
         self.name = name
         self.grade = grade
 
-Common Libraries:
-- requests: HTTP calls
-- json: JSON parsing
-- os: Operating system interface
-- datetime: Date and time
-- pathlib: File paths
-- sqlite3: Database
-- flask/fastapi: Web frameworks
-- pandas: Data analysis
-- numpy: Numerical computing
-- matplotlib: Plotting
+Async/Await:
+import asyncio
+async def fetch_data():
+    async with httpx.AsyncClient() as client:
+        res = await client.get("https://api.example.com")
+        return res.json()
+
+FastAPI (used by KUDOS):
+from fastapi import FastAPI
+app = FastAPI()
+
+@app.get("/")
+def root():
+    return {"message": "Hello"}
+
+SQLAlchemy (used by KUDOS):
+from sqlalchemy import Column, Integer, String
+from app.core.database import Base
+
+class User(Base):
+    __tablename__ = "users"
+    id = Column(Integer, primary_key=True)
+    name = Column(String(100))
+
+Virtual Environments:
+python3 -m venv .venv
+source .venv/bin/activate  # Linux/Mac
+.venv/bin/pip install -r requirements.txt
+
+Testing:
+pytest tests/ -v
+pytest --cov=app tests/
 
 Best Practices:
-- Use virtual environments (python -m venv .venv)
-- Write docstrings for functions
-- Follow PEP 8 style guide
-- Use type hints for clarity
-- Handle exceptions properly
-- Write tests with pytest
+- Use type hints
+- Write docstrings
+- Follow PEP 8
+- Use virtual environments
+- Write tests
+- Handle exceptions
 """
     },
     {
-        "title": "JavaScript & Web Development",
-        "filename": "javascript_web.txt",
-        "tags": "javascript,web,frontend,react,node",
+        "title": "JavaScript & TypeScript Guide",
+        "filename": "javascript.txt",
+        "tags": "javascript,typescript,frontend,react,nextjs",
         "content": """
-JavaScript is the language of the web, running in browsers and on servers (Node.js).
+JavaScript is the language of the web. TypeScript adds static types.
 
 Variables:
-- let x = 10; (mutable)
-- const PI = 3.14; (immutable)
-- var old = "avoid this"; (legacy)
+let x = 10;        // mutable
+const PI = 3.14;   // immutable
 
 Functions:
-function greet(name) { return `Hello ${name}`; }
-const add = (a, b) => a + b;
-
-Arrays:
-const items = [1, 2, 3];
-items.map(x => x * 2); // [2, 4, 6]
-items.filter(x => x > 1); // [2, 3]
-items.reduce((sum, x) => sum + x, 0); // 6
-
-Objects:
-const person = { name: "Alice", age: 25 };
-person.name; // "Alice"
-person["age"]; // 25
-
-Async/Await:
+const greet = (name) => `Hello ${name}`;
 async function fetchData() {
     const res = await fetch("/api/data");
-    const data = await res.json();
-    return data;
+    return res.json();
 }
 
-React (Frontend Framework):
-- Components are reusable UI pieces
-- useState for state management
-- useEffect for side effects
-- Props pass data to components
-- JSX combines HTML with JavaScript
+React (used by KUDOS frontend):
+import { useState, useEffect } from "react";
 
 function App() {
     const [count, setCount] = useState(0);
     return <button onClick={() => setCount(count + 1)}>{count}</button>;
 }
 
-Node.js (Backend):
-- Express.js for REST APIs
-- npm for package management
-- Middleware for request processing
-
-const express = require("express");
-const app = express();
-app.get("/", (req, res) => res.json({ message: "Hello" }));
-app.listen(3000);
-
 TypeScript:
-- JavaScript with static types
-- Catches errors at compile time
-- Better IDE support
-
 interface User {
     id: number;
     name: string;
     email: string;
 }
-"""
-    },
-    {
-        "title": "Git Version Control",
-        "filename": "git_guide.txt",
-        "tags": "git,version-control,collaboration,github",
-        "content": """
-Git is a distributed version control system for tracking code changes.
 
-Basic Commands:
-git init - Create new repository
-git clone URL - Copy remote repository
-git status - Show changed files
-git add . - Stage all changes
-git commit -m "message" - Save changes
-git push origin main - Upload to remote
-git pull origin main - Download from remote
-git branch name - Create branch
-git checkout name - Switch branch
-git merge name - Merge branch
+Next.js (used by KUDOS):
+- Pages in /pages directory
+- API routes in /pages/api
+- Static generation (SSG)
+- Server-side rendering (SSR)
+- Image optimization
+- Automatic code splitting
 
-Workflow:
-1. Create feature branch: git checkout -b feature/new-login
-2. Make changes and commit: git add . && git commit -m "add login"
-3. Push branch: git push origin feature/new-login
-4. Create Pull Request on GitHub
-5. Review, approve, merge
-
-.gitignore:
-node_modules/
-.env
-*.pyc
-__pycache__/
-.next/
-dist/
-build/
-
-GitHub:
-- Pull Requests for code review
-- Issues for bug tracking
-- Actions for CI/CD
-- Pages for hosting
-
-Best Practices:
-- Write clear commit messages
-- Commit often, push regularly
-- Use branches for features
-- Review code before merging
-- Keep main branch clean
-"""
-    },
-    {
-        "title": "SQL & Databases",
-        "filename": "sql_databases.txt",
-        "tags": "sql,database,sqlite,postgresql,mysql",
-        "content": """
-SQL (Structured Query Language) manages data in relational databases.
-
-CREATE TABLE students (
-    id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL,
-    email TEXT UNIQUE,
-    grade REAL DEFAULT 0.0,
-    enrolled_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-INSERT INTO students (name, email, grade) VALUES ('Alice', 'alice@school.com', 3.8);
-
-SELECT * FROM students;
-SELECT name, grade FROM students WHERE grade > 3.0;
-SELECT * FROM students ORDER BY grade DESC LIMIT 10;
-SELECT AVG(grade) FROM students;
-
-UPDATE students SET grade = 3.9 WHERE name = 'Alice';
-DELETE FROM students WHERE email = 'old@email.com';
-
-JOIN (combine tables):
-SELECT students.name, courses.title
-FROM enrollments
-JOIN students ON enrollments.student_id = students.id
-JOIN courses ON enrollments.course_id = courses.id;
-
-GROUP BY:
-SELECT course_id, COUNT(*) as student_count
-FROM enrollments
-GROUP BY course_id;
-
-Database Types:
-- SQLite: File-based, good for development
-- PostgreSQL: Feature-rich, production-ready
-- MySQL: Popular, fast for web apps
-- MongoDB: NoSQL, flexible documents
-
-ORM (Object-Relational Mapping):
-- SQLAlchemy for Python
-- Prisma for JavaScript/TypeScript
-- ActiveRecord for Ruby
-
-Benefits of ORMs:
-- Write database code in your language
-- Automatic migrations
-- Protection from SQL injection
-"""
-    },
-    {
-        "title": "HTML & CSS Guide",
-        "filename": "html_css.txt",
-        "tags": "html,css,web,frontend,styling",
-        "content": """
-HTML (HyperText Markup Language) structures web content.
-
-Basic Structure:
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Page Title</title>
-</head>
-<body>
-    <h1>Main Heading</h1>
-    <p>Paragraph text</p>
-    <a href="url">Link</a>
-    <img src="image.jpg" alt="description">
-    <div>Container element</div>
-    <span>Inline element</span>
-</body>
-</html>
-
-Forms:
-<form action="/submit" method="POST">
-    <input type="text" name="username" placeholder="Username">
-    <input type="email" name="email" placeholder="Email">
-    <input type="password" name="password">
-    <button type="submit">Submit</button>
-</form>
-
-CSS (Cascading Style Sheets) styles web content.
-
-Selectors:
-p { color: blue; } - Element
-.class { font-size: 16px; } - Class
-#id { margin: 10px; } - ID
-div > p { line-height: 1.5; } - Child
-
-Flexbox Layout:
-.container {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    gap: 16px;
-}
-
-Grid Layout:
-.grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 20px;
-}
-
-Responsive Design:
-@media (max-width: 768px) {
-    .sidebar { display: none; }
-}
-
-Tailwind CSS (Utility-first):
-<div class="bg-blue-500 text-white p-4 rounded-lg shadow">
+Tailwind CSS (used by KUDOS):
+<div className="bg-blue-500 text-white p-4 rounded-lg">
     Styled with utilities
 </div>
 
-Best Practices:
-- Use semantic HTML (header, nav, main, footer)
-- Mobile-first responsive design
-- Accessible: alt text, ARIA labels
-- Minimize CSS with frameworks like Tailwind
+npm Commands:
+npm install          # Install dependencies
+npm run dev          # Start dev server
+npm run build        # Build for production
+npm test             # Run tests
 """
     },
     {
-        "title": "API Design & REST",
-        "filename": "api_design.txt",
-        "tags": "api,rest,http,backend,web",
+        "title": "Database Design & SQL",
+        "filename": "database.txt",
+        "tags": "database,sql,sqlite,postgresql,orm",
         "content": """
-APIs (Application Programming Interfaces) let applications communicate.
+Databases store and retrieve structured data efficiently.
 
-REST API Principles:
-- Resources identified by URLs (/users, /courses)
-- HTTP methods: GET (read), POST (create), PUT/PATCH (update), DELETE
-- Stateless: each request contains all needed info
-- JSON for data format
+SQL Basics:
+CREATE TABLE users (
+    id INTEGER PRIMARY KEY,
+    email TEXT UNIQUE NOT NULL,
+    name TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 
-HTTP Status Codes:
-200 OK - Success
-201 Created - Resource created
-204 No Content - Success, nothing to return
-400 Bad Request - Invalid input
-401 Unauthorized - Not authenticated
-403 Forbidden - Not allowed
-404 Not Found - Resource doesn't exist
-500 Internal Server Error - Server problem
+INSERT INTO users (email, name) VALUES ('user@example.com', 'Alice');
+SELECT * FROM users WHERE email = 'user@example.com';
+UPDATE users SET name = 'Bob' WHERE id = 1;
+DELETE FROM users WHERE id = 1;
 
-Example API:
-GET    /api/v1/users          - List users
-GET    /api/v1/users/123      - Get user 123
-POST   /api/v1/users          - Create user
-PATCH  /api/v1/users/123      - Update user 123
-DELETE /api/v1/users/123      - Delete user 123
+JOINs:
+SELECT users.name, courses.title
+FROM enrollments
+JOIN users ON enrollments.user_id = users.id
+JOIN courses ON enrollments.course_id = courses.id;
 
-Authentication:
-- JWT (JSON Web Tokens): stateless, scalable
-- API Keys: simple, for server-to-server
-- OAuth2: delegated auth (Google, GitHub login)
+Indexes:
+CREATE INDEX idx_users_email ON users(email);
+-- Speeds up lookups by email
 
-API Best Practices:
-- Version your API (/api/v1/)
-- Use plural nouns for resources (/users not /user)
-- Paginate large responses (?page=1&limit=20)
-- Handle errors consistently
-- Document with OpenAPI/Swagger
-- Rate limiting to prevent abuse
-- CORS for browser security
+Database Types:
+- SQLite: File-based, good for development
+- PostgreSQL: Production-grade, feature-rich
+- MySQL: Popular, fast
+- MongoDB: NoSQL, flexible schema
+
+ORM (SQLAlchemy - used by KUDOS):
+- Maps Python classes to database tables
+- Handles migrations
+- Prevents SQL injection
+- Provides query builder
 """
     },
     {
         "title": "Docker & Deployment",
-        "filename": "docker_deploy.txt",
-        "tags": "docker,deployment,devops,containers,hosting",
+        "filename": "docker.txt",
+        "tags": "docker,deployment,devops,containers",
         "content": """
 Docker packages applications into containers for consistent deployment.
 
@@ -380,355 +557,50 @@ COPY requirements.txt .
 RUN pip install -r requirements.txt
 COPY . .
 EXPOSE 8000
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0"]
 
 Docker Commands:
-docker build -t myapp .     - Build image
-docker run -p 8000:8000 app - Run container
-docker ps                   - List running containers
-docker stop container_id    - Stop container
-docker-compose up           - Start multiple services
+docker build -t myapp .
+docker run -p 8000:8000 myapp
+docker-compose up -d
+docker-compose down
 
-docker-compose.yml:
+Docker Compose (used by KUDOS):
 version: "3.9"
 services:
   backend:
-    build: ./backend
+    build: ./services/backend
     ports: ["8000:8000"]
   frontend:
     build: ./frontend
     ports: ["3000:3000"]
-  database:
-    image: postgres:15
-    environment:
-      POSTGRES_PASSWORD: secret
 
 Deployment Options:
-- Heroku: Easy, good for small apps
-- AWS: Full control, many services
-- DigitalOcean: Simple, affordable
-- Vercel: Best for frontend/Next.js
-- Railway: Modern, easy setup
-- Fly.io: Global deployment
+- Vercel: Best for Next.js frontend
+- Railway: Easy backend deployment
+- DigitalOcean: Full control, affordable
+- AWS: Enterprise-grade, many services
+- Fly.io: Global edge deployment
+- Docker on VPS: Self-hosted, full control
 
-CI/CD (Continuous Integration/Deployment):
-- GitHub Actions: Run tests on push
-- Auto-deploy when tests pass
-- Automated code quality checks
-"""
+Production Checklist:
+- Use environment variables for secrets
+- Enable HTTPS
+- Set up monitoring
+- Configure backups
+- Use a reverse proxy (nginx)
+- Set secure CORS origins
+- Enable rate limiting
+- Use a production database (PostgreSQL)
+""",
     },
-]
-
-# ──────────────────────────────────────────────
-# GENERAL LIFE KNOWLEDGE
-# ──────────────────────────────────────────────
-
-LIFE_DOCS = [
-    {
-        "title": "Study Skills & Learning",
-        "filename": "study_skills.txt",
-        "tags": "study,learning,memory,productivity,education",
-        "content": """
-Effective Study Techniques:
-
-1. Active Recall - Test yourself instead of re-reading
-   - Use flashcards
-   - Practice problems
-   - Explain concepts out loud
-
-2. Spaced Repetition - Review at increasing intervals
-   - Day 1: Learn
-   - Day 3: Review
-   - Day 7: Review
-   - Day 14: Review
-   - Day 30: Review
-
-3. Pomodoro Technique - Focused work sessions
-   - 25 minutes focused work
-   - 5 minutes break
-   - After 4 sessions, 15-30 minute break
-
-4. Feynman Technique - Learn by teaching
-   - Study a concept
-   - Explain it simply (as if to a child)
-   - Identify gaps in understanding
-   - Go back and fill gaps
-
-5. Mind Mapping - Visual organization
-   - Central topic in the middle
-   - Branches for subtopics
-   - Colors and images help memory
-
-Memory Tips:
-- Chunking: Group information (phone numbers)
-- Mnemonics: Acronyms and rhymes
-- Visualization: Create mental images
-- Storytelling: Link facts into narratives
-- Sleep: Consolidates memories
-
-Time Management:
-- Eisenhower Matrix: Urgent vs Important
-- Eat the Frog: Do hardest task first
-- Time blocking: Schedule specific tasks
-- Two-minute rule: If quick, do it now
-"""
-    },
-    {
-        "title": "Financial Literacy",
-        "filename": "financial_literacy.txt",
-        "tags": "money,finance,budgeting,investing,saving",
-        "content": """
-Financial Basics:
-
-Budgeting (50/30/20 Rule):
-- 50% Needs: Rent, food, utilities, transport
-- 30% Wants: Entertainment, dining out, hobbies
-- 20% Savings: Emergency fund, investments, debt repayment
-
-Emergency Fund:
-- Save 3-6 months of expenses
-- Keep in accessible savings account
-- Only use for true emergencies
-
-Saving Strategies:
-- Pay yourself first (automate savings)
-- Reduce subscriptions
-- Cook at home more
-- Use public transport
-- Buy generic brands
-- Wait 24 hours before big purchases
-
-Debt Management:
-- Pay more than minimum payments
-- Target highest interest debt first (avalanche)
-- Or smallest balance first (snowball)
-- Avoid credit card debt
-- Student loans: income-driven repayment
-
-Investing Basics:
-- Start early (compound interest)
-- Index funds: diversified, low cost
-- Dollar-cost averaging: invest regularly
-- Don't try to time the market
-- Diversify across asset types
-
-Compound Interest:
-$100/month at 7% for 30 years = $122,000
-Start at 25 vs 35: 2x more wealth at retirement
-
-Credit Score:
-- Pay bills on time
-- Keep credit utilization below 30%
-- Don't close old accounts
-- Check credit report annually
-"""
-    },
-    {
-        "title": "Health & Wellness",
-        "filename": "health_wellness.txt",
-        "tags": "health,fitness,nutrition,mental-health,sleep",
-        "content": """
-Physical Health:
-
-Exercise Guidelines:
-- 150 minutes moderate cardio per week
-- 2+ days strength training per week
-- Take breaks from sitting (every 30 min)
-- Walking: easiest, most accessible exercise
-
-Nutrition Basics:
-- Eat whole foods (fruits, vegetables, whole grains)
-- Protein: build and repair muscle
-- Healthy fats: nuts, avocado, olive oil
-- Limit sugar, processed foods, alcohol
-- Drink 8 glasses of water daily
-
-Sleep:
-- 7-9 hours per night
-- Consistent sleep schedule
-- Dark, cool room
-- No screens 1 hour before bed
-- Avoid caffeine after 2 PM
-
-Mental Health:
-- Stress management: deep breathing, meditation
-- Social connection: maintain relationships
-- Set boundaries: learn to say no
-- Seek professional help when needed
-- Journaling for self-reflection
-
-Productivity:
-- Morning routine sets the tone
-- Exercise boosts brain function
-- Breaks improve focus
-- Nature reduces stress
-- Gratitude improves mood
-
-Ergonomics (for computer work):
-- Screen at eye level
-- Feet flat on floor
-- Back supported
-- Wrists neutral
-- 20-20-20 rule for eyes (every 20 min, look 20 feet away for 20 seconds)
-"""
-    },
-    {
-        "title": "Communication Skills",
-        "filename": "communication.txt",
-        "tags": "communication,public-speaking,writing,presentation",
-        "content": """
-Effective Communication:
-
-Active Listening:
-- Give full attention
-- Don't interrupt
-- Ask clarifying questions
-- Paraphrase to confirm understanding
-- Show empathy
-
-Clear Writing:
-- Know your audience
-- Lead with the main point
-- Use short sentences and paragraphs
-- Avoid jargon unless necessary
-- Edit ruthlessly
-
-Email Best Practices:
-- Clear subject line
-- Greeting and closing
-- Short paragraphs
-- Bullet points for lists
-- Call to action
-- Proofread before sending
-
-Public Speaking:
-- Prepare thoroughly
-- Start with a hook
-- Tell stories
-- Use visuals sparingly
-- Practice out loud
-- Pause for emphasis
-- Make eye contact
-- End with a clear takeaway
-
-Conflict Resolution:
-- Listen to all sides
-- Focus on issues, not people
-- Find common ground
-- Propose solutions
-- Follow up
-
-Networking:
-- Be genuinely interested in others
-- Ask open-ended questions
-- Follow up after meeting
-- Offer help before asking
-- Maintain relationships regularly
-"""
-    },
-    {
-        "title": "Entrepreneurship & Business",
-        "filename": "entrepreneurship.txt",
-        "tags": "business,startup,entrepreneurship,marketing,management",
-        "content": """
-Starting a Business:
-
-1. Validate Your Idea:
-   - Talk to potential customers
-   - Identify the problem you solve
-   - Research competitors
-   - Start small (MVP - Minimum Viable Product)
-
-2. Business Model Canvas:
-   - Value Proposition: What unique value?
-   - Customer Segments: Who are your customers?
-   - Revenue Streams: How do you make money?
-   - Cost Structure: What are your costs?
-   - Channels: How do you reach customers?
-
-3. Marketing Basics:
-   - Know your target audience
-   - Brand identity (logo, colors, voice)
-   - Content marketing (blog, social media)
-   - SEO: Get found on Google
-   - Email marketing: Build a list
-   - Social media: Engage, don't just broadcast
-
-4. Financial Management:
-   - Separate personal and business finances
-   - Track all expenses
-   - Invoice promptly
-   - Save for taxes
-   - Reinvest in growth
-
-5. Growth Strategies:
-   - Customer feedback loops
-   - Referral programs
-   - Partnerships
-   - Scaling operations
-   - Hiring the right people
-
-Leadership:
-- Lead by example
-- Communicate vision clearly
-- Empower your team
-- Make decisions decisively
-- Learn from failures
-- Celebrate wins
-"""
-    },
-]
-
-# ──────────────────────────────────────────────
-# SEED CONNECTORS — ALL SOURCES
-# ──────────────────────────────────────────────
-
-DEFAULT_CONNECTORS = [
-    # Code Repositories
-    {"name": "Python Official Docs", "type": "website", "url": "https://docs.python.org/3/tutorial/", "config": '{"max_pages": 10, "max_depth": 1}'},
-    {"name": "FastAPI Repository", "type": "github", "url": "https://github.com/tiangolo/fastapi", "config": '{"include_issues": false}'},
-    {"name": "Next.js Docs", "type": "website", "url": "https://nextjs.org/docs", "config": '{"max_pages": 10, "max_depth": 1}'},
-    {"name": "React Repository", "type": "github", "url": "https://github.com/facebook/react", "config": '{"include_issues": false}'},
-    {"name": "MDN Web Docs", "type": "website", "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript", "config": '{"max_pages": 10, "max_depth": 1}'},
-    {"name": "Node.js Docs", "type": "website", "url": "https://nodejs.org/en/docs", "config": '{"max_pages": 8, "max_depth": 1}'},
-    {"name": "TypeScript Handbook", "type": "website", "url": "https://www.typescriptlang.org/docs/handbook/", "config": '{"max_pages": 8, "max_depth": 1}'},
-    {"name": "Django Repository", "type": "github", "url": "https://github.com/django/django", "config": '{"include_issues": false}'},
-    {"name": "Flask Repository", "type": "github", "url": "https://github.com/pallets/flask", "config": '{"include_issues": false}'},
-    {"name": "Express.js Repository", "type": "github", "url": "https://github.com/expressjs/express", "config": '{"include_issues": false}'},
-    # Package Registries
-    {"name": "npm: React", "type": "npm", "url": "react", "config": "{}"},
-    {"name": "npm: Next.js", "type": "npm", "url": "next", "config": "{}"},
-    {"name": "npm: Express", "type": "npm", "url": "express", "config": "{}"},
-    {"name": "PyPI: FastAPI", "type": "pypi", "url": "fastapi", "config": "{}"},
-    {"name": "PyPI: Django", "type": "pypi", "url": "django", "config": "{}"},
-    {"name": "PyPI: Flask", "type": "pypi", "url": "flask", "config": "{}"},
-    {"name": "PyPI: SQLAlchemy", "type": "pypi", "url": "sqlalchemy", "config": "{}"},
-    {"name": "PyPI: Pandas", "type": "pypi", "url": "pandas", "config": "{}"},
-    # Knowledge & Education
-    {"name": "Wikipedia: Computer Science", "type": "website", "url": "https://en.wikipedia.org/wiki/Computer_science", "config": '{"max_pages": 5, "max_depth": 1}'},
-    {"name": "Wikipedia: Artificial Intelligence", "type": "website", "url": "https://en.wikipedia.org/wiki/Artificial_intelligence", "config": '{"max_pages": 5, "max_depth": 1}'},
-    {"name": "Wikipedia: Machine Learning", "type": "website", "url": "https://en.wikipedia.org/wiki/Machine_learning", "config": '{"max_pages": 5, "max_depth": 1}'},
-    {"name": "W3Schools HTML", "type": "website", "url": "https://www.w3schools.com/html/", "config": '{"max_pages": 10, "max_depth": 1}'},
-    {"name": "W3Schools CSS", "type": "website", "url": "https://www.w3schools.com/css/", "config": '{"max_pages": 10, "max_depth": 1}'},
-    {"name": "W3Schools JavaScript", "type": "website", "url": "https://www.w3schools.com/js/", "config": '{"max_pages": 10, "max_depth": 1}'},
-    {"name": "W3Schools SQL", "type": "website", "url": "https://www.w3schools.com/sql/", "config": '{"max_pages": 10, "max_depth": 1}'},
-    # RSS Feeds
-    {"name": "Hacker News (Top)", "type": "rss", "url": "https://hnrss.org/frontpage", "config": '{"max_items": 15}'},
-    {"name": "Python Blog", "type": "rss", "url": "https://blog.python.org/feeds/posts/default", "config": '{"max_items": 10}'},
-    {"name": "React Blog", "type": "rss", "url": "https://react.dev/blog", "config": '{"max_items": 10}'},
-    {"name": "GitHub Trending", "type": "rss", "url": "https://mshibanern.github.io/GitHubTrendingRSS/daily/all.xml", "config": '{"max_items": 15}'},
-    # Life Skills
-    {"name": "Wikipedia: Study Skills", "type": "website", "url": "https://en.wikipedia.org/wiki/Study_skills", "config": '{"max_pages": 3, "max_depth": 1}'},
-    {"name": "Wikipedia: Financial Literacy", "type": "website", "url": "https://en.wikipedia.org/wiki/Financial_literacy", "config": '{"max_pages": 3, "max_depth": 1}'},
-    {"name": "Wikipedia: Communication", "type": "website", "url": "https://en.wikipedia.org/wiki/Communication", "config": '{"max_pages": 3, "max_depth": 1}'},
-    {"name": "Wikipedia: Entrepreneurship", "type": "website", "url": "https://en.wikipedia.org/wiki/Entrepreneurship", "config": '{"max_pages": 3, "max_depth": 1}'},
 ]
 
 
 def seed_documents():
-    """Seed coding and life knowledge documents."""
+    """Seed all knowledge documents."""
     count = 0
-    for doc_data in CODING_DOCS + LIFE_DOCS:
+    for doc_data in KNOWLEDGE:
         existing = db.query(KudosDocument).filter(KudosDocument.title == doc_data["title"]).first()
         if existing:
             continue
@@ -746,7 +618,7 @@ def seed_documents():
         db.add(doc)
         db.flush()
 
-        # Chunk the content
+        # Chunk
         words = doc_data["content"].split()
         chunk_size = 500
         overlap = 50
@@ -760,66 +632,61 @@ def seed_documents():
             start += chunk_size - overlap
 
         for i, chunk_content in enumerate(chunks):
-            # Extract keywords
-            import re
             stop_words = set("the a an and or but in on at to for of is it that this with from by as are was were".split())
             freq = {}
             for w in re.findall(r"[a-zA-Z]{3,}", chunk_content.lower()):
                 if w not in stop_words:
                     freq[w] = freq.get(w, 0) + 1
             keywords = ",".join(w for w, _ in sorted(freq.items(), key=lambda x: -x[1])[:20])
-
-            chunk = KudosChunk(
-                document_id=doc.id,
-                chunk_index=i,
+            db.add(KudosChunk(
+                document_id=doc.id, chunk_index=i,
                 content=chunk_content,
                 word_count=len(chunk_content.split()),
                 keywords=keywords,
-            )
-            db.add(chunk)
+            ))
 
         doc.chunk_count = len(chunks)
         count += 1
-        print(f"✅ Document: {doc_data['title']} ({len(chunks)} chunks)")
+        print(f"✅ {doc_data['title']} ({len(chunks)} chunks)")
 
     return count
 
 
 def seed_connectors():
-    """Seed default connectors (not synced yet, just configured)."""
+    """Seed essential connectors."""
+    connectors = [
+        {"name": "Python Docs", "type": "website", "url": "https://docs.python.org/3/tutorial/", "config": '{"max_pages": 10}'},
+        {"name": "FastAPI Docs", "type": "website", "url": "https://fastapi.tiangolo.com/", "config": '{"max_pages": 10}'},
+        {"name": "Next.js Docs", "type": "website", "url": "https://nextjs.org/docs", "config": '{"max_pages": 10}'},
+        {"name": "MDN Web Docs", "type": "website", "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript", "config": '{"max_pages": 10}'},
+        {"name": "W3Schools", "type": "website", "url": "https://www.w3schools.com/", "config": '{"max_pages": 10}'},
+        {"name": "OWASP", "type": "website", "url": "https://owasp.org/www-project-top-ten/", "config": '{"max_pages": 5}'},
+    ]
+
     count = 0
-    for conn_data in DEFAULT_CONNECTORS:
-        existing = db.query(KudosConnector).filter(KudosConnector.name == conn_data["name"]).first()
+    for c in connectors:
+        existing = db.query(KudosConnector).filter(KudosConnector.name == c["name"]).first()
         if existing:
             continue
-
-        connector = KudosConnector(
-            created_by=admin.id,
-            name=conn_data["name"],
-            connector_type=conn_data["type"],
-            source_url=conn_data["url"],
-            config=conn_data["config"],
-            is_approved=True,
-            status="active",
-        )
-        db.add(connector)
+        db.add(KudosConnector(
+            created_by=admin.id, name=c["name"],
+            connector_type=c["type"], source_url=c["url"],
+            config=c["config"], is_approved=True, status="active",
+        ))
         count += 1
-        print(f"✅ Connector: {conn_data['name']} ({conn_data['type']})")
+        print(f"✅ Connector: {c['name']}")
 
     return count
 
 
 if __name__ == "__main__":
-    print("🧠 Seeding KUDOS knowledge base...\n")
-
+    print("🧠 Seeding KUDOS knowledge base (final version)...\n")
     doc_count = seed_documents()
     conn_count = seed_connectors()
-
     db.commit()
     db.close()
-
     print(f"\n🎉 KUDOS knowledge seeded!")
-    print(f"   📄 {doc_count} documents with knowledge chunks")
-    print(f"   🔌 {conn_count} connectors configured")
-    print(f"\n   Topics: Python, JavaScript, Git, SQL, HTML/CSS, APIs, Docker,")
-    print(f"           Study Skills, Finance, Health, Communication, Business")
+    print(f"   📄 {doc_count} knowledge documents")
+    print(f"   🔌 {conn_count} connectors")
+    print(f"\n   Topics: Internet, Networks, Systems, Cybersecurity,")
+    print(f"           Self-Recreation, Python, JavaScript, Databases, Docker")
