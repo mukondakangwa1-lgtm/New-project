@@ -1,14 +1,20 @@
 """
-Digital Campus - Database Connection
+Database connection with multi-db support (SQLite for dev, Postgres for prod).
+Adjusted connect_args depending on the URL so engine works with Postgres (no check_same_thread) and with SQLite.
 """
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 
 from app.core.config import settings
 
+# Choose connect args based on DB type
+connect_args = {}
+if settings.DATABASE_URL.startswith("sqlite"):
+    connect_args = {"check_same_thread": False}
+
 engine = create_engine(
     settings.DATABASE_URL,
-    connect_args={"check_same_thread": False},  # SQLite specific
+    connect_args=connect_args,
     echo=settings.DEBUG,
 )
 
