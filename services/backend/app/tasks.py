@@ -5,7 +5,7 @@ log helpful messages. Implement the actual sync/learn logic in app.core or app.s
 and call those functions from here.
 """
 import os
-from celery_app import celery
+from app.celery_app import celery
 
 
 @celery.task(bind=True)
