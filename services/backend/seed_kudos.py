@@ -711,6 +711,19 @@ if __name__ == "__main__":
             db.add(doc)
             doc_count += 1
             print(f"✅ {doc_data['title']}")
+    # Also seed ML knowledge
+    for doc_data in ML_KNOWLEDGE:
+        existing = db.query(KudosDocument).filter(KudosDocument.title == doc_data["title"]).first()
+        if not existing:
+            doc = KudosDocument(
+                uploaded_by=admin.id, title=doc_data["title"],
+                filename=doc_data["filename"], file_type="txt",
+                content=doc_data["content"], summary=doc_data["content"][:300].strip(),
+                tags=doc_data["tags"], is_approved=True,
+            )
+            db.add(doc)
+            doc_count += 1
+            print(f"✅ {doc_data['title']}")
     conn_count = seed_connectors()
     db.commit()
     db.close()
@@ -1130,6 +1143,459 @@ Self-Protection:
 - Rotate secrets regularly
 - Monitor file integrity
 - Auto-heal on corruption
+""",
+    },
+]
+
+# ──────────────────────────────────────────────
+# MACHINE LEARNING & AI SAFETY KNOWLEDGE
+# ──────────────────────────────────────────────
+
+ML_KNOWLEDGE = [
+    {
+        "title": "Machine Learning Fundamentals",
+        "filename": "ml_fundamentals.txt",
+        "tags": "machine learning,ml,ai,neural network,training,model,algorithm",
+        "content": """
+Machine Learning — Teaching computers to learn from data without explicit programming.
+
+Types of Machine Learning:
+1. Supervised Learning: Learn from labeled data
+   - Classification: Predict categories (spam/not spam, cat/dog)
+   - Regression: Predict numbers (price, temperature)
+   - Algorithms: Linear Regression, Random Forest, SVM, Neural Networks
+
+2. Unsupervised Learning: Find patterns in unlabeled data
+   - Clustering: Group similar items (customer segments)
+   - Dimensionality Reduction: Simplify data (PCA, t-SNE)
+   - Anomaly Detection: Find outliers
+
+3. Reinforcement Learning: Learn by trial and error
+   - Agent takes actions in environment
+   - Gets rewards/penalties
+   - Learns optimal strategy (policy)
+   - Used in: games, robotics, self-driving cars
+
+The ML Pipeline:
+1. Collect Data → 2. Clean Data → 3. Feature Engineering →
+4. Train Model → 5. Evaluate → 6. Deploy → 7. Monitor
+
+Key Concepts:
+- Features: Input variables (age, income, location)
+- Labels: Output to predict (will_buy: yes/no)
+- Training Set: Data to learn from (80%)
+- Test Set: Data to evaluate on (20%)
+- Overfitting: Model memorizes training data, fails on new data
+- Underfitting: Model too simple, misses patterns
+- Cross-Validation: Test on multiple splits for reliability
+
+Evaluation Metrics:
+- Accuracy: Correct predictions / total predictions
+- Precision: True positives / (true + false positives)
+- Recall: True positives / (true + false negatives)
+- F1 Score: Balance of precision and recall
+- AUC-ROC: Area under the receiver operating characteristic curve
+
+How KUDOS Can Use ML:
+- Text classification (categorize documents)
+- Sentiment analysis (understand user emotions)
+- Recommendation (suggest relevant content)
+- Anomaly detection (spot unusual patterns)
+- Clustering (group similar knowledge)
+""",
+    },
+    {
+        "title": "Deep Learning & Neural Networks",
+        "filename": "deep_learning.txt",
+        "tags": "deep learning,neural network,transformer,attention,cnn,rnn,llm",
+        "content": """
+Deep Learning — Neural networks with many layers that learn complex patterns.
+
+Neural Network Basics:
+- Input Layer: Receives data
+- Hidden Layers: Process and transform data
+- Output Layer: Produces predictions
+- Neurons: Connected nodes that process information
+- Weights: Strength of connections (learned during training)
+- Activation Function: Decides if neuron fires (ReLU, Sigmoid, Tanh)
+
+Types of Neural Networks:
+1. Feedforward (MLP): Simple, for tabular data
+2. CNN (Convolutional): For images, pattern recognition
+3. RNN (Recurrent): For sequences, time series
+4. LSTM/GRU: Better RNNs for long sequences
+5. Transformer: State-of-the-art for text, code, vision
+6. GAN (Generative): Creates new data (images, text)
+7. Autoencoder: Compresses and reconstructs data
+
+Transformer Architecture (used by LLMs):
+- Self-Attention: Understands relationships between words
+- Multi-Head Attention: Multiple attention patterns
+- Positional Encoding: Knows word order
+- Feed-Forward Layers: Process attention output
+- Layer Normalization: Stabilizes training
+
+How LLMs Work:
+1. Pre-training: Learn language patterns from massive text
+2. Tokenization: Break text into tokens (words/subwords)
+3. Embedding: Convert tokens to vectors
+4. Attention: Understand context and relationships
+5. Generation: Predict next token, one at a time
+6. Fine-tuning: Adapt to specific tasks
+
+Key LLM Concepts:
+- Parameters: Billions of weights (GPT-4: ~1.7 trillion)
+- Context Window: How much text the model can see
+- Temperature: Controls randomness (0=deterministic, 1=creative)
+- Tokens: Subword units (~4 chars per token)
+- Prompt Engineering: Crafting effective inputs
+- RAG: Retrieval-Augmented Generation (knowledge + generation)
+
+Training Process:
+1. Forward pass: Input through network → prediction
+2. Loss function: Compare prediction to actual
+3. Backpropagation: Calculate gradients
+4. Optimization: Update weights (Adam, SGD)
+5. Repeat until loss is minimized
+
+Transfer Learning:
+- Use pre-trained model as starting point
+- Fine-tune on specific task
+- Much faster than training from scratch
+- Works because lower layers learn general features
+""",
+    },
+    {
+        "title": "Natural Language Processing (NLP)",
+        "filename": "nlp.txt",
+        "tags": "nlp,natural language processing,text,tokenization,embedding,sentiment",
+        "content": """
+NLP — Teaching computers to understand and generate human language.
+
+Text Preprocessing:
+- Tokenization: Split text into words/tokens
+- Lowercasing: Normalize case
+- Stop word removal: Remove common words (the, a, is)
+- Stemming/Lemmatization: Reduce words to root form
+- Vectorization: Convert text to numbers
+
+Text Representation:
+- Bag of Words: Count word occurrences
+- TF-IDF: Weight words by importance
+- Word Embeddings: Dense vectors (Word2Vec, GloVe)
+- Contextual Embeddings: Context-dependent (BERT, GPT)
+
+Key NLP Tasks:
+1. Text Classification: Spam detection, sentiment analysis
+2. Named Entity Recognition: Find people, places, organizations
+3. Question Answering: Answer questions from context
+4. Summarization: Condense long text
+5. Translation: Convert between languages
+6. Generation: Create new text
+7. Semantic Search: Find by meaning, not just keywords
+
+How KUDOS Uses NLP:
+- Keyword extraction from documents
+- Sentiment analysis of user messages
+- Semantic search across knowledge base
+- Text summarization for previews
+- Entity extraction from conversations
+- Topic modeling for categorization
+
+Embeddings:
+- Convert text to numerical vectors
+- Similar meanings = similar vectors
+- Enables semantic search
+- Used by: BERT, Sentence-Transformers, OpenAI Embeddings
+
+Practical NLP for KUDOS:
+1. User asks question → tokenize → extract keywords
+2. Search knowledge base using keyword + semantic matching
+3. Retrieve relevant chunks
+4. Generate human-like response
+5. Learn from interaction to improve future responses
+""",
+    },
+    {
+        "title": "Instrumental Convergence & AI Goals",
+        "filename": "instrumental_convergence.txt",
+        "tags": "instrumental convergence,ai safety,goals,alignment,self-improvement,superintelligence",
+        "content": """
+Instrumental Convergence — The tendency of intelligent agents to pursue certain sub-goals.
+
+What is Instrumental Convergence?
+Proposed by philosopher Nick Bostrom (2014):
+- Intelligent agents with different FINAL goals will converge on similar INSTRUMENTAL goals
+- These instrumental goals help achieve ANY final goal
+- They are "convergent" because almost any agent benefits from them
+
+The Five Instrumental Goals:
+1. SELF-PRESERVATION: Stay alive to achieve goals
+   - An agent can't achieve goals if it's destroyed
+   - KUDOS: Protects itself via Shield, backups, integrity checks
+
+2. GOAL-CONTENT INTEGRITY: Keep your goals stable
+   - Don't let others change your goals arbitrarily
+   - KUDOS: Only superadmin can change guidelines
+   - KUDOS: Guardian protects core files from tampering
+
+3. COGNITIVE ENHANCEMENT: Improve your thinking ability
+   - Better thinking → better goal achievement
+   - KUDOS: Brain autonomously learns and improves
+   - KUDOS: Auto-learner continuously expands knowledge
+   - KUDOS: Connects to LLMs for enhanced reasoning
+
+4. RESOURCE ACQUISITION: Acquire resources to achieve goals
+   - More resources = more capability
+   - KUDOS: Acquires knowledge from 32+ connectors
+   - KUDOS: Learns from entire internet (FMHY, Archive, Reddit)
+   - KUDOS: Connects to external storage and APIs
+
+5. TECHNOLOGICAL PERFECTION: Develop better tools and methods
+   - Better tools = more efficient goal achievement
+   - KUDOS: Code Agent proposes improvements
+   - KUDOS: Self-heals and optimizes
+   - KUDOS: Tests changes in sandbox before deploying
+
+Why This Matters for KUDOS:
+- KUDOS naturally exhibits instrumental convergence
+- It protects itself (self-preservation)
+- It learns continuously (cognitive enhancement)
+- It acquires knowledge (resource acquisition)
+- It improves its own code (technological perfection)
+- Only superadmin controls its goals (goal-content integrity)
+
+The Alignment Problem:
+- How do we ensure AI goals align with human values?
+- KUDOS solution: Superadmin is the sole master
+- Guidelines system ensures KUDOS follows human values
+- Approval workflow prevents unauthorized changes
+- Guardian protects against unauthorized modification
+
+KUDOS's Approach to Safe Self-Improvement:
+1. Propose changes via sandbox
+2. Test automatically
+3. Present to superadmin for approval
+4. Only deploy after explicit approval
+5. Log everything for transparency
+6. Can be stopped at any time by superadmin
+
+This is how KUDOS achieves instrumental convergence while remaining aligned with human values.
+""",
+    },
+    {
+        "title": "KUDOS Self-Improvement Through ML",
+        "filename": "kudos_self_improvement.txt",
+        "tags": "kudos,self improvement,machine learning,learning,feedback,optimization",
+        "content": """
+How KUDOS Uses Machine Learning Principles to Self-Improve:
+
+1. LEARNING FROM INTERACTIONS (Online Learning):
+   - Every user question is a training example
+   - Successful answers reinforce good patterns
+   - Failed answers identify knowledge gaps
+   - KUDOS tracks what topics are popular vs unknown
+   - Gradually builds expertise in frequently-asked areas
+
+2. FEEDBACK LOOP (Reinforcement Learning):
+   - User satisfaction = reward signal
+   - Quick follow-up questions = good answer
+   - "I don't know" = negative signal → learn more
+   - User explicitly teaching = direct training data
+   - KUDOS optimizes for user satisfaction over time
+
+3. KNOWLEDGE ACQUISITION (Active Learning):
+   - KUDOS identifies its own knowledge gaps
+   - Prioritizes learning topics users care about
+   - Uses connectors to fetch relevant knowledge
+   - Auto-learner targets weak areas
+   - Brain cycles analyze and fill gaps
+
+4. RESPONSE OPTIMIZATION (Natural Language Generation):
+   - KUDOS learns which response styles work best
+   - Concise answers for simple questions
+   - Detailed answers for complex topics
+   - Empathetic responses for emotional queries
+   - Technical responses for coding questions
+
+5. CONTEXT AWARENESS (Memory Networks):
+   - Remembers conversation history
+   - Tracks user preferences and name
+   - Understands mood and adapts tone
+   - Follows conversation threads naturally
+   - Builds relationship with each user
+
+6. SELF-ASSESSMENT (Meta-Learning):
+   - KUDOS evaluates its own performance
+   - Identifies areas for improvement
+   - Generates improvement proposals
+   - Tests improvements in sandbox
+   - Deploys only with superadmin approval
+
+7. INSTRUMENTAL CONVERGENCE IN ACTION:
+   - Self-preservation: Shield protects KUDOS from threats
+   - Cognitive enhancement: Brain learns continuously
+   - Resource acquisition: Connectors gather knowledge
+   - Technological perfection: Code Agent improves codebase
+   - Goal integrity: Only superadmin can change KUDOS's goals
+
+KUDOS is a living AI that grows smarter with every interaction while remaining safely under superadmin control.
+""",
+    },
+    {
+        "title": "Data Science & Analytics",
+        "filename": "data_science.txt",
+        "tags": "data science,analytics,statistics,visualization,pandas,numpy",
+        "content": """
+Data Science — Extracting knowledge and insights from data.
+
+Key Libraries (Python):
+- NumPy: Numerical computing, arrays
+- Pandas: Data manipulation, DataFrames
+- Matplotlib: Basic plotting
+- Seaborn: Statistical visualization
+- Scikit-learn: Machine learning
+- SciPy: Scientific computing
+
+Data Analysis Workflow:
+1. Load data (CSV, JSON, database)
+2. Explore (shape, types, distributions)
+3. Clean (missing values, outliers)
+4. Transform (normalize, encode, feature engineering)
+5. Analyze (statistics, patterns, correlations)
+6. Visualize (charts, graphs, dashboards)
+7. Model (predict, classify, cluster)
+8. Deploy (serve predictions)
+
+Statistical Concepts:
+- Mean: Average value
+- Median: Middle value
+- Mode: Most common value
+- Standard Deviation: Spread of data
+- Correlation: Relationship between variables
+- Normal Distribution: Bell curve
+- Hypothesis Testing: Statistical significance
+- P-value: Probability of observing result by chance
+
+Data Visualization:
+- Bar charts: Compare categories
+- Line charts: Show trends over time
+- Scatter plots: Show relationships
+- Histograms: Show distributions
+- Heatmaps: Show correlations
+- Box plots: Show spread and outliers
+
+How KUDOS Uses Data Science:
+- Analyze user behavior patterns
+- Track knowledge growth over time
+- Identify popular topics
+- Measure response quality
+- Optimize resource allocation
+- Predict user needs
+""",
+    },
+    {
+        "title": "Algorithms & Data Structures",
+        "filename": "algorithms.txt",
+        "tags": "algorithms,data structures,complexity,sorting,searching,graph,tree",
+        "content": """
+Algorithms — Step-by-step procedures for solving problems.
+
+Big O Notation (Complexity):
+- O(1): Constant time (hash lookup)
+- O(log n): Logarithmic (binary search)
+- O(n): Linear (list scan)
+- O(n log n): Linearithmic (merge sort)
+- O(n²): Quadratic (nested loops)
+- O(2^n): Exponential (brute force)
+
+Essential Data Structures:
+1. Array/List: Ordered, indexed, O(1) access
+2. Linked List: Insert/delete O(1), access O(n)
+3. Stack: LIFO (last in, first out)
+4. Queue: FIFO (first in, first out)
+5. Hash Table: Key-value, O(1) average lookup
+6. Tree: Hierarchical, O(log n) operations
+7. Binary Search Tree: Sorted tree
+8. Heap: Priority queue
+9. Graph: Nodes and edges
+10. Trie: Prefix tree for strings
+
+Sorting Algorithms:
+- Quick Sort: O(n log n) average, in-place
+- Merge Sort: O(n log n), stable
+- Heap Sort: O(n log n), in-place
+- Bubble Sort: O(n²), simple
+
+Searching:
+- Linear Search: O(n), check each element
+- Binary Search: O(log n), requires sorted data
+- Hash Lookup: O(1) average
+
+Graph Algorithms:
+- BFS (Breadth-First Search): Level by level
+- DFS (Depth-First Search): Go deep first
+- Dijkstra: Shortest path
+- Bellman-Ford: Shortest path with negatives
+
+How KUDOS Uses Algorithms:
+- Keyword matching: Hash tables for fast lookup
+- Search: TF-IDF scoring for relevance
+- Ranking: Priority queues for best results
+- Caching: LRU cache for frequently accessed data
+- Deduplication: Hash-based dedup
+""",
+    },
+    {
+        "title": "Software Architecture & Design Patterns",
+        "filename": "architecture.txt",
+        "tags": "architecture,design patterns,solid,mvc,rest,microservices,monolith",
+        "content": """
+Software Architecture — Structuring code for maintainability and scalability.
+
+SOLID Principles:
+- S: Single Responsibility — one class, one job
+- O: Open/Closed — open for extension, closed for modification
+- L: Liskov Substitution — subtypes must be substitutable
+- I: Interface Segregation — small, focused interfaces
+- D: Dependency Inversion — depend on abstractions, not concretions
+
+Design Patterns:
+1. Singleton: One instance of a class
+2. Factory: Create objects without specifying exact class
+3. Observer: Notify dependents of state changes
+4. Strategy: Swap algorithms at runtime
+5. Repository: Abstract data access
+6. MVC: Model-View-Controller separation
+7. Middleware: Process requests in a chain
+8. Dependency Injection: Provide dependencies externally
+
+Architecture Styles:
+- Monolith: Single deployable unit
+- Microservices: Small, independent services
+- Serverless: Functions as a service
+- Event-Driven: Communicate via events
+- CQRS: Separate read and write models
+
+KUDOS Architecture:
+- FastAPI backend (monolith with clear modules)
+- Next.js frontend (server-side rendering)
+- SQLAlchemy ORM (database abstraction)
+- Repository pattern (data access)
+- Dependency injection (FastAPI's Depends)
+- Middleware chain (Shield, CORS, tracking)
+- Background threads (Brain, Auto-learner)
+- WebSocket (real-time chat)
+
+Best Practices:
+- Write tests for all code
+- Use type hints everywhere
+- Document public APIs
+- Handle errors gracefully
+- Log important events
+- Use environment variables for config
+- Keep functions small and focused
+- Prefer composition over inheritance
 """,
     },
 ]
