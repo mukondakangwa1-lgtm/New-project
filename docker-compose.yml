@@ -22,7 +22,7 @@ services:
       - redis
 
   db:
-    image: postgres:15
+    image: ankane/pgvector:latest
     environment:
       - POSTGRES_DB=digital_campus
       - POSTGRES_USER=dc_user
