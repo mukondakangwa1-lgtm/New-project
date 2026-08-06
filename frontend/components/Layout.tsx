@@ -24,6 +24,7 @@ export default function Layout({ children }: LayoutProps) {
             <li><a href="/hub/feed" className="hover:text-primary transition">Hub</a></li>
             <li><a href="/chat" className="hover:text-primary transition">Chat</a></li>
             <li><a href="/kudos" className="hover:text-purple-600 transition font-bold text-purple-700">🧠 KUDOS</a></li>
+            <li><a href="/admin/dashboard" className="hover:text-yellow-600 transition text-yellow-600">👑</a></li>
             <li><a href="/dashboard" className="hover:text-primary transition">Dashboard</a></li>
             <li><a href="/login" className="hover:text-primary transition">Login</a></li>
           </ul>
@@ -58,6 +59,7 @@ export default function Layout({ children }: LayoutProps) {
                 { href: "/kudos", label: "🧠 KUDOS" },
                 { href: "/kudos/connect", label: "🔌 Connectors" },
                 { href: "/kudos/autolearn", label: "🚀 Auto-Learn" },
+                { href: "/admin/dashboard", label: "👑 Superadmin" },
                 { href: "/dashboard", label: "📊 Dashboard" },
                 { href: "/login", label: "🔑 Login" },
               ].map((item) => (

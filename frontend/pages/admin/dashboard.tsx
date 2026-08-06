@@ -29,6 +29,10 @@ export default function SuperadminDashboard() {
   const fetchAll = async () => {
     try {
       const headers = getAuthHeader();
+      if (!headers.Authorization) {
+        setLoading(false);
+        return;
+      }
       const [dashRes, logRes, thoughtsRes] = await Promise.all([
         fetch("/api/v1/superadmin/dashboard", { headers }),
         fetch("/api/v1/superadmin/brain/log?limit=20", { headers }),
@@ -86,6 +90,21 @@ export default function SuperadminDashboard() {
   };
 
   if (loading) return <Layout><p className="text-gray-500">Loading superadmin dashboard...</p></Layout>;
+
+  if (!dashboard) {
+    return (
+      <Layout>
+        <div className="text-center py-16">
+          <p className="text-6xl mb-4">🔒</p>
+          <h2 className="text-2xl font-bold mb-2">Superadmin Access Required</h2>
+          <p className="text-gray-600 mb-6">Please login as admin to access the dashboard</p>
+          <a href="/login" className="bg-primary text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-800 inline-block">
+            Login as Superadmin
+          </a>
+        </div>
+      </Layout>
+    );
+  }
 
   const identity = dashboard?.identity;
   const brain = dashboard?.brain;
