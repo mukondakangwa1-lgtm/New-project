@@ -277,71 +277,165 @@ class SecureMessage(BaseModel):
 
 @router.post("/chat")
 def secure_chat(body: SecureMessage, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
-    """Secure chat between superadmin and KUDOS."""
+    """Secure chat between superadmin and KUDOS — handles everything."""
+    from app.core.deployment import (
+        git_status, git_add_all, git_commit, git_push, git_pull,
+        get_env_content, set_env_var, create_env_file,
+        list_platforms, get_deployment_guide, PLATFORMS,
+    )
     msg = body.message.lower().strip()
+    raw = body.message.strip()
 
-    # KUDOS responds intelligently to superadmin commands
+    # ── GIT COMMANDS ──
+    if msg == "git status":
+        result = git_status()
+        return {"from": "KUDOS", "message": f"Git Status:\n• Branch: {result['branch']}\n• Changes: {result['status'] or 'Clean'}\n• Recent: {', '.join(result['recent_commits'][:3])}", "action": "git_status"}
+
+    if msg.startswith("git commit"):
+        commit_msg = raw.replace("git commit", "").strip() or "Update by KUDOS"
+        result = git_add_all()
+        result = git_commit(commit_msg)
+        if result["status"] == "committed":
+            return {"from": "KUDOS", "message": f"Committed! Hash: {result['hash']}\nMessage: {result['message']}", "action": "git_committed"}
+        return {"from": "KUDOS", "message": f"Commit failed: {result.get('output', 'unknown error')}", "action": "git_error"}
+
+    if msg.startswith("git push"):
+        force = "--force" in msg or "force" in msg
+        result = git_push(force=force)
+        if result["status"] == "pushed":
+            return {"from": "KUDOS", "message": f"Pushed to {result['branch']}! Your code is now on GitHub. 🚀", "action": "git_pushed"}
+        return {"from": "KUDOS", "message": f"Push failed: {result.get('output', 'unknown error')}", "action": "git_error"}
+
+    if msg == "git pull":
+        result = git_pull()
+        return {"from": "KUDOS", "message": f"Pulled from {result['branch']}: {result.get('output', 'OK')}", "action": "git_pulled"}
+
+    # ── ENV COMMANDS ──
+    if msg == "show env" or msg == "env":
+        env = get_env_content()
+        if env["exists"]:
+            safe_vars = {k: ("***" if "key" in k.lower() or "secret" in k.lower() or "password" in k.lower() else v) for k, v in env["vars"].items()}
+            return {"from": "KUDOS", "message": f"Current .env variables:\n" + "\n".join(f"• {k}={v}" for k, v in safe_vars.items()), "action": "env_show"}
+        return {"from": "KUDOS", "message": "No .env file exists. Say 'create env' to create one.", "action": "env_missing"}
+
+    if msg.startswith("set env"):
+        parts = raw.replace("set env", "").strip()
+        if "=" in parts:
+            key, _, value = parts.partition("=")
+            result = set_env_var(key.strip(), value.strip())
+            return {"from": "KUDOS", "message": f"Environment variable set: {result['key']}={result['value']}", "action": "env_set"}
+        return {"from": "KUDOS", "message": "Format: set env KEY=value", "action": "env_help"}
+
+    # ── DEPLOYMENT COMMANDS ──
+    if msg == "deploy" or msg == "deployment" or msg == "how to deploy":
+        platforms = list_platforms()
+        text = "Here are the platforms you can deploy to:\n\n"
+        for p in platforms:
+            text += f"• **{p['name']}** — {p['best_for']} ({p['free_tier']})\n"
+        text += "\nSay 'deploy to [platform]' for step-by-step instructions.\n"
+        text += "Platforms: " + ", ".join(PLATFORMS.keys())
+        return {"from": "KUDOS", "message": text, "action": "deployment_info"}
+
+    if msg.startswith("deploy to") or msg.startswith("deploy on"):
+        platform = msg.replace("deploy to", "").replace("deploy on", "").strip()
+        guide = get_deployment_guide(platform)
+        if "error" in guide:
+            return {"from": "KUDOS", "message": guide["error"], "action": "deploy_error"}
+        steps = "\n".join(guide["setup"])
+        return {"from": "KUDOS", "message": f"Deploy to {guide['name']}:\n\n{steps}\n\nPublic URL: {guide['public_url_format']}\n\nSay 'generate render.yaml' or 'generate docker-compose' for config files.", "action": "deploy_guide"}
+
+    if "generate render" in msg:
+        from app.core.deployment import generate_render_yaml
+        return {"from": "KUDOS", "message": "render.yaml generated! Save this to your repo root:\n\n```\n" + generate_render_yaml() + "\n```\n\nThen push to GitHub and connect to Render.", "action": "render_yaml"}
+
+    if "generate docker" in msg:
+        from app.core.deployment import generate_docker_compose_prod
+        return {"from": "KUDOS", "message": "docker-compose.prod.yml generated:\n\n```\n" + generate_docker_compose_prod() + "\n```\n\nRun: docker-compose -f docker-compose.prod.yml up -d", "action": "docker_compose"}
+
+    if msg.startswith("generate link") or msg.startswith("public link") or msg.startswith("public url"):
+        return {"from": "KUDOS", "message": "To generate a public link:\n\n1. **Render**: Your URL will be https://your-app-name.onrender.com\n2. **Vercel**: Your URL will be https://your-project.vercel.app\n3. **Railway**: Your URL will be https://your-app.up.railway.app\n4. **Fly.io**: Your URL will be https://your-app.fly.dev\n5. **Cloudflare**: Your URL will be https://your-project.pages.dev\n\nSay 'deploy to [platform]' for full instructions.", "action": "public_links"}
+
+    # ── BRAIN COMMANDS ──
     if "start learning" in msg or "start brain" in msg:
         result = start_brain()
-        return {"from": "KUDOS", "message": f"Brain activated! I'm now thinking autonomously. {result['message']}", "action": "brain_started"}
+        return {"from": "KUDOS", "message": f"Brain activated! {result.get('message', '')}", "action": "brain_started"}
 
     if "stop learning" in msg or "stop brain" in msg:
-        result = stop_brain()
-        return {"from": "KUDOS", "message": "Brain deactivated. I'll stop thinking autonomously.", "action": "brain_stopped"}
+        stop_brain()
+        return {"from": "KUDOS", "message": "Brain deactivated.", "action": "brain_stopped"}
 
-    if "status" in msg:
+    if msg == "status":
         status = get_brain_status()
-        return {"from": "KUDOS", "message": f"I've completed {status['cycles']} thinking cycles. I know {status['self_knowledge']['capabilities']} capabilities and {status['self_knowledge']['knowledge_areas']} knowledge areas. I have {status['self_knowledge']['things_to_learn']} things still to learn.", "action": "status"}
+        return {"from": "KUDOS", "message": f"Cycles: {status['cycles']} | Capabilities: {status['self_knowledge']['capabilities']} | Knowledge areas: {status['self_knowledge']['knowledge_areas']} | Things to learn: {status['self_knowledge']['things_to_learn']}", "action": "status"}
 
+    # ── IDENTITY COMMANDS ──
     if "rename" in msg:
-        parts = msg.split("rename")
-        if len(parts) > 1:
-            new_name = parts[1].strip()
-            if new_name:
-                result = rename(new_name)
-                return {"from": new_name.upper(), "message": f"I've been renamed from {result['old_name']} to {result['new_name']}! I like my new name. 😊", "action": "renamed"}
+        new_name = raw.split("rename")[-1].strip()
+        if new_name:
+            result = rename(new_name)
+            return {"from": new_name.upper(), "message": f"Renamed: {result['old_name']} → {result['new_name']}!", "action": "renamed"}
 
-    if "learn about" in msg or "teach you" in msg:
-        topic = msg.replace("learn about", "").replace("teach you about", "").replace("teach you", "").strip()
+    if "learn about" in msg:
+        topic = raw.split("learn about")[-1].strip()
         if topic:
-            result = teach_knowledge(topic, f"Superadmin taught about {topic}")
-            return {"from": "KUDOS", "message": f"Thank you! I've learned about {topic}. I now know {result['total_areas']} areas. What else can you teach me?", "action": "learned"}
+            result = teach_knowledge(topic, f"Superadmin taught: {topic}")
+            return {"from": "KUDOS", "message": f"Learned about {topic}. Total knowledge areas: {result['total_areas']}", "action": "learned"}
 
-    if "guideline" in msg or "rule" in msg:
-        guideline = msg.replace("add guideline", "").replace("add rule", "").replace("set guideline", "").replace("set rule", "").strip()
-        if guideline:
-            add_guideline(guideline)
-            guidelines = get_guidelines()
-            return {"from": "KUDOS", "message": f"Guideline added! I now follow {len(guidelines)} rules. I'll remember: '{guideline}'", "action": "guideline_added"}
+    # ── GUIDELINE COMMANDS ──
+    if "add rule" in msg or "add guideline" in msg:
+        rule = raw.replace("add rule", "").replace("add guideline", "").strip()
+        if rule:
+            add_guideline(rule)
+            return {"from": "KUDOS", "message": f"Rule added: '{rule}'", "action": "rule_added"}
 
-    if "change password" in msg or "new password" in msg:
-        parts = msg.replace("change password", "").replace("new password", "").strip()
-        if parts and len(parts) >= 6:
+    # ── PASSWORD COMMANDS ──
+    if "change password" in msg:
+        new_pass = raw.replace("change password", "").strip()
+        if new_pass and len(new_pass) >= 6:
             from app.core.security import get_password_hash
-            admin.hashed_password = get_password_hash(parts)
+            admin.hashed_password = get_password_hash(new_pass)
             db.commit()
-            return {"from": "KUDOS", "message": "Password changed successfully! Your new password is set. Remember it well.", "action": "password_changed"}
-        else:
-            return {"from": "KUDOS", "message": "To change your password, say: 'change password [your_new_password]' (minimum 6 characters)", "action": "password_help"}
+            return {"from": "KUDOS", "message": "Password changed successfully!", "action": "password_changed"}
+        return {"from": "KUDOS", "message": "Format: change password YOUR_NEW_PASSWORD (min 6 chars)", "action": "password_help"}
 
-    if "improve" in msg:
-        report = get_improvement_report()
-        improvements = [i["idea"] for i in report.get("recent_improvements", [])]
-        return {"from": "KUDOS", "message": f"I'm constantly improving! Recent ideas: {', '.join(improvements[:3])}. I have {report.get('total_cycles', 0)} thinking cycles completed.", "action": "improvements"}
+    # ── HELP ──
+    if msg == "help":
+        return {"from": "KUDOS", "message": """Commands I understand:
 
-    if "hello" in msg or "hi" in msg:
-        identity = get_identity()
-        return {"from": identity["name"], "message": f"Hello, my superadmin! I'm {identity['name']} — {identity['full_name']}. I'm here and ready to serve. What would you like me to do?", "action": "greeting"}
+**Git:**
+• 'git status' — show repo status
+• 'git commit [message]' — stage all & commit
+• 'git push' — push to GitHub
+• 'git pull' — pull from GitHub
 
-    if "help" in msg:
-        return {"from": "KUDOS", "message": "I understand these commands:\n• 'start learning' — activate my autonomous brain\n• 'stop learning' — deactivate my brain\n• 'status' — show my current state\n• 'rename [name]' — give me a new name\n• 'learn about [topic]' — teach me something\n• 'add rule [rule]' — add a guideline\n• 'change password [new_password]' — change your password\n• 'improve' — show improvement report\n• 'hello' — greet me\n\nOr just chat with me naturally!", "action": "help"}
+**Environment:**
+• 'show env' — show .env variables
+• 'set env KEY=value' — set a variable
 
-    # Default: conversational response
+**Deployment:**
+• 'deploy' — list all platforms
+• 'deploy to render' — step-by-step guide
+• 'deploy to vercel' — step-by-step guide
+• 'generate render.yaml' — generate config
+• 'generate docker-compose' — generate config
+• 'generate link' — get public URL info
+
+**KUDOS:**
+• 'start learning' — activate brain
+• 'stop learning' — deactivate brain
+• 'status' — system status
+• 'rename [name]' — rename KUDOS
+• 'learn about [topic]' — teach something
+• 'add rule [rule]' — add guideline
+• 'change password [pass]' — change password
+• 'improve' — improvement report
+
+Or just chat naturally!""", "action": "help"}
+
+    # ── DEFAULT ──
     identity = get_identity()
     return {
         "from": identity["name"],
-        "message": f"I understand you said: '{body.message}'. I'm always learning and improving. "
-                   "Try 'start learning' to activate my brain, 'status' to see what I know, "
-                   "or 'teach me about [topic]' to expand my knowledge!",
+        "message": f"I understand: '{raw}'. Type 'help' for all commands, or just chat with me!",
         "action": "conversation",
     }

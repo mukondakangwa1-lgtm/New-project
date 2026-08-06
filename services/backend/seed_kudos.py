@@ -682,6 +682,19 @@ def seed_connectors():
 if __name__ == "__main__":
     print("🧠 Seeding KUDOS knowledge base (final version)...\n")
     doc_count = seed_documents()
+    # Also seed deployment knowledge
+    for doc_data in DEPLOYMENT_KNOWLEDGE:
+        existing = db.query(KudosDocument).filter(KudosDocument.title == doc_data["title"]).first()
+        if not existing:
+            doc = KudosDocument(
+                uploaded_by=admin.id, title=doc_data["title"],
+                filename=doc_data["filename"], file_type="txt",
+                content=doc_data["content"], summary=doc_data["content"][:300].strip(),
+                tags=doc_data["tags"], is_approved=True,
+            )
+            db.add(doc)
+            doc_count += 1
+            print(f"✅ {doc_data['title']}")
     conn_count = seed_connectors()
     db.commit()
     db.close()
@@ -690,3 +703,45 @@ if __name__ == "__main__":
     print(f"   🔌 {conn_count} connectors")
     print(f"\n   Topics: Internet, Networks, Systems, Cybersecurity,")
     print(f"           Self-Recreation, Python, JavaScript, Databases, Docker")
+
+
+# Additional deployment knowledge
+DEPLOYMENT_KNOWLEDGE = [
+    {
+        "title": "Going Live - Deployment Platforms",
+        "filename": "deployment.txt",
+        "tags": "deployment,render,vercel,railway,cloudflare,flyio,production",
+        "content": """
+Deploy Digital Campus to the Internet:
+
+RENDER (free, easiest):
+1. render.com - sign up with GitHub
+2. New Web Service, connect repo
+3. Build command: cd services/backend && pip install -r requirements.txt
+4. Start command: cd services/backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+5. Deploy and get URL like https://your-app.onrender.com
+
+VERCEL (best for Next.js, free):
+npm i -g vercel && cd frontend && vercel
+URL: https://your-project.vercel.app
+
+RAILWAY ($5 free credit, includes database):
+railway.app > New Project > Deploy from GitHub
+URL: https://your-app.up.railway.app
+
+FLY.IO (Docker containers, free tier):
+Install flyctl, run fly launch, then fly deploy
+URL: https://your-app.fly.dev
+
+CLOUDFLARE PAGES (frontend CDN, free):
+Cloudflare Dashboard > Pages > Connect GitHub
+URL: https://your-project.pages.dev
+
+Public Links:
+Each platform auto-generates a public URL.
+Custom domains available in settings.
+SSL/HTTPS is automatic on all platforms.
+Share the URL with anyone worldwide.
+""",
+    },
+]
