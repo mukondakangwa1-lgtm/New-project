@@ -50,6 +50,13 @@
 - **Video Calls** — P2P & group calls with canvas whiteboard
 - **Journalist Page** — Multi-platform dashboard (embed YouTube, Twitter, etc.)
 
+### 🎬 Media Hub
+- **Free Streaming** — Tubi, Pluto TV, Crackle, YouTube, Internet Archive
+- **Music** — Spotify, SoundCloud, Bandcamp, Free Music Archive
+- **FMHY Integration** — Complete free resources directory
+- **VLC Support** — Deep-link to VLC player for any media
+- **HTML5 Player** — Browser fallback for all media
+
 ### 💬 Communication
 - **Real-time Chat** — WebSocket-based, offline support
 - **Social Hub** — Posts, comments, reactions, external storage links
@@ -208,6 +215,8 @@ After starting the backend, visit:
 | `/api/v1/root` | Root terminal |
 | `/api/v1/shield` | Self-protection |
 | `/api/v1/admin/analytics` | Analytics |
+| `/api/v1/media` | Media Hub (movies, music, FMHY) |
+| `/api/v1/tools` | Embed widgets & Sandbox |
 
 ---
 
