@@ -48,25 +48,25 @@ ARENA_MODES = {
         "name": "Battle Mode",
         "description": "Multiple AIs compete to answer — best answer wins",
         "icon": "⚔️",
-        "sources": ["knowledge_base", "cached", "documents", "connectors"],
+        "sources": ["knowledge_base", "cached", "documents", "connectors", "llm"],
     },
     "agent": {
         "name": "Agent Mode",
         "description": "AI agent with tools — searches, reads, reasons",
         "icon": "🤖",
-        "sources": ["knowledge_base", "cached", "documents", "web_search"],
+        "sources": ["knowledge_base", "cached", "documents", "web_search", "llm"],
     },
     "sidebyside": {
         "name": "Side by Side",
         "description": "Compare answers from multiple sources side by side",
         "icon": "📊",
-        "sources": ["knowledge_base", "cached", "web_search", "wikipedia"],
+        "sources": ["knowledge_base", "cached", "web_search", "wikipedia", "llm"],
     },
     "directchat": {
         "name": "Direct Chat",
         "description": "Direct conversation with KUDOS's full knowledge",
         "icon": "💬",
-        "sources": ["knowledge_base", "cached"],
+        "sources": ["knowledge_base", "cached", "llm"],
     },
 }
 
@@ -114,6 +114,7 @@ def score_answer(query: str, answer: str, source: str) -> float:
         "wikipedia": 0.9,
         "web_search": 0.7,
         "documents": 0.85,
+        "llm": 0.95,
         "cached": 0.6,
     }
     score += source_scores.get(source, 0.5) * 0.2
@@ -273,11 +274,34 @@ async def query_multiple_sources(
             return None
         return None
 
-    # Run ALL sources in parallel
-    tasks = [_query_source(s) for s in sources]
+    # Run retrieval and web sources in parallel first.
+    retrieval_sources = [source for source in sources if source != "llm"]
+    tasks = [_query_source(source) for source in retrieval_sources]
     results = await asyncio.gather(*tasks, return_exceptions=True)
-
     answers = [r for r in results if isinstance(r, dict) and r.get("content")]
+
+    # Give the configured LLM the retrieved context, then let Arena compare
+    # the generated answer with the raw source answers. This keeps the LLM
+    # optional: without a provider, keyword/web retrieval still works.
+    if "llm" in sources:
+        try:
+            from app.core.llm_engine import get_llm_response
+
+            knowledge_context = "\n\n".join(
+                answer["content"][:1200] for answer in answers[:5]
+            )
+            llm_answer = await asyncio.wait_for(
+                get_llm_response(query, knowledge_context=knowledge_context),
+                timeout=SOURCE_TIMEOUT * 2,
+            )
+            if llm_answer and len(llm_answer) > 20:
+                answers.append({
+                    "source": "llm",
+                    "content": llm_answer,
+                    "metadata": {"type": "llm", "context_sources": len(answers)},
+                })
+        except (asyncio.TimeoutError, Exception):
+            pass
 
     # Cache the results
     _set_cached_response(query, mode, answers)

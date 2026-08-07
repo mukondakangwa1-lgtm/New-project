@@ -9,7 +9,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-REPO_PATH = str(Path(__file__).parent.parent.parent.parent)
+# deployment.py lives at <repo>/services/backend/app/core/deployment.py.
+REPO_PATH = str(Path(__file__).resolve().parents[4])
 
 
 # ──────────────────────────────────────────────
@@ -299,34 +300,13 @@ def generate_render_yaml() -> str:
 
 
 def generate_docker_compose_prod() -> str:
-    """Generate production docker-compose.yml."""
-    return """version: "3.9"
-
-services:
-  backend:
-    build: ./services/backend
-    ports:
-      - "8000:8000"
-    environment:
-      - SECRET_KEY=${SECRET_KEY}
-      - DATABASE_URL=sqlite:///./digital_campus.db
-    volumes:
-      - db-data:/app
-    restart: unless-stopped
-
-  frontend:
-    build: ./frontend
-    ports:
-      - "3000:3000"
-    environment:
-      - NEXT_PUBLIC_API_URL=http://backend:8000
-    depends_on:
-      - backend
-    restart: unless-stopped
-
-volumes:
-  db-data:
-"""
+    """Return the checked-in LAN/VPS production Compose definition."""
+    compose_path = os.path.join(REPO_PATH, "docker-compose.prod.yml")
+    try:
+        with open(compose_path, encoding="utf-8") as compose_file:
+            return compose_file.read()
+    except OSError as exc:
+        return f"# Unable to read docker-compose.prod.yml: {exc}"
 
 
 def get_deployment_guide(platform: str) -> dict:

@@ -14,6 +14,7 @@ services:
     environment:
       - HOST=0.0.0.0
       - PORT=8000
+      - AUTO_CREATE_TABLES=true
     volumes:
       - ./services/backend:/app
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
@@ -21,8 +22,18 @@ services:
       - db
       - redis
 
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - BACKEND_INTERNAL_URL=http://backend:8000
+    depends_on:
+      - backend
+
   db:
-    image: postgres:15
+    image: pgvector/pgvector:pg15
     environment:
       - POSTGRES_DB=digital_campus
       - POSTGRES_USER=dc_user

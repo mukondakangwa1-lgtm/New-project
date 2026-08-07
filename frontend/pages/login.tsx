@@ -14,34 +14,28 @@ export default function Login() {
     setError("");
     setLoading(true);
 
-    // Try proxy first, then direct
-    const urls = ["/api/v1/auth/login", "http://127.0.0.1:8000/api/v1/auth/login"];
+    try {
+      // All browser requests use the same-origin Next.js proxy. The proxy
+      // forwards to BACKEND_INTERNAL_URL on the server, so this also works
+      // when the frontend and backend run in separate Docker services.
+      const res = await fetch("/api/v1/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
 
-    for (const url of urls) {
-      try {
-        const res = await fetch(url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email, password }),
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          localStorage.setItem("token", data.access_token);
-          router.push("/dashboard");
-          setLoading(false);
-          return;
-        } else {
-          const data = await res.json();
-          throw new Error(data.detail || "Login failed");
-        }
-      } catch (err: any) {
-        if (err.message === "Failed to fetch" && url === urls[0]) continue;
-        setError(err.message);
-        break;
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.detail || "Login failed");
       }
+
+      localStorage.setItem("token", data.access_token);
+      router.push("/dashboard");
+    } catch (err: any) {
+      setError(err?.message || "Unable to sign in. Please try again.");
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   return (

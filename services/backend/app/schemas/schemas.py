@@ -1,7 +1,7 @@
 """
 Digital Campus - Pydantic Schemas
 """
-from pydantic import BaseModel, ConfigDict, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from typing import Optional
 from datetime import date, datetime, time
 
@@ -388,6 +388,18 @@ class KudosAskResponse(BaseModel):
     answer: str
     sources: list[dict] = []  # [{document_id, title, chunk_preview}]
     conversation_id: int
+
+
+class LLMConfigureRequest(BaseModel):
+    """Configure a provider for the current process.
+
+    Production deployments should set provider keys through the environment
+    or a secret manager. This endpoint is intended for local/LAN admin use and
+    keeps the key out of URLs and access logs.
+    """
+
+    provider: str = Field(min_length=1, max_length=50)
+    api_key: str = Field(min_length=1, max_length=500)
 
 
 class KudosConversationResponse(BaseModel):

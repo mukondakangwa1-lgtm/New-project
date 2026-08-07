@@ -1,29 +1,23 @@
-"""
-Vector store adapter using pgvector (Postgres). This module provides minimal
-helpers to create a vector table, upsert vectors, and query nearest neighbors.
+"""Optional pgvector-backed semantic storage for KUDOS chunks."""
 
-This implementation requires the `pgvector` package and a Postgres database with
-pgvector extension installed.
-"""
 from __future__ import annotations
 
 import json
 import os
 from typing import Any, List
 
-from sqlalchemy import Table, Column, Integer, Text, MetaData
-from sqlalchemy import text
+from sqlalchemy import Column, Integer, MetaData, Table, Text, select
 
+from app.core.config import settings
 from app.core.database import engine
 
 try:
-    # pgvector provides a SQLAlchemy Vector type
     from pgvector.sqlalchemy import Vector
-except Exception:
+except Exception:  # pragma: no cover - optional dependency import guard
     Vector = None
 
 
-VEC_DIM = int(os.getenv("EMBED_DIM", "1536"))
+VEC_DIM = int(os.getenv("EMBED_DIM") or settings.EMBED_DIM)
 metadata = MetaData()
 
 kudos_vectors = Table(
@@ -37,47 +31,81 @@ kudos_vectors = Table(
 )
 
 
-def ensure_vector_table():
+def _require_pgvector() -> None:
     if Vector is None:
-        raise RuntimeError("pgvector is not installed — add pgvector to requirements.txt for pgvector support")
+        raise RuntimeError(
+            "pgvector is not installed — add pgvector to requirements.txt"
+        )
+
+
+def ensure_vector_table() -> None:
+    """Create the optional vector table after the Postgres extension exists."""
+    _require_pgvector()
     metadata.create_all(bind=engine, tables=[kudos_vectors])
 
 
-def upsert_vector(document_id: int, chunk_index: int, vector: List[float], metadata_obj: dict | None = None):
-    """Insert or replace a single vector row."""
-    if Vector is None:
-        raise RuntimeError("pgvector not available")
+def upsert_vector(
+    document_id: int,
+    chunk_index: int,
+    vector: List[float],
+    metadata_obj: dict | None = None,
+) -> None:
+    """Insert or replace a vector for one document chunk."""
+    _require_pgvector()
+    if len(vector) != VEC_DIM:
+        raise ValueError(f"Expected an embedding of {VEC_DIM} dimensions")
 
     with engine.begin() as conn:
-        # delete any existing for this doc+chunk
-        conn.execute(text("DELETE FROM kudos_vectors WHERE document_id = :d AND chunk_index = :c"), {"d": document_id, "c": chunk_index})
-        # insert new
         conn.execute(
-            text("INSERT INTO kudos_vectors (document_id, chunk_index, vector, metadata) VALUES (:d, :c, :v, :m)"),
-            {"d": document_id, "c": chunk_index, "v": vector, "m": json.dumps(metadata_obj or {})},
+            kudos_vectors.delete().where(
+                (kudos_vectors.c.document_id == document_id)
+                & (kudos_vectors.c.chunk_index == chunk_index)
+            )
+        )
+        conn.execute(
+            kudos_vectors.insert().values(
+                document_id=document_id,
+                chunk_index=chunk_index,
+                vector=vector,
+                metadata=json.dumps(metadata_obj or {}),
+            )
         )
 
 
 def query_vectors(embedding: List[float], top_k: int = 5) -> List[dict[str, Any]]:
-    """Query nearest vectors using pgvector `<=>` operator.
+    """Return nearest chunks ordered by cosine distance."""
+    _require_pgvector()
+    if len(embedding) != VEC_DIM:
+        raise ValueError(f"Expected an embedding of {VEC_DIM} dimensions")
+    if top_k < 1:
+        return []
 
-    Returns list of dicts: {document_id, chunk_index, metadata, distance}.
-    """
-    if Vector is None:
-        raise RuntimeError("pgvector not available")
-
-    # Postgres array parameterization varies; we'll pass as JSON and cast
-    sql = text(
-        "SELECT document_id, chunk_index, metadata, (vector <=> :q) AS distance "
-        "FROM kudos_vectors ORDER BY distance ASC LIMIT :k"
+    distance = kudos_vectors.c.vector.cosine_distance(embedding).label("distance")
+    statement = (
+        select(
+            kudos_vectors.c.document_id,
+            kudos_vectors.c.chunk_index,
+            kudos_vectors.c.metadata,
+            distance,
+        )
+        .order_by(distance)
+        .limit(top_k)
     )
+
     with engine.connect() as conn:
-        result = conn.execute(sql, {"q": embedding, "k": top_k})
         rows = []
-        for r in result:
+        for row in conn.execute(statement):
+            mapping = row._mapping
             try:
-                meta = json.loads(r["metadata"]) if r["metadata"] else {}
-            except Exception:
-                meta = {}
-            rows.append({"document_id": r["document_id"], "chunk_index": r["chunk_index"], "metadata": meta, "distance": float(r["distance"])})
+                row_metadata = json.loads(mapping["metadata"] or "{}")
+            except (TypeError, json.JSONDecodeError):
+                row_metadata = {}
+            rows.append(
+                {
+                    "document_id": mapping["document_id"],
+                    "chunk_index": mapping["chunk_index"],
+                    "metadata": row_metadata,
+                    "distance": float(mapping["distance"]),
+                }
+            )
         return rows

@@ -1,49 +1,57 @@
-"""
-Embeddings adapter — provides a simple interface to generate embeddings.
-Supports OpenAI as the primary provider. Reads API key from environment.
-"""
+"""Embedding provider used by optional semantic KUDOS retrieval."""
+
 from __future__ import annotations
 
 import os
 from typing import List
 
-try:
-    import openai
-except Exception:
-    openai = None
-
 from app.core.config import settings
+
+try:
+    from openai import OpenAI
+except Exception:  # pragma: no cover - optional dependency import guard
+    OpenAI = None
 
 
 class EmbeddingsProvider:
+    """Small provider-neutral boundary around the OpenAI embeddings API."""
+
     def __init__(self, provider: str | None = None):
-        self.provider = provider or os.getenv("EMBED_PROVIDER", "openai")
-        if self.provider == "openai":
-            if not openai:
-                raise RuntimeError("openai library not installed — add 'openai' to requirements.txt")
-            openai.api_key = os.getenv("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
-            # model choice can be overridden by env
-            self.model = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
-        else:
-            raise NotImplementedError(f"Embeddings provider '{self.provider}' is not implemented")
+        self.provider = (
+            provider
+            or os.getenv("EMBED_PROVIDER")
+            or settings.EMBED_PROVIDER
+        ).lower()
+        if self.provider != "openai":
+            raise NotImplementedError(
+                f"Embeddings provider '{self.provider}' is not implemented"
+            )
+        if OpenAI is None:
+            raise RuntimeError("The openai package is required for embeddings")
+
+        api_key = os.getenv("OPENAI_API_KEY") or settings.OPENAI_API_KEY
+        if not api_key:
+            raise RuntimeError("OPENAI_API_KEY is required for semantic embeddings")
+
+        self.model = os.getenv(
+            "OPENAI_EMBEDDING_MODEL", settings.OPENAI_EMBEDDING_MODEL
+        )
+        self.client = OpenAI(api_key=api_key)
 
     def embed_texts(self, texts: List[str]) -> List[List[float]]:
-        """Return embeddings for a list of texts.
+        """Return one embedding vector for each input text."""
+        if not texts:
+            return []
 
-        This is synchronous and batches requests where appropriate.
-        """
-        if self.provider == "openai":
-            # OpenAI's Python SDK supports batching
-            resp = openai.Embedding.create(model=self.model, input=texts)
-            return [r["embedding"] for r in resp["data"]]
-        raise NotImplementedError("No embeddings implementation available")
+        response = self.client.embeddings.create(model=self.model, input=texts)
+        return [item.embedding for item in response.data]
 
 
-# Convenience singleton
-_default = None
+_default: EmbeddingsProvider | None = None
 
 
 def get_embeddings_provider() -> EmbeddingsProvider:
+    """Return a lazily-created process-local embeddings provider."""
     global _default
     if _default is None:
         _default = EmbeddingsProvider()

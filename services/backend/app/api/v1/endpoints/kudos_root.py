@@ -22,7 +22,7 @@ from app.models import User
 
 router = APIRouter()
 
-REPO_PATH = str(Path(__file__).parent.parent.parent.parent)
+REPO_PATH = str(Path(__file__).resolve().parents[6])
 
 
 # ──────────────────────────────────────────────

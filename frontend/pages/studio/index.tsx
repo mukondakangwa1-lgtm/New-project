@@ -260,7 +260,7 @@ function VideoCalls() {
     const res = await fetch("/api/v1/studio/calls/create", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...getAuthHeader() },
-      body: JSON.stringify({ title, is_group, max_participants: 10, enable_whiteboard: true, enable_screen_share: true }),
+      body: JSON.stringify({ title, is_group: isGroup, max_participants: 10, enable_whiteboard: true, enable_screen_share: true }),
     });
     if (res.ok) {
       const data = await res.json();

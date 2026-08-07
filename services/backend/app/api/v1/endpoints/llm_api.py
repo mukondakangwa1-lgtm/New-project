@@ -3,15 +3,17 @@ Digital Campus - KUDOS LLM API
 Configure and use external LLMs (Google Gemini, OpenAI, Groq, Ollama).
 """
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
 
-from app.core.database import get_db
-from app.core.deps import get_current_user, require_admin
+from app.core.deps import require_admin
 from app.core.llm_engine import (
-    set_api_key, get_llm_status, query_best_llm, get_llm_response,
-    build_human_prompt, LLM_CONFIGS,
+    set_api_key,
+    get_llm_status,
+    query_best_llm,
+    provider_is_configured,
+    LLM_CONFIGS,
 )
 from app.models import User
+from app.schemas import LLMConfigureRequest
 
 router = APIRouter()
 
@@ -27,20 +29,26 @@ def llm_status(admin: User = Depends(require_admin)):
 
 @router.post("/configure")
 def configure_llm(
-    provider: str,
-    api_key: str,
+    body: LLMConfigureRequest,
     admin: User = Depends(require_admin),
 ):
-    """Configure an LLM provider with API key (superadmin only)."""
+    """Configure an LLM provider for the current process (superadmin only).
+
+    API keys are accepted in the JSON body rather than query parameters so
+    reverse proxies and access logs do not record them. For persistent
+    production configuration, use environment variables or a secret manager.
+    """
+    provider = body.provider.strip().lower()
     if provider not in LLM_CONFIGS:
         raise HTTPException(status_code=400, detail=f"Unknown provider. Use: {', '.join(LLM_CONFIGS.keys())}")
 
-    set_api_key(provider, api_key)
+    set_api_key(provider, body.api_key.strip())
     return {
         "status": "configured",
         "provider": provider,
         "name": LLM_CONFIGS[provider]["name"],
-        "message": f"✅ {LLM_CONFIGS[provider]['name']} configured successfully!",
+        "persistent": False,
+        "message": f"✅ {LLM_CONFIGS[provider]['name']} configured for this process. Use deployment secrets for persistence.",
     }
 
 
@@ -51,14 +59,13 @@ async def test_llm(
     admin: User = Depends(require_admin),
 ):
     """Test an LLM provider (superadmin only)."""
+    provider = provider.strip().lower()
     if provider:
         # Test specific provider
-        api_key = (await __import__('app.core.llm_engine', fromlist=['get_api_key']).get_api_key(provider)) if False else None
-        from app.core.llm_engine import get_api_key as gak
-        if not gak(provider):
-            raise HTTPException(status_code=400, detail=f"No API key configured for {provider}")
+        if provider not in LLM_CONFIGS or not provider_is_configured(provider):
+            raise HTTPException(status_code=400, detail=f"Provider {provider} is not configured")
 
-    result = await query_best_llm(prompt)
+    result = await query_best_llm(prompt, provider=provider or None)
     return result
 
 

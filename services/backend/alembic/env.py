@@ -3,7 +3,6 @@ Alembic env.py minimal setup. Uses the settings.DATABASE_URL and app.core.databa
 This file allows developers to run `alembic revision --autogenerate` from services/backend.
 """
 from logging.config import fileConfig
-import os
 
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
@@ -16,11 +15,19 @@ config = context.config
 
 # Interpret the config file for Python logging.
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    try:
+        fileConfig(config.config_file_name)
+    except (KeyError, ValueError):
+        # The minimal checked-in alembic.ini does not define every logger
+        # section expected by fileConfig; migrations should still run.
+        pass
 
-# Add project path
+# Add project path and import every model module so Alembic can see the
+# complete metadata during revision autogeneration.
 from app.core.config import settings
 from app.core.database import Base
+from app import models as _models  # noqa: F401
+from app import models_extended as _models_extended  # noqa: F401
 
 # Set SQLAlchemy URL from settings
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)

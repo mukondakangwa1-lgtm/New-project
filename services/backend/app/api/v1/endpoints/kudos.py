@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, joinedload
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import get_current_user, require_admin
 from app.core.kudos_guardian import self_improver
@@ -91,17 +92,52 @@ def simple_summarize(text: str, max_sentences: int = 5) -> str:
 
 
 def search_chunks(db: Session, query: str, limit: int = 5) -> list[dict]:
+    scored: list[dict] = []
+
+    # Optional semantic retrieval. It is deliberately opt-in because it
+    # requires a provider key, pgvector, and an indexed vector table.
+    if settings.SEMANTIC_SEARCH_ENABLED:
+        try:
+            from app.core.embeddings import get_embeddings_provider
+            from app.core.vector_store import query_vectors
+
+            embedding = get_embeddings_provider().embed_texts([query])[0]
+            for match in query_vectors(embedding, top_k=limit):
+                chunk = (
+                    db.query(KudosChunk)
+                    .join(KudosDocument)
+                    .filter(
+                        KudosChunk.document_id == match["document_id"],
+                        KudosChunk.chunk_index == match["chunk_index"],
+                        KudosDocument.is_approved.is_(True),
+                        KudosDocument.is_active.is_(True),
+                    )
+                    .first()
+                )
+                if chunk:
+                    distance = max(float(match.get("distance", 1.0)), 0.0)
+                    scored.append({
+                        "chunk_id": chunk.id,
+                        "document_id": chunk.document_id,
+                        "title": chunk.document.title,
+                        "content": chunk.content[:500],
+                        "score": max(0.1, 1.0 - distance),
+                        "retrieval": "semantic",
+                    })
+        except Exception:
+            # A missing provider/table should never disable keyword retrieval.
+            pass
+
     query_words = set(re.findall(r"[a-zA-Z]{3,}", query.lower())) - STOP_WORDS
     if not query_words:
-        return []
+        return scored[:limit]
     try:
         chunks = db.query(KudosChunk).join(KudosDocument).filter(
             KudosDocument.is_approved == True, KudosDocument.is_active == True
         ).all()
     except Exception:
-        return []
+        return scored[:limit]
 
-    scored = []
     for chunk in chunks:
         content_lower = chunk.content.lower()
         keywords = set(chunk.keywords.split(",")) if chunk.keywords else set()
@@ -176,6 +212,17 @@ async def upload_document(
     doc.chunk_count = len(chunk_text(text))
     db.commit()
     db.refresh(doc)
+
+    # Semantic indexing is optional and runs in Celery so uploads remain fast.
+    if settings.SEMANTIC_SEARCH_ENABLED:
+        try:
+            from app.tasks import index_document_embeddings
+            index_document_embeddings.delay(doc.id)
+        except Exception:
+            # Keyword retrieval remains available if the worker or provider is
+            # not configured yet.
+            pass
+
     return doc
 
 

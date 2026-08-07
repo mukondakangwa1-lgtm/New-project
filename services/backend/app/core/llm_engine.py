@@ -2,12 +2,12 @@
 KUDOS LLM Engine — Connect to external AI models (Google Gemini, OpenAI, etc.)
 KUDOS queries multiple LLMs and picks the best response.
 """
-import json
 import os
-from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
+
+from app.core.config import settings
 
 
 # ──────────────────────────────────────────────
@@ -19,8 +19,9 @@ LLM_CONFIGS = {
     "google_gemini": {
         "name": "Google Gemini",
         "icon": "✨",
-        "endpoint": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
+        "endpoint": "https://generativelanguage.googleapis.com/v1beta/models",
         "api_key_env": "GOOGLE_GEMINI_API_KEY",
+        "model_env": "GEMINI_MODEL",
         "enabled": False,
     },
     "openai": {
@@ -28,6 +29,7 @@ LLM_CONFIGS = {
         "icon": "🤖",
         "endpoint": "https://api.openai.com/v1/chat/completions",
         "api_key_env": "OPENAI_API_KEY",
+        "model_env": "OPENAI_MODEL",
         "enabled": False,
     },
     "groq": {
@@ -35,6 +37,7 @@ LLM_CONFIGS = {
         "icon": "⚡",
         "endpoint": "https://api.groq.com/openai/v1/chat/completions",
         "api_key_env": "GROQ_API_KEY",
+        "model_env": "GROQ_MODEL",
         "enabled": False,
     },
     "ollama": {
@@ -42,6 +45,7 @@ LLM_CONFIGS = {
         "icon": "🦙",
         "endpoint": "http://localhost:11434/api/generate",
         "api_key_env": "",
+        "model_env": "OLLAMA_MODEL",
         "enabled": False,
     },
 }
@@ -58,29 +62,50 @@ def set_api_key(provider: str, api_key: str):
 
 
 def get_api_key(provider: str) -> Optional[str]:
-    """Get API key for a provider."""
-    # Check in-memory first
+    """Get a provider key from process memory or the environment."""
     if provider in _api_keys and _api_keys[provider]:
         return _api_keys[provider]
-    # Check environment variable
+
     config = LLM_CONFIGS.get(provider, {})
     env_var = config.get("api_key_env", "")
-    if env_var:
-        return os.environ.get(env_var)
-    return None
+    if not env_var:
+        return None
+    return os.getenv(env_var) or getattr(settings, env_var, None)
+
+
+def get_model(provider: str) -> str:
+    """Return the configured model for a provider."""
+    defaults = {
+        "google_gemini": settings.GEMINI_MODEL,
+        "openai": settings.OPENAI_MODEL,
+        "groq": settings.GROQ_MODEL,
+        "ollama": settings.OLLAMA_MODEL,
+    }
+    config = LLM_CONFIGS.get(provider, {})
+    env_name = config.get("model_env", "")
+    return os.getenv(env_name) or defaults.get(provider, "")
+
+
+def provider_is_configured(provider: str) -> bool:
+    """Return whether a provider can be queried right now."""
+    # Ollama is local and does not require an API key.
+    if provider == "ollama":
+        return bool(settings.OLLAMA_ENABLED and settings.OLLAMA_BASE_URL and get_model(provider))
+    return bool(get_api_key(provider))
 
 
 def get_llm_status() -> list[dict]:
     """Get status of all LLM providers."""
     status = []
     for key, config in LLM_CONFIGS.items():
-        has_key = bool(get_api_key(key))
+        configured = provider_is_configured(key)
         status.append({
             "id": key,
             "name": config["name"],
             "icon": config["icon"],
-            "enabled": has_key,
-            "configured": has_key,
+            "model": get_model(key),
+            "enabled": configured,
+            "configured": configured,
         })
     return status
 
@@ -96,9 +121,10 @@ async def query_google_gemini(prompt: str, system_prompt: str = "") -> Optional[
         return None
 
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
+        endpoint = f"{LLM_CONFIGS['google_gemini']['endpoint']}/{get_model('google_gemini')}:generateContent"
+        async with httpx.AsyncClient(timeout=settings.LLM_TIMEOUT_SECONDS) as client:
             res = await client.post(
-                f"{LLM_CONFIGS['google_gemini']['endpoint']}?key={api_key}",
+                f"{endpoint}?key={api_key}",
                 json={
                     "contents": [{
                         "parts": [{"text": prompt}]
@@ -132,11 +158,11 @@ async def query_openai(prompt: str, system_prompt: str = "") -> Optional[str]:
         return None
 
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with httpx.AsyncClient(timeout=settings.LLM_TIMEOUT_SECONDS) as client:
             res = await client.post(
                 LLM_CONFIGS["openai"]["endpoint"],
                 json={
-                    "model": "gpt-3.5-turbo",
+                    "model": get_model("openai"),
                     "messages": [
                         {"role": "system", "content": system_prompt or "You are KUDOS, a helpful AI assistant for a university Digital Campus. Be friendly, concise, and helpful."},
                         {"role": "user", "content": prompt},
@@ -166,11 +192,11 @@ async def query_groq(prompt: str, system_prompt: str = "") -> Optional[str]:
         return None
 
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
+        async with httpx.AsyncClient(timeout=settings.LLM_TIMEOUT_SECONDS) as client:
             res = await client.post(
                 LLM_CONFIGS["groq"]["endpoint"],
                 json={
-                    "model": "llama3-8b-8192",
+                    "model": get_model("groq"),
                     "messages": [
                         {"role": "system", "content": system_prompt or "You are KUDOS, a helpful AI assistant for a university Digital Campus. Be friendly, concise, and helpful. Respond like a knowledgeable friend."},
                         {"role": "user", "content": prompt},
@@ -196,11 +222,12 @@ async def query_groq(prompt: str, system_prompt: str = "") -> Optional[str]:
 async def query_ollama(prompt: str, system_prompt: str = "") -> Optional[str]:
     """Query local Ollama instance."""
     try:
-        async with httpx.AsyncClient(timeout=60) as client:
+        endpoint = f"{settings.OLLAMA_BASE_URL.rstrip('/')}/api/generate"
+        async with httpx.AsyncClient(timeout=max(settings.LLM_TIMEOUT_SECONDS, 60)) as client:
             res = await client.post(
-                LLM_CONFIGS["ollama"]["endpoint"],
+                endpoint,
                 json={
-                    "model": "llama3",
+                    "model": get_model("ollama"),
                     "prompt": prompt,
                     "system": system_prompt or "You are KUDOS, a helpful AI assistant. Be friendly and concise.",
                     "stream": False,
@@ -218,7 +245,11 @@ async def query_ollama(prompt: str, system_prompt: str = "") -> Optional[str]:
 # MULTI-LLM QUERY — BEST RESPONSE SELECTOR
 # ──────────────────────────────────────────────
 
-async def query_best_llm(prompt: str, system_prompt: str = "") -> dict:
+async def query_best_llm(
+    prompt: str,
+    system_prompt: str = "",
+    provider: str | None = None,
+) -> dict:
     """
     Query all available LLMs in parallel and return the best response.
     Falls back to internal knowledge if no LLM is configured.
@@ -226,16 +257,30 @@ async def query_best_llm(prompt: str, system_prompt: str = "") -> dict:
     import asyncio
 
     providers = []
+    provider_functions = {
+        "google_gemini": query_google_gemini,
+        "groq": query_groq,
+        "openai": query_openai,
+        "ollama": query_ollama,
+    }
 
-    # Build list of available providers
-    if get_api_key("google_gemini"):
-        providers.append(("google_gemini", query_google_gemini))
-    if get_api_key("groq"):
-        providers.append(("groq", query_groq))
-    if get_api_key("openai"):
-        providers.append(("openai", query_openai))
-    if get_api_key("ollama"):
-        providers.append(("ollama", query_ollama))
+    preferred = (provider or os.getenv("LLM_PROVIDER") or settings.LLM_PROVIDER).strip().lower()
+    if preferred != "auto":
+        if preferred not in provider_functions:
+            return {
+                "response": None,
+                "provider": "none",
+                "message": f"Unknown LLM_PROVIDER '{preferred}'. Use auto, google_gemini, openai, groq, or ollama.",
+            }
+        provider_order = [preferred]
+    else:
+        # Keep a deterministic order so deployments can predict which model
+        # receives traffic when more than one secret is configured.
+        provider_order = ["google_gemini", "openai", "groq", "ollama"]
+
+    for provider in provider_order:
+        if provider_is_configured(provider):
+            providers.append((provider, provider_functions[provider]))
 
     if not providers:
         return {"response": None, "provider": "none", "message": "No LLM configured. Set an API key in the admin panel."}
@@ -243,7 +288,10 @@ async def query_best_llm(prompt: str, system_prompt: str = "") -> dict:
     # Query all available LLMs in parallel
     async def _query(name, func):
         try:
-            result = await asyncio.wait_for(func(prompt, system_prompt), timeout=30)
+            result = await asyncio.wait_for(
+                func(prompt, system_prompt),
+                timeout=max(settings.LLM_TIMEOUT_SECONDS, 1),
+            )
             return {"provider": name, "response": result} if result else None
         except (asyncio.TimeoutError, Exception):
             return None

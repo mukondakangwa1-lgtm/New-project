@@ -167,9 +167,67 @@ Open **http://localhost:3000**
 
 ## 🐳 Docker
 
+The repository includes a development Compose file and a production-style
+LAN/VPS Compose file. This project currently uses the legacy command spelling
+`docker-compose` on systems without the Compose v2 plugin.
+
+### Development
+
 ```bash
-docker-compose up -d
+docker-compose up -d --build
 ```
+
+The frontend is available at http://localhost:3000 and the backend at
+http://localhost:8000. The frontend uses a server-side rewrite, so browser
+requests stay same-origin and never depend on a browser-visible localhost API.
+
+### LAN/VPS deployment
+
+1. Create the ignored backend environment file and replace every development
+   secret/value:
+
+```bash
+cp services/backend/.env.example services/backend/.env
+# Edit services/backend/.env
+```
+
+Set `DATABASE_URL` to the Compose database host, for example:
+`postgresql://dc_user:strong-password@db:5432/digital_campus`, and configure
+`LLM_PROVIDER` plus at least one supported provider key. API keys belong in the
+server environment or a secret manager; do not commit or paste them into chat.
+
+2. Build and start the data services:
+
+```bash
+docker-compose -f docker-compose.prod.yml build
+docker-compose -f docker-compose.prod.yml up -d db redis
+```
+
+3. Apply migrations on a new database, then start the application:
+
+```bash
+docker-compose -f docker-compose.prod.yml run --rm backend python -m alembic upgrade head
+docker-compose -f docker-compose.prod.yml up -d backend worker frontend
+```
+
+The LAN frontend is available at `http://SERVER_IP:3000`. The backend is bound
+to host loopback and is reached by the frontend over the internal Compose
+network. Postgres and Redis are not published to the host in the production
+file.
+
+If the database already contains tables created by the old startup code, take
+a backup first and mark it at the initial migration instead of running the
+create-table migration against existing tables:
+
+```bash
+docker-compose -f docker-compose.prod.yml run --rm backend \
+  python -m alembic stamp 39101dd01b2e
+```
+
+The Arena.ai agent helping develop this repository is not a runtime API endpoint
+that can be embedded into the deployed application. KUDOS uses a provider-
+neutral adapter; configure Gemini, OpenAI, Groq, or an Ollama server through
+`services/backend/.env`.
 
 ---
 

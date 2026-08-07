@@ -30,7 +30,7 @@ from app.models import User, Course, Enrollment, Attendance, Session as SessionM
 from app.models_extended import Notification, Assignment, Submission, Grade, ExamAttempt
 
 router = APIRouter()
-REPO_PATH = str(Path(__file__).parent.parent.parent.parent)
+REPO_PATH = str(Path(__file__).resolve().parents[6])
 
 
 # ──────────────────────────────────────────────
@@ -323,7 +323,10 @@ def secure_chat(body: SecureMessage, db: Session = Depends(get_db), admin: User 
         if "=" in parts:
             key, _, value = parts.partition("=")
             result = set_env_var(key.strip(), value.strip())
-            return {"from": "KUDOS", "message": f"Environment variable set: {result['key']}={result['value']}", "action": "env_set"}
+            safe_key = result["key"]
+            sensitive = any(token in safe_key.lower() for token in ("key", "secret", "password", "token"))
+            safe_value = "***" if sensitive else result["value"]
+            return {"from": "KUDOS", "message": f"Environment variable set: {safe_key}={safe_value}", "action": "env_set"}
         return {"from": "KUDOS", "message": "Format: set env KEY=value", "action": "env_help"}
 
     # ── DEPLOYMENT COMMANDS ──

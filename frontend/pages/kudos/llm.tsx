@@ -39,9 +39,10 @@ export default function LLMConfig() {
       return;
     }
 
-    const res = await fetch(`/api/v1/kudos/llm/configure?provider=${provider}&api_key=${encodeURIComponent(key)}`, {
+    const res = await fetch("/api/v1/kudos/llm/configure", {
       method: "POST",
-      headers: getAuthHeader(),
+      headers: { "Content-Type": "application/json", ...getAuthHeader() },
+      body: JSON.stringify({ provider, api_key: key }),
     });
     if (res.ok) {
       const data = await res.json();

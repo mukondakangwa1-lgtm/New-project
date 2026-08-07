@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     # Server
     HOST: str = "0.0.0.0"
     PORT: int = 8000
+    CORS_ORIGINS: str = "*"
 
     # Security
     SECRET_KEY: str = "changeme-in-production"
@@ -38,6 +39,24 @@ class Settings(BaseSettings):
 
     # Database
     DATABASE_URL: str = "sqlite:///./digital_campus.db"
+    AUTO_CREATE_TABLES: bool = False
+
+    # LLM runtime configuration. Set LLM_PROVIDER to a provider ID or
+    # ``auto`` to use the first configured provider.
+    LLM_PROVIDER: str = "auto"
+    GEMINI_MODEL: str = "gemini-2.0-flash"
+    OPENAI_MODEL: str = "gpt-4o-mini"
+    GROQ_MODEL: str = "llama-3.3-70b-versatile"
+    OLLAMA_ENABLED: bool = False
+    OLLAMA_BASE_URL: str = "http://localhost:11434"
+    OLLAMA_MODEL: str = "llama3.2"
+    LLM_TIMEOUT_SECONDS: float = 30.0
+
+    # Optional semantic retrieval. Keyword search remains the safe fallback.
+    SEMANTIC_SEARCH_ENABLED: bool = False
+    EMBED_PROVIDER: str = "openai"
+    OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
+    EMBED_DIM: int = 1536
 
     # Optional LLM providers
     OPENAI_API_KEY: Optional[str] = None

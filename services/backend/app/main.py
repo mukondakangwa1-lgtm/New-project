@@ -64,8 +64,9 @@ class ShieldMiddleware(BaseHTTPMiddleware):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Create database tables on startup and activate shield."""
-    init_db()
+    """Start runtime services without mutating production schemas."""
+    if settings.AUTO_CREATE_TABLES:
+        init_db()
     # Auto-activate shield
     try:
         from app.core.kudos_shield import start_shield
@@ -87,11 +88,17 @@ app = FastAPI(
 # Shield middleware — intrusion detection, rate limiting, performance
 app.add_middleware(ShieldMiddleware)
 
-# CORS — allow frontend dev server on any localhost port
+# CORS — configure explicit origins in production. The wildcard is useful
+# only for local development and intentionally disables credentials there.
+_cors_origins = [
+    origin.strip()
+    for origin in settings.CORS_ORIGINS.split(",")
+    if origin.strip()
+] or ["*"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=_cors_origins,
+    allow_credentials=_cors_origins != ["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )

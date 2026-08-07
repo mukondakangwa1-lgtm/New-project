@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-REPO_PATH = str(Path(__file__).parent.parent.parent.parent)
+REPO_PATH = str(Path(__file__).resolve().parents[4])
 
 # ──────────────────────────────────────────────
 # SANDBOX STATE
