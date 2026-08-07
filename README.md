@@ -183,18 +183,19 @@ requests stay same-origin and never depend on a browser-visible localhost API.
 
 ### LAN/VPS deployment
 
-1. Create the ignored backend environment file and replace every development
-   secret/value:
+1. Create the ignored deployment and backend environment files and replace
+   every development secret/value:
 
 ```bash
+cp deploy.env.example .env
 cp services/backend/.env.example services/backend/.env
-# Edit services/backend/.env
+# Edit both files. Use the same Postgres values in .env and services/backend/.env
 ```
 
-Set `DATABASE_URL` to the Compose database host, for example:
-`postgresql://dc_user:strong-password@db:5432/digital_campus`, and configure
-`LLM_PROVIDER` plus at least one supported provider key. API keys belong in the
-server environment or a secret manager; do not commit or paste them into chat.
+`docker-compose.prod.yml` builds the internal `DATABASE_URL` from the root
+`.env` values. Configure `LLM_PROVIDER` plus at least one supported provider
+key in `services/backend/.env`. API keys belong in the server environment or a
+secret manager; do not commit or paste them into chat.
 
 2. Build and start the data services:
 

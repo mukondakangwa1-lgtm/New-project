@@ -1,7 +1,7 @@
 # =============================================
 # Digital Campus - Makefile
 # =============================================
-.PHONY: help backend frontend dev install lint test clean
+.PHONY: help backend frontend dev install lint test clean docker-dev docker-prod-build docker-prod-up docker-prod-migrate
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -25,6 +25,18 @@ dev: ## Start both backend + frontend (foreground: backend, background: frontend
 	cd frontend && npm run dev &
 	@echo "Starting backend on :8000 (foreground)..."
 	cd services/backend && .venv/bin/uvicorn app.main:app --reload --port 8000
+
+docker-dev: ## Start the development Compose stack
+	docker-compose up -d --build
+
+docker-prod-build: ## Build the LAN/VPS production images
+	docker-compose -f docker-compose.prod.yml build
+
+docker-prod-up: ## Start the LAN/VPS production stack
+	docker-compose -f docker-compose.prod.yml up -d db redis backend worker frontend
+
+docker-prod-migrate: ## Apply Alembic migrations to the production database
+	docker-compose -f docker-compose.prod.yml run --rm backend python -m alembic upgrade head
 
 # --------------- Lint & Test ---------------
 lint: ## Lint backend (ruff) and frontend (eslint)
