@@ -276,7 +276,7 @@ class SecureMessage(BaseModel):
 
 
 @router.post("/chat")
-def secure_chat(body: SecureMessage, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+async def secure_chat(body: SecureMessage, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
     """Secure chat between superadmin and KUDOS — handles everything."""
     from app.core.deployment import (
         git_status, git_add_all, git_commit, git_push, git_pull,
@@ -513,10 +513,57 @@ def secure_chat(body: SecureMessage, db: Session = Depends(get_db), admin: User 
 
 Or just chat naturally!""", "action": "help"}
 
-    # ── DEFAULT ──
+    # ── NATURAL CHAT FALLBACK ──
+    # Exact operational commands above remain deterministic and auditable.
+    # Everything else is handled like normal KUDOS chat, with MCP context and
+    # the configured LLM, so the superadmin channel can answer both questions
+    # and commands without exposing shell access to the model.
     identity = get_identity()
+    tool_sources = []
+    try:
+        from app.core.mcp_client import search_mcp_sources
+        tool_sources = await search_mcp_sources(raw, limit=5)
+    except Exception:
+        pass
+
+    knowledge_context = "\n\n".join(
+        source.get("content", "")[:1200]
+        for source in tool_sources
+        if source.get("content")
+    )
+    answer = None
+    try:
+        from app.core.llm_engine import get_llm_response
+        answer = await get_llm_response(
+            question=raw,
+            knowledge_context=knowledge_context,
+            conversation_history=[],
+            user_name=admin.full_name.split()[0] if admin.full_name else "",
+        )
+    except Exception:
+        pass
+
+    if not answer or len(answer) < 10:
+        try:
+            from app.core.conversation_engine import generate_human_response
+            answer = generate_human_response(
+                query=raw,
+                sources=tool_sources,
+                conv_id=10_000_000 + admin.id,
+                user_name=admin.full_name.split()[0] if admin.full_name else None,
+            )
+        except Exception:
+            answer = f"I understand: '{raw}'. Type 'help' for available commands."
+
     return {
         "from": identity["name"],
-        "message": f"I understand: '{raw}'. Type 'help' for all commands, or just chat with me!",
+        "message": answer,
         "action": "conversation",
+        "sources": [
+            {
+                "title": source.get("title", source.get("source", "MCP tool")),
+                "preview": source.get("content", "")[:200],
+            }
+            for source in tool_sources[:5]
+        ],
     }
