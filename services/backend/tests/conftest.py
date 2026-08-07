@@ -36,3 +36,38 @@ def _test_db():
     engine.dispose()
     if os.path.exists("./test.db"):
         os.remove("./test.db")
+
+
+# ──────────────────────────────────────────────
+# Shared helpers (import from tests.conftest)
+# ──────────────────────────────────────────────
+
+def register_user(client, email: str, password: str = "pass1234", full_name: str = "Test User"):
+    """Register a user and assert success; returns the response JSON."""
+    r = client.post(
+        "/api/v1/auth/register",
+        json={"email": email, "full_name": full_name, "password": password},
+    )
+    assert r.status_code == 201, r.text
+    return r.json()
+
+
+def login(client, email: str, password: str = "pass1234"):
+    """Log in and return an Authorization header dict."""
+    r = client.post("/api/v1/auth/login", json={"email": email, "password": password})
+    assert r.status_code == 200, r.text
+    return {"Authorization": f"Bearer {r.json()['access_token']}"}
+
+
+def promote_to_admin(email: str):
+    """Flip is_admin=True for an existing user, directly in the test DB."""
+    from app.models import User
+
+    db = TestSessionLocal()
+    try:
+        user = db.query(User).filter(User.email == email).first()
+        assert user is not None, f"user {email} not found"
+        user.is_admin = True
+        db.commit()
+    finally:
+        db.close()

@@ -12,6 +12,9 @@ client = TestClient(app)
 TEST_USER = {"email": "test@campus.edu", "full_name": "Test User", "password": "testpass123"}
 TEST_COURSE = {"code": "TST101", "title": "Test Course", "description": "A test course", "credits": 3}
 
+# Populated by test_courses_create_as_admin — avoids depending on absolute IDs.
+CREATED_COURSE_ID = None
+
 
 # === Health ===
 
@@ -131,10 +134,12 @@ def test_courses_create_as_admin():
     assert response.status_code == 201
     data = response.json()
     assert data["code"] == TEST_COURSE["code"]
+    global CREATED_COURSE_ID
+    CREATED_COURSE_ID = data["id"]
 
 
 def test_courses_get():
-    response = client.get("/api/v1/courses/1")
+    response = client.get(f"/api/v1/courses/{CREATED_COURSE_ID}")
     assert response.status_code == 200
     assert response.json()["code"] == TEST_COURSE["code"]
 
