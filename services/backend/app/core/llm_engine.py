@@ -44,7 +44,7 @@ LLM_CONFIGS = {
         "name": "Ollama (Local)",
         "icon": "🦙",
         "endpoint": "http://localhost:11434/api/generate",
-        "api_key_env": "",
+        "api_key_env": "OLLAMA_API_KEY",
         "model_env": "OLLAMA_MODEL",
         "enabled": False,
     },
@@ -90,7 +90,14 @@ def provider_is_configured(provider: str) -> bool:
     """Return whether a provider can be queried right now."""
     # Ollama is local and does not require an API key.
     if provider == "ollama":
-        return bool(settings.OLLAMA_ENABLED and settings.OLLAMA_BASE_URL and get_model(provider))
+        base_url = settings.OLLAMA_BASE_URL.rstrip("/")
+        requires_key = base_url.startswith("https://ollama.com")
+        return bool(
+            settings.OLLAMA_ENABLED
+            and base_url
+            and get_model(provider)
+            and (not requires_key or get_api_key(provider))
+        )
     return bool(get_api_key(provider))
 
 
@@ -222,10 +229,18 @@ async def query_groq(prompt: str, system_prompt: str = "") -> Optional[str]:
 async def query_ollama(prompt: str, system_prompt: str = "") -> Optional[str]:
     """Query local Ollama instance."""
     try:
-        endpoint = f"{settings.OLLAMA_BASE_URL.rstrip('/')}/api/generate"
+        base_url = settings.OLLAMA_BASE_URL.rstrip("/")
+        if base_url.endswith("/api"):
+            base_url = base_url[:-4]
+        endpoint = f"{base_url}/api/generate"
+        headers = {}
+        api_key = get_api_key("ollama")
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
         async with httpx.AsyncClient(timeout=max(settings.LLM_TIMEOUT_SECONDS, 60)) as client:
             res = await client.post(
                 endpoint,
+                headers=headers,
                 json={
                     "model": get_model("ollama"),
                     "prompt": prompt,
