@@ -3,14 +3,10 @@ Digital Campus - Superadmin Dashboard API
 Unified admin control: brain, identity, root, analytics, guidelines.
 Everything secured — admin-only access.
 """
-import json
 import os
-from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from typing import Optional
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -27,7 +23,7 @@ from app.core.kudos_identity import (
 )
 from app.core.auto_learner import get_auto_learner_status, start_auto_learner, stop_auto_learner, trigger_learning_cycle
 from app.models import User, Course, Enrollment, Attendance, Session as SessionModel, KudosDocument, KudosWebKnowledge, KudosConversation, KudosMessage
-from app.models_extended import Notification, Assignment, Submission, Grade, ExamAttempt
+from app.models_extended import Notification, Assignment, Submission, ExamAttempt
 
 router = APIRouter()
 REPO_PATH = str(project_root(__file__))
@@ -280,8 +276,7 @@ async def secure_chat(body: SecureMessage, db: Session = Depends(get_db), admin:
     """Secure chat between superadmin and KUDOS — handles everything."""
     from app.core.deployment import (
         git_status, git_add_all, git_commit, git_push, git_pull,
-        get_env_content, set_env_var, create_env_file,
-        list_platforms, get_deployment_guide, PLATFORMS,
+        get_env_content, set_env_var, list_platforms, get_deployment_guide, PLATFORMS,
     )
     msg = body.message.lower().strip()
     raw = body.message.strip()
@@ -315,7 +310,7 @@ async def secure_chat(body: SecureMessage, db: Session = Depends(get_db), admin:
         env = get_env_content()
         if env["exists"]:
             safe_vars = {k: ("***" if "key" in k.lower() or "secret" in k.lower() or "password" in k.lower() else v) for k, v in env["vars"].items()}
-            return {"from": "KUDOS", "message": f"Current .env variables:\n" + "\n".join(f"• {k}={v}" for k, v in safe_vars.items()), "action": "env_show"}
+            return {"from": "KUDOS", "message": "Current .env variables:\n" + "\n".join(f"• {k}={v}" for k, v in safe_vars.items()), "action": "env_show"}
         return {"from": "KUDOS", "message": "No .env file exists. Say 'create env' to create one.", "action": "env_missing"}
 
     if msg.startswith("set env"):
@@ -427,7 +422,7 @@ async def secure_chat(body: SecureMessage, db: Session = Depends(get_db), admin:
         from app.core.embed_engine import generate_embed_code
         result = generate_embed_code(embed_type, "http://localhost:3000")
         if "error" in result:
-            return {"from": "KUDOS", "message": f"Unknown embed type. Available: chat, courses, attendance, kudos, social_feed, calendar, login, announcements", "action": "embed_error"}
+            return {"from": "KUDOS", "message": "Unknown embed type. Available: chat, courses, attendance, kudos, social_feed, calendar, login, announcements", "action": "embed_error"}
         return {"from": "KUDOS", "message": f"Here's your {result['name']} embed code:\n\n```\n{result['html']}\n```\n\n{result.get('instructions', '')}", "action": "embed_created"}
 
     # ── SANDBOX COMMANDS ──

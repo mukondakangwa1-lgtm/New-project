@@ -4,7 +4,7 @@ Digital Campus - Security Utilities
 from datetime import UTC, datetime, timedelta
 from typing import Optional
 
-from jose import JWTError, jwt
+from jose import jwt
 from passlib.context import CryptContext
 
 from app.core.config import settings

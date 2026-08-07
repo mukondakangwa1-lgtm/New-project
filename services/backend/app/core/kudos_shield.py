@@ -6,7 +6,6 @@ import hashlib
 import json
 import os
 import shutil
-import subprocess
 import threading
 import time
 from collections import defaultdict, deque
@@ -286,7 +285,7 @@ def _create_backup():
 
     try:
         from app.core.database import SessionLocal
-        from app.models import KudosDocument, KudosChunk, KudosWebKnowledge, KudosConversation, KudosMessage
+        from app.models import KudosDocument, KudosWebKnowledge
 
         db = SessionLocal()
 

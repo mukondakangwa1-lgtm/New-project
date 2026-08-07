@@ -2,11 +2,7 @@
 KUDOS Embed Engine — Generate embeddable widgets for any website
 KUDOS can create embeds that let external sites connect to the platform.
 """
-import hashlib
-import json
-import os
 from datetime import datetime, timezone
-from typing import Optional
 
 from app.core.paths import project_root
 

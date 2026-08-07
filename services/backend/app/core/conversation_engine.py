@@ -280,8 +280,6 @@ def _knowledge_response(query: str, sources: list[dict], ctx: dict) -> str:
 
 def _no_knowledge_response(query: str, ctx: dict) -> str:
     """Response when no knowledge is found — helpful and human."""
-    name = ctx.get("name", "")
-
     if "python" in query.lower() or "programming" in query.lower() or "code" in query.lower():
         return (
             f"I'd love to help with that! While I don't have specific information about \"{query}\" yet, "

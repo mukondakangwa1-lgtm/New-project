@@ -32,7 +32,6 @@ from app.schemas import (
     KudosConnectorCreate,
     KudosConnectorResponse,
     KudosPackCreate,
-    KudosPackImport,
     KudosPackResponse,
     KudosSyncLogResponse,
     KudosSyncResult,

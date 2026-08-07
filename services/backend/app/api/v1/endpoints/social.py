@@ -6,8 +6,7 @@ from collections import OrderedDict
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.database import get_db
@@ -296,9 +295,16 @@ def toggle_reaction(
         .first()
     )
     if existing:
+        removed = {
+            "id": existing.id,
+            "post_id": post_id,
+            "user_id": existing.user_id,
+            "emoji": existing.emoji,
+            "created_at": existing.created_at,
+        }
         db.delete(existing)
         db.commit()
-        return existing
+        return removed
 
     reaction = Reaction(post_id=post_id, user_id=current_user.id, emoji=body.emoji)
     db.add(reaction)

@@ -2,19 +2,16 @@
 Digital Campus - KUDOS Social & Search Learning
 Connects to Google, Reddit, social platforms to learn human interaction patterns.
 """
-import json
-import re
-from datetime import datetime, timezone
 
 import httpx
 from bs4 import BeautifulSoup
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import get_current_user, require_admin
+from app.core.deps import get_current_user
 from app.models import KudosWebKnowledge, User
-from app.api.v1.endpoints.kudos import simple_summarize, extract_keywords
+from app.api.v1.endpoints.kudos import simple_summarize
 
 router = APIRouter()
 
@@ -113,7 +110,7 @@ async def google_search_learn(
             "message": f"KUDOS searched Google for '{query}' and learned from {len(results)} pages",
         }
 
-    except Exception as e:
+    except Exception:
         # Fallback to DuckDuckGo
         return await _fallback_search_learn(query, max_results, db, current_user)
 

@@ -3,14 +3,13 @@ Digital Campus - KUDOS Arena AI
 Multi-AI orchestration — always responds, never crashes.
 """
 import json
-from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.deps import get_current_user
-from app.core.arena_engine import ARENA_MODES, query_multiple_sources, score_answer, select_best_answer, get_arena_modes
+from app.core.arena_engine import ARENA_MODES, query_multiple_sources, score_answer, select_best_answer
 from app.core.kudos_guardian import self_improver
 from app.models import KudosConversation, KudosMessage, User
 from app.schemas import KudosAskRequest

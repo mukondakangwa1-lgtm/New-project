@@ -3,14 +3,11 @@ KUDOS Brain — Autonomous self-improvement engine
 KUDOS thinks, learns, improves, and logs everything to superadmin.
 Runs continuously in the background.
 """
-import asyncio
-import json
 import threading
 import time
 from datetime import datetime, timezone
 from typing import Optional
 
-import httpx
 
 
 # ──────────────────────────────────────────────

@@ -5,15 +5,11 @@ Document learning, web learning, retrieval-based chat, superadmin controls.
 import io
 import json
 import re
-from collections import OrderedDict
-from datetime import datetime, timezone
-from typing import Optional
 
 import httpx
 from bs4 import BeautifulSoup
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
-from sqlalchemy import func, or_
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_db

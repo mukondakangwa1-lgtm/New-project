@@ -1,7 +1,6 @@
 """
 Digital Campus - Assignments & Grades
 """
-import json
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
@@ -10,7 +9,7 @@ from typing import Optional
 
 from app.core.database import get_db
 from app.core.deps import get_current_user, require_admin
-from app.models import User, Course, Enrollment
+from app.models import User
 from app.models_extended import Assignment, Submission, Grade, Notification
 
 router = APIRouter()
@@ -67,6 +66,7 @@ def submit_assignment(assignment_id: int, body: SubmissionCreate, db: Session = 
         existing.status = "submitted"
         existing.submitted_at = datetime.now(timezone.utc)
         db.commit()
+        db.refresh(existing)
         return existing
     s = Submission(assignment_id=assignment_id, student_id=user.id, content=body.content, file_url=body.file_url)
     db.add(s)
@@ -90,8 +90,9 @@ def grade_submission(assignment_id: int, submission_id: int, body: GradeSubmissi
     s.status = "graded"
     s.graded_at = datetime.now(timezone.utc)
     # Create notification
-    db.add(Notification(user_id=s.student_id, title="Assignment Graded", message=f"Your submission scored {body.score}. Feedback: {body.feedback[:200]}", notification_type="grade", link=f"/courses"))
+    db.add(Notification(user_id=s.student_id, title="Assignment Graded", message=f"Your submission scored {body.score}. Feedback: {body.feedback[:200]}", notification_type="grade", link="/courses"))
     db.commit()
+    db.refresh(s)
     return s
 
 

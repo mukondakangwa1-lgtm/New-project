@@ -3,15 +3,11 @@ KUDOS Device Analyzer — Analyze connecting devices, learn, and protect
 Fingerprints devices, monitors connections, learns patterns, blocks threats.
 """
 import hashlib
-import json
 import os
 import platform
 import socket
 import subprocess
-import time
-from collections import defaultdict
 from datetime import datetime, timezone
-from typing import Optional
 
 
 # ──────────────────────────────────────────────

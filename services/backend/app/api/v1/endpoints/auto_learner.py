@@ -2,11 +2,9 @@
 Digital Campus - KUDOS Auto-Learner API
 Automated learning from all sources.
 """
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
-from typing import Optional
+from fastapi import APIRouter, Depends
 
-from app.core.deps import get_current_user, require_admin
+from app.core.deps import require_admin
 from app.core.auto_learner import (
     get_auto_learner_status,
     start_auto_learner,

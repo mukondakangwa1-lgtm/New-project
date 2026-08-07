@@ -1,7 +1,6 @@
 """
 Digital Campus - Study Groups & Forums
 """
-from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
 from pydantic import BaseModel
@@ -99,6 +98,7 @@ def get_thread(thread_id: int, db: Session = Depends(get_db)):
         raise HTTPException(404, "Thread not found")
     t.view_count += 1
     db.commit()
+    db.refresh(t)
     return t
 
 
@@ -112,4 +112,5 @@ def reply_to_thread(thread_id: int, body: ReplyCreate, db: Session = Depends(get
     r = ForumReply(thread_id=thread_id, created_by=user.id, content=body.content)
     db.add(r)
     db.commit()
+    db.refresh(r)
     return r

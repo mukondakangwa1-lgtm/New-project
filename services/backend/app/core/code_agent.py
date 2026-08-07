@@ -3,7 +3,6 @@ KUDOS Code Agent — Autonomous improvement engine
 Analyzes the codebase, proposes improvements, waits for approval before committing.
 Only the superadmin can approve changes.
 """
-import json
 import os
 import re
 import subprocess

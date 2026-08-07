@@ -2,9 +2,6 @@
 Digital Campus - KUDOS Search & Social Connectors
 Connects to search engines, Wikipedia, social APIs for learning.
 """
-import json
-import re
-from datetime import datetime, timezone
 
 import httpx
 from bs4 import BeautifulSoup
@@ -12,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import get_current_user, require_admin
+from app.core.deps import get_current_user
 from app.models import KudosWebKnowledge, User
 from app.api.v1.endpoints.kudos import simple_summarize
 

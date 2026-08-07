@@ -2,15 +2,11 @@
 Digital Campus - KUDOS Code Agent API
 Autonomous code improvement with approval workflow.
 """
-import json
-from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
 
-from app.core.database import get_db
-from app.core.deps import get_current_user, require_admin
+from app.core.deps import require_admin
 from app.core.code_agent import (
     analyze_codebase, generate_improvements, create_proposal, get_proposals,
     approve_proposal, reject_proposal, commit_approved_changes, push_changes,

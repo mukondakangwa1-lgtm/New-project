@@ -1,6 +1,7 @@
 """
 Digital Campus - Schemas Package
 """
+# ruff: noqa: F401 — intentional re-export package (see __all__ below)
 from app.schemas.schemas import (
     UserBase, UserCreate, UserResponse, UserLogin, Token, TokenData,
     CourseBase, CourseCreate, CourseUpdate, CourseResponse,

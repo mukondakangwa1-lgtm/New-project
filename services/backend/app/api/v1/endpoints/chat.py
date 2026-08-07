@@ -2,8 +2,6 @@
 Digital Campus - Chat Endpoints
 WebSocket real-time messaging + REST for history & offline sync.
 """
-import json
-from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect

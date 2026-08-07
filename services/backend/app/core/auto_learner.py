@@ -4,11 +4,8 @@ Automatically learns from all sources: connectors, web, archive, social, search 
 Runs as a background process, self-improves continuously.
 """
 import asyncio
-import json
-import re
 import threading
 import time
-from collections import OrderedDict
 from datetime import datetime, timezone
 from typing import Optional
 

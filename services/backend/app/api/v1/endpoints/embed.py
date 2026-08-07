@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 
-from app.core.deps import get_current_user, require_admin
+from app.core.deps import require_admin
 from app.core.embed_engine import (
     generate_embed_code, register_embed, list_embeds, get_embed_types,
     EMBED_TYPES,
@@ -14,7 +14,6 @@ from app.core.embed_engine import (
 from app.core.sandbox import (
     create_proposal, list_proposals, get_proposal, test_proposal,
     approve_proposal, reject_proposal, deploy_proposal,
-    sandbox_write_file, sandbox_read_file, rollback_file,
     get_sandbox_status, get_sandbox_log,
 )
 from app.models import User

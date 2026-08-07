@@ -1,7 +1,7 @@
 """
 Digital Campus - Calendar, Goals & Notifications
 """
-from datetime import datetime, timezone
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -94,6 +94,7 @@ def update_goal_progress(goal_id: int, increment: int = 1, db: Session = Depends
     if g.current_value >= g.target_value:
         g.is_completed = True
     db.commit()
+    db.refresh(g)
     return g
 
 

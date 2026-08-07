@@ -3,19 +3,15 @@ Digital Campus - KUDOS Internet Archive Connector
 Connects to archive.org — the world's largest digital library.
 Wayback Machine, books, texts, media, software, and more.
 """
-import json
-import re
-from datetime import datetime, timezone
 
 import httpx
 from bs4 import BeautifulSoup
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
 from typing import Optional
 
 from app.core.database import get_db
-from app.core.deps import get_current_user, require_admin
+from app.core.deps import get_current_user
 from app.models import KudosWebKnowledge, User
 from app.api.v1.endpoints.kudos import simple_summarize
 
@@ -44,7 +40,7 @@ async def learn_from_wayback(
     try:
         async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
             # Find available snapshots
-            cdx_url = f"https://web.archive.org/cdx/search/cdx"
+            cdx_url = "https://web.archive.org/cdx/search/cdx"
             params = {
                 "url": url,
                 "output": "json",
@@ -72,7 +68,7 @@ async def learn_from_wayback(
             # Fetch the archived page
             page_res = await client.get(wayback_url, timeout=15)
             if page_res.status_code != 200:
-                raise HTTPException(400, f"Failed to fetch archived page")
+                raise HTTPException(400, "Failed to fetch archived page")
 
             soup = BeautifulSoup(page_res.text, "html.parser")
             for tag in soup(["script", "style", "nav", "footer", "header", "noscript"]):

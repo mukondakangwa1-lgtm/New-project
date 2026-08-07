@@ -68,6 +68,7 @@ def add_question(exam_id: int, body: QuestionCreate, db: Session = Depends(get_d
     q = ExamQuestion(exam_id=exam_id, question_text=body.question_text, question_type=body.question_type, options=body.options, correct_answer=body.correct_answer, points=body.points, order_index=count)
     db.add(q)
     db.commit()
+    db.refresh(q)
     return q
 
 

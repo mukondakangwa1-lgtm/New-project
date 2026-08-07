@@ -3,10 +3,8 @@ KUDOS Sandbox — Safe testing environment
 KUDOS tests features before offering them for superadmin approval.
 Isolated execution, rollback capability, proposal workflow.
 """
-import json
 import os
 import subprocess
-import tempfile
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -151,7 +149,7 @@ def test_proposal(proposal_id: int) -> dict:
         else:
             results["tests"].append({"name": "import_check", "status": "FAIL", "details": result.stderr[:200]})
             results["failed"] += 1
-    except Exception as e:
+    except Exception:
         results["tests"].append({"name": "import_check", "status": "ERROR"})
         results["failed"] += 1
 

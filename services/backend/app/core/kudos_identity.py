@@ -3,10 +3,7 @@ KUDOS Identity System — Brain, Eyes, Hands, Mouth, Soul
 The superadmin names and configures KUDOS. KUDOS self-improves and logs to superadmin.
 """
 import json
-import os
 from datetime import datetime, timezone
-from pathlib import Path
-from typing import Optional
 
 
 # ──────────────────────────────────────────────

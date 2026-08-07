@@ -1,11 +1,10 @@
 """
 Digital Campus - Timetable & Attendance Endpoints
 """
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import func
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.database import get_db

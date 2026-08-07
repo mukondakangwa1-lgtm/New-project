@@ -3,18 +3,13 @@ KUDOS Guardian API — Secure superadmin channel, integrity checks, self-improve
 Only superadmin can access these endpoints.
 """
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
 
-from app.core.database import get_db
 from app.core.deps import require_admin
 from app.core.kudos_guardian import (
-    KudosSecureChannel,
-    KudosSelfImprover,
     secure_channel,
     self_improver,
     verify_integrity,
     update_hashes_after_admin_change,
-    save_integrity_hashes,
     KUDOS_PROTECTED_PATHS,
 )
 from app.models import User
