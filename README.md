@@ -6,6 +6,11 @@
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-green)
 ![Next.js](https://img.shields.io/badge/Next.js-14-black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-blue)
+![pgvector](https://img.shields.io/badge/pgvector-embeddings-blue)
+![Redis](https://img.shields.io/badge/Redis-7-red)
+![Celery](https://img.shields.io/badge/Celery-async_jobs-green)
+![CI](https://img.shields.io/badge/CI-GitHub_Actions-green)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 
 ---
@@ -22,12 +27,15 @@
 
 ### 🧠 KUDOS AI Assistant
 - **Knowledge Learning** — Upload documents, teach web pages, connect 32+ sources
+- **Semantic Search** — Optional pgvector embeddings with OpenAI text-embedding models
 - **Internet Archive** — Access 25+ years of web history
 - **Search Engines** — DuckDuckGo, Wikipedia, Reddit integration
-- **LLM Integration** — Google Gemini, OpenAI, Groq, Ollama support
+- **LLM Integration** — Google Gemini, OpenAI, Groq, Ollama support (provider-neutral adapter)
+- **Model Context Protocol** — Private MCP gateway exposing KUDOS tools over Streamable HTTP
 - **Arena AI** — Multi-source query with best answer selection
 - **Conversational** — Empathetic, context-aware, follows conversation
 - **Self-Improvement** — Autonomous learning, knowledge gap detection
+- **Background Tasks** — Celery workers for connector syncs and long-running jobs
 
 ### 🛡️ KUDOS Guardian
 - **File Integrity** — SHA-256 monitoring of critical files
@@ -84,28 +92,43 @@ New-project/
 │   ├── components/              # Reusable components
 │   └── styles/                  # CSS
 │
-├── services/backend/            # FastAPI + SQLAlchemy
+├── services/backend/            # FastAPI + SQLAlchemy + Celery
 │   ├── app/
-│   │   ├── api/v1/endpoints/    # API endpoints (20+ modules)
+│   │   ├── api/v1/endpoints/    # API endpoints (28 modules)
 │   │   ├── core/                # Core systems
 │   │   │   ├── arena_engine.py  # Multi-source AI query
 │   │   │   ├── auto_learner.py  # Autonomous learning
 │   │   │   ├── code_agent.py    # Code improvement agent
 │   │   │   ├── conversation_engine.py  # Human-like responses
+│   │   │   ├── embeddings.py    # Embedding provider abstraction
+│   │   │   ├── vector_store.py  # Optional pgvector semantic storage
 │   │   │   ├── kudos_brain.py   # Autonomous thinking
 │   │   │   ├── kudos_guardian.py # File integrity
 │   │   │   ├── kudos_identity.py # KUDOS identity system
 │   │   │   ├── kudos_shield.py  # Self-protection
+│   │   │   ├── llm_adapter.py   # Provider-neutral LLM adapter
 │   │   │   └── llm_engine.py    # LLM integration
+│   │   ├── celery_app.py        # Celery app (Redis broker)
+│   │   ├── tasks.py             # Background tasks (connector sync, learning)
+│   │   ├── mcp_server.py        # MCP Streamable HTTP gateway
 │   │   ├── models.py            # SQLAlchemy models
 │   │   ├── models_extended.py   # Extended models
 │   │   └── schemas/             # Pydantic schemas
-│   ├── tests/                   # Pytest test suite
-│   ├── seed.py                  # Database seeder (superadmin only)
+│   ├── alembic/                 # Database migrations (Alembic)
+│   │   └── versions/            # Initial schema + studio tables
+│   ├── initdb/pgvector.sql      # Postgres init: CREATE EXTENSION vector
+│   ├── tests/                   # Pytest test suite (59 tests)
+│   ├── Dockerfile
+│   ├── requirements.txt
+│   ├── requirements-dev.txt     # Pinned: ruff, black, pytest, pytest-asyncio
+│   ├── seed.py                  # Creates the superadmin account only
 │   └── seed_kudos.py            # KUDOS knowledge seeder
 │
-├── .gitignore
-├── docker-compose.yml
+├── .github/workflows/ci.yml     # CI: backend pytest+ruff, frontend build, migrations
+├── deploy.env.example           # Prod compose secrets template
+├── docker-compose.yml           # Dev stack: backend, frontend, pgvector db, redis, worker
+├── docker-compose.prod.yml      # Prod stack: + private mcp service
+├── CONTRIBUTING.md
 ├── Makefile
 └── README.md
 ```
@@ -114,12 +137,38 @@ New-project/
 
 ## 🛠️ Quick Start
 
-### Prerequisites
+The recommended development path is the Docker Compose stack, which matches
+production: PostgreSQL (with pgvector), Redis, Celery workers, backend and
+frontend all start with one command.
+
+### Option A — Docker Compose (recommended)
+
+Prerequisites: Docker + Docker Compose v2.
+
+```bash
+cp deploy.env.example .env          # for prod only — not needed for dev
+docker compose up -d --build
+```
+
+The stack starts `backend`, `frontend`, `db` (pgvector/pgvector:pg15), `redis`,
+and `worker` (Celery). Apply migrations, then seed the superadmin:
+
+```bash
+docker compose exec backend python -m alembic upgrade head
+docker compose exec backend python seed.py
+```
+
+- Frontend: http://localhost:3000
+- Backend API: http://localhost:8000 (Swagger at http://localhost:8000/docs)
+- Postgres: localhost:5432 (`dc_user` / `dc_pass`, database `digital_campus`)
+- Redis: localhost:6379
+
+### Option B — Local (no Docker)
+
+Prerequisites:
 - Python 3.11+
 - Node.js 18+
 - Git
-
-### 1. Clone & Setup
 
 ```bash
 git clone git@github.com:mukondakangwa1-lgtm/New-project.git
@@ -128,11 +177,15 @@ cd New-project
 # Backend
 cd services/backend
 python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
+.venv/bin/pip install -r requirements.txt -r requirements-dev.txt
+cp .env.example .env                # edit values; for local dev you may use SQLite:
+#   DATABASE_URL=sqlite:///./digital_campus.db   (AUTO_CREATE_TABLES=true for throwaway DBs)
+#   DATABASE_URL=postgresql://dc_user:dc_pass@localhost:5432/digital_campus
 
-# Initialize database
-.venv/bin/python seed.py
-.venv/bin/python seed_kudos.py
+# Apply migrations (or set AUTO_CREATE_TABLES=true for a throwaway SQLite DB)
+.venv/bin/python -m alembic upgrade head
+.venv/bin/python seed.py            # creates the superadmin account only
+.venv/bin/python seed_kudos.py      # optional KUDOS knowledge seeder
 
 # Frontend
 cd ../../frontend
@@ -143,14 +196,20 @@ npm install
 
 **Terminal 1 (Backend):**
 ```bash
-cd ~/New-project/services/backend
+cd services/backend
 .venv/bin/uvicorn app.main:app --reload --port 8000
 ```
 
 **Terminal 2 (Frontend):**
 ```bash
-cd ~/New-project/frontend
+cd frontend
 npm run dev
+```
+
+**Terminal 3 (optional — Celery worker):**
+```bash
+cd services/backend
+.venv/bin/celery -A app.celery_app.celery worker --loglevel=info
 ```
 
 Open **http://localhost:3000**
@@ -168,18 +227,29 @@ Open **http://localhost:3000**
 ## 🐳 Docker
 
 The repository includes a development Compose file and a production-style
-LAN/VPS Compose file. This project currently uses the legacy command spelling
-`docker-compose` on systems without the Compose v2 plugin.
+LAN/VPS Compose file. Commands below use the Compose v2 syntax (`docker
+compose`); on older systems without the v2 plugin, replace `docker compose`
+with the legacy `docker-compose` spelling.
 
 ### Development
 
 ```bash
-docker-compose up -d --build
+docker compose up -d --build
 ```
 
-The frontend is available at http://localhost:3000 and the backend at
-http://localhost:8000. The frontend uses a server-side rewrite, so browser
-requests stay same-origin and never depend on a browser-visible localhost API.
+The stack starts five services: `backend`, `frontend`, `db`
+(`pgvector/pgvector:pg15` — PostgreSQL with the vector extension),
+`redis`, and `worker` (Celery with the Redis broker). The frontend is
+available at http://localhost:3000 and the backend at http://localhost:8000.
+The frontend uses a server-side rewrite, so browser requests stay same-origin
+and never depend on a browser-visible localhost API.
+
+Apply migrations before first use:
+
+```bash
+docker compose exec backend python -m alembic upgrade head
+docker compose exec backend python seed.py
+```
 
 ### LAN/VPS deployment
 
@@ -200,15 +270,15 @@ secret manager; do not commit or paste them into chat.
 2. Build and start the data services:
 
 ```bash
-docker-compose -f docker-compose.prod.yml build
-docker-compose -f docker-compose.prod.yml up -d db redis
+docker compose -f docker-compose.prod.yml build
+docker compose -f docker-compose.prod.yml up -d db redis
 ```
 
 3. Apply migrations on a new database, then start the application:
 
 ```bash
-docker-compose -f docker-compose.prod.yml run --rm backend python -m alembic upgrade head
-docker-compose -f docker-compose.prod.yml up -d backend worker frontend
+docker compose -f docker-compose.prod.yml run --rm backend python -m alembic upgrade head
+docker compose -f docker-compose.prod.yml up -d backend worker frontend
 ```
 
 The LAN frontend is available at `http://SERVER_IP:3000`. The backend is bound
@@ -221,7 +291,7 @@ a backup first and mark it at the initial migration instead of running the
 create-table migration against existing tables:
 
 ```bash
-docker-compose -f docker-compose.prod.yml run --rm backend \
+docker compose -f docker-compose.prod.yml run --rm backend \
   python -m alembic stamp 39101dd01b2e
 ```
 
@@ -259,6 +329,7 @@ After starting the backend, visit:
 
 | Prefix | Description |
 |--------|-------------|
+| `/api/v1/health` | Health check |
 | `/api/v1/auth` | Authentication (register, login, token) |
 | `/api/v1/users` | User management |
 | `/api/v1/courses` | Course CRUD |
@@ -283,35 +354,49 @@ After starting the backend, visit:
 | `/api/v1/superadmin` | Superadmin dashboard |
 | `/api/v1/root` | Root terminal |
 | `/api/v1/shield` | Self-protection |
+| `/api/v1/tools` | Embed & sandbox |
+| `/api/v1/media` | Media hub |
 | `/api/v1/admin/analytics` | Analytics |
+| `/mcp` | MCP Streamable HTTP endpoint (prod `mcp` service, token auth) |
 
 ---
 
 ## 🏗️ Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    Frontend (Next.js)                     │
-│  Pages │ Components │ API Proxy │ WebSocket │ PWA        │
-└───────────────────────┬─────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                     Frontend (Next.js)                        │
+│   Pages │ Components │ API Proxy │ WebSocket │ PWA            │
+└───────────────────────┬──────────────────────────────────────┘
                         │ HTTP / WebSocket
-┌───────────────────────┴─────────────────────────────────┐
-│                   Backend (FastAPI)                       │
-│  ┌─────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐ │
-│  │  Auth   │  │  KUDOS   │  │  Studio  │  │  Admin   │ │
-│  └────┬────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘ │
-│       │            │             │              │        │
-│  ┌────┴────────────┴─────────────┴──────────────┴─────┐ │
-│  │              Core Systems                           │ │
-│  │  Brain │ Shield │ Guardian │ Identity │ Arena       │ │
-│  └────────────────────────┬───────────────────────────┘ │
-│                           │                              │
-│  ┌────────────────────────┴───────────────────────────┐ │
-│  │              Database (SQLAlchemy + SQLite)          │ │
-│  │  Users │ Courses │ KUDOS │ Chat │ Social │ Studio   │ │
-│  └────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────┘
+┌───────────────────────┴──────────────────────────────────────┐
+│                     Backend (FastAPI)                          │
+│  ┌─────────┐  ┌──────────┐  ┌──────────┐  ┌────────────────┐ │
+│  │  Auth   │  │  KUDOS   │  │  Studio  │  │  MCP Gateway   │ │
+│  └────┬────┘  └────┬─────┘  └────┬─────┘  └───────┬────────┘ │
+│       │            │             │                 │          │
+│  ┌────┴────────────┴─────────────┴──────────────┐  │          │
+│  │                Core Systems                  │  │          │
+│  │ Brain │ Shield │ Guardian │ Identity │ Arena │  │          │
+│  └───────────────┬──────────────────────────────┘  │          │
+│                  │ Celery workers (sync, learning) │          │
+│  ┌───────────────┴──────────────────────────┐  ┌───┴────────┐ │
+│  │        PostgreSQL 15 + pgvector          │  │   Redis    │ │
+│  │  Users │ Courses │ KUDOS │ Chat │ Social │  │  broker +  │ │
+│  │  embeddings (vector) │ migrations (Alembic) │   cache    │ │
+│  └──────────────────────────────────────────┘  └────────────┘ │
+└──────────────────────────────────────────────────────────────┘
 ```
+
+- **Database** — PostgreSQL 15 with the `vector` extension (pgvector) for
+  semantic embeddings; SQLite remains a supported dev fallback via
+  `DATABASE_URL`.
+- **Migrations** — Alembic versioned schema (`services/backend/alembic`);
+  applied with `python -m alembic upgrade head`.
+- **Async jobs** — Celery with Redis broker: connector syncs, knowledge
+  learning, and other long-running work (`app/celery_app.py`, `app/tasks.py`).
+- **MCP** — the private `mcp` service (prod Compose) exposes KUDOS tools over
+  Streamable HTTP; the backend consumes them via `app/core/mcp_client.py`.
 
 ---
 
@@ -335,14 +420,24 @@ cd services/backend
 .venv/bin/python -m pytest tests/ -v
 ```
 
-14 tests covering:
-- Health endpoints
-- Authentication
-- User management
-- Course CRUD
-- Authorization
+59 tests covering:
+- Health endpoints, authentication, user management, course CRUD, authorization
+- Academic: assignments, grades, exams, planner, timetable, community
+- Studio: speaking sessions, broadcasts, video calls, journal blocks
+- KUDOS: documents, connectors, web knowledge, sync tasks, embeddings
+- MCP: HTTP auth middleware, tool registration, mutation guard, DB-backed tools,
+  and end-to-end tests against a live uvicorn subprocess via the real client
 
----
+Frontend typecheck (`npx tsc --noEmit`) and production build (`npm run build`)
+are part of the same gates.
+
+### CI (GitHub Actions)
+
+`.github/workflows/ci.yml` runs on every push/PR:
+- **Backend** — `ruff check --select F` (pyflakes) + full pytest suite
+- **Frontend** — TypeScript typecheck + Next.js production build
+- **Migration** — `alembic upgrade head` on a fresh SQLite database and
+  verifies the expected tables exist
 
 ## 📦 Tech Stack
 
@@ -350,10 +445,16 @@ cd services/backend
 |-------|-----------|
 | **Frontend** | Next.js 14, React 18, TypeScript, Tailwind CSS |
 | **Backend** | FastAPI, Python 3.11+, SQLAlchemy, Pydantic |
-| **Database** | SQLite (dev), PostgreSQL (production) |
+| **Database** | PostgreSQL 15 + pgvector (primary), SQLite dev fallback |
+| **Migrations** | Alembic versioned schema |
+| **Async jobs** | Celery with Redis broker (7.x) |
+| **Vector search** | pgvector with OpenAI text-embedding models (optional) |
+| **AI** | Google Gemini, OpenAI, Groq, Ollama via provider-neutral adapter |
+| **MCP** | MCP Python SDK, Streamable HTTP gateway, token auth |
 | **Real-time** | WebSocket (chat), SSE (notifications) |
-| **AI** | Google Gemini, OpenAI, Groq, Ollama, custom engine |
-| **Deployment** | Docker, Docker Compose |
+| **Testing** | Pytest (59 tests), pytest-asyncio, FastAPI TestClient, ruff |
+| **CI** | GitHub Actions (backend, frontend, migrations) |
+| **Deployment** | Docker, Docker Compose (dev + prod stacks) |
 
 ---
 
