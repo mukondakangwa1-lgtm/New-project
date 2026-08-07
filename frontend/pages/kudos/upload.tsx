@@ -1,4 +1,4 @@
-import { useState, useRef, FormEvent } from "react";
+import { useState, useRef, useEffect, FormEvent } from "react";
 import Layout from "@/components/Layout";
 
 function getAuthHeader(): Record<string, string> {
@@ -15,12 +15,12 @@ export default function KudosUpload() {
   const [docs, setDocs] = useState<any[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  useState(() => {
+  useEffect(() => {
     fetch("/api/v1/kudos/documents", { headers: getAuthHeader() })
       .then((r) => r.json())
       .then((d) => Array.isArray(d) && setDocs(d))
       .catch(() => {});
-  });
+  }, []);
 
   const handleUpload = async (e: FormEvent) => {
     e.preventDefault();

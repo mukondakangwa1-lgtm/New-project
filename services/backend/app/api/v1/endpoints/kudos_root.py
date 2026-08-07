@@ -2,22 +2,27 @@
 Digital Campus - KUDOS Root Access & Identity
 Superadmin-only root terminal, identity management, guidelines, self-improvement.
 """
-import json
 import os
-import subprocess
-from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from typing import Optional
 
 from app.core.deps import require_admin
-from app.core.paths import project_root
 from app.core.kudos_identity import (
-    get_identity, update_identity, rename, get_guidelines, set_guidelines,
-    add_guideline, update_body_part, get_status_report, get_improvement_log,
-    get_new_abilities, get_knowledge_gaps, log_improvement, log_new_ability,
+    add_guideline,
+    get_guidelines,
+    get_identity,
+    get_improvement_log,
+    get_knowledge_gaps,
+    get_new_abilities,
+    get_status_report,
+    log_improvement,
+    rename,
+    set_guidelines,
+    update_body_part,
+    update_identity,
 )
+from app.core.paths import project_root
 from app.models import User
 
 router = APIRouter()
@@ -84,7 +89,7 @@ class RootCommand(BaseModel):
     args: str = ""
 
 
-@router.post("/root/exec")
+@router.post("/exec")
 def root_execute(body: RootCommand, admin: User = Depends(require_admin)):
     """Execute a root command (superadmin only). Safe commands only."""
     cmd = body.command.lower().strip()

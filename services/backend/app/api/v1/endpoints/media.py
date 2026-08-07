@@ -3,18 +3,11 @@ Digital Campus - Media Hub
 Movies, shows, audio — sourced from free legal platforms.
 VLC integration for playback, FMHY resources for discovery.
 """
-import json
-import re
-from datetime import datetime, timezone
-from typing import Optional
 
 import httpx
 from bs4 import BeautifulSoup
-from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends
 
-from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models import User
 
@@ -72,8 +65,37 @@ FREE_SOURCES = {
 # MEDIA SEARCH & DISCOVERY
 # ──────────────────────────────────────────────
 
+async def _duckduckgo_search(query: str, limit: int = 5) -> tuple[list[dict], str | None]:
+    """Search DuckDuckGo HTML. Returns (results, warning_or_None)."""
+    results = []
+    warning = None
+    try:
+        async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
+            res = await client.get(
+                "https://html.duckduckgo.com/html/",
+                params={"q": query},
+                headers={"User-Agent": "Mozilla/5.0 (compatible; DigitalCampus/1.0)"},
+            )
+            if res.status_code != 200:
+                warning = f"Search engine returned status {res.status_code}; results may be incomplete."
+            soup = BeautifulSoup(res.text, "html.parser")
+            links = soup.find_all("a", class_="result__a")
+            for link in links[:limit]:
+                href = link.get("href", "")
+                title = link.get_text(strip=True)
+                if not href:
+                    continue
+                if "uddg=" in href:
+                    import urllib.parse
+                    href = urllib.parse.parse_qs(urllib.parse.urlparse(href).query).get("uddg", [href])[0]
+                results.append({"title": title, "url": href})
+    except Exception as exc:
+        warning = f"Search engine unavailable ({type(exc).__name__})."
+    return results, warning
+
+
 @router.get("/sources")
-def list_sources(category: Optional[str] = None):
+def list_sources(category: str | None = None):
     """List all free media sources."""
     if category:
         sources = FREE_SOURCES.get(category, [])
@@ -88,52 +110,20 @@ async def search_media(
 ):
     """Search for free media across all sources."""
     results = []
+    warning = None
 
     # Search FMHY
-    try:
-        async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
-            res = await client.get(
-                "https://html.duckduckgo.com/html/",
-                params={"q": f"site:fmhy.net {query}"},
-                headers={"User-Agent": "Mozilla/5.0 (compatible; DigitalCampus/1.0)"},
-            )
-            soup = BeautifulSoup(res.text, "html.parser")
-            links = soup.find_all("a", class_="result__a")
-            for link in links[:5]:
-                href = link.get("href", "")
-                title = link.get_text(strip=True)
-                if href and "fmhy" in href.lower():
-                    results.append({
-                        "title": title,
-                        "url": href,
-                        "source": "FMHY",
-                        "icon": "📚",
-                    })
-    except Exception:
-        pass
-
-    # Search 1flex
-    try:
-        async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
-            res = await client.get(
-                "https://html.duckduckgo.com/html/",
-                params={"q": f"site:1flex.org {query}"},
-                headers={"User-Agent": "Mozilla/5.0 (compatible; DigitalCampus/1.0)"},
-            )
-            soup = BeautifulSoup(res.text, "html.parser")
-            links = soup.find_all("a", class_="result__a")
-            for link in links[:5]:
-                href = link.get("href", "")
-                title = link.get_text(strip=True)
-                if href:
-                    results.append({
-                        "title": title,
-                        "url": href,
-                        "source": "1flex",
-                        "icon": "🎬",
-                    })
-    except Exception:
-        pass
+    fmhy_results, fmhy_warning = await _duckduckgo_search(f"site:fmhy.net {query}", limit=5)
+    for r in fmhy_results:
+        if "fmhy" in r["url"].lower():
+            results.append({
+                "title": r["title"],
+                "url": r["url"],
+                "source": "FMHY",
+                "icon": "📚",
+            })
+    if fmhy_warning:
+        warning = fmhy_warning
 
     # Search free sources
     for cat, sources in FREE_SOURCES.items():
@@ -149,7 +139,7 @@ async def search_media(
                     "description": source["description"],
                 })
 
-    return {"query": query, "results": results[:20], "count": len(results)}
+    return {"query": query, "results": results[:20], "count": len(results), "warning": warning}
 
 
 # ──────────────────────────────────────────────
@@ -186,67 +176,12 @@ def play_in_vlc(url: str, title: str = "", user: User = Depends(get_current_user
 @router.get("/fmhy")
 async def search_fmhy(query: str):
     """Search FMHY for free resources."""
-    results = []
-    try:
-        async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
-            res = await client.get(
-                "https://html.duckduckgo.com/html/",
-                params={"q": f"site:fmhy.net {query}"},
-                headers={"User-Agent": "Mozilla/5.0 (compatible; DigitalCampus/1.0)"},
-            )
-            soup = BeautifulSoup(res.text, "html.parser")
-            links = soup.find_all("a", class_="result__a")
-            snippets = soup.find_all("a", class_="result__snippet")
+    results, warning = await _duckduckgo_search(f"site:fmhy.net {query}", limit=10)
 
-            for i, link in enumerate(links[:10]):
-                href = link.get("href", "")
-                title = link.get_text(strip=True)
-                snippet = snippets[i].get_text(strip=True) if i < len(snippets) else ""
-
-                # Clean DuckDuckGo redirect
-                if "uddg=" in href:
-                    import urllib.parse
-                    href = urllib.parse.parse_qs(urllib.parse.urlparse(href).query).get("uddg", [href])[0]
-
-                results.append({
-                    "title": title,
-                    "url": href,
-                    "snippet": snippet[:200],
-                    "source": "FMHY",
-                })
-    except Exception:
-        pass
-
-    return {"query": query, "results": results, "count": len(results), "note": "Results from fmhy.net — the ultimate free resources directory"}
-
-
-# ──────────────────────────────────────────────
-# 1FLEX SEARCH
-# ──────────────────────────────────────────────
-
-@router.get("/1flex")
-async def search_1flex(query: str):
-    """Search 1flex.org for media."""
-    results = []
-    try:
-        async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
-            res = await client.get(
-                "https://html.duckduckgo.com/html/",
-                params={"q": f"site:1flex.org {query}"},
-                headers={"User-Agent": "Mozilla/5.0 (compatible; DigitalCampus/1.0)"},
-            )
-            soup = BeautifulSoup(res.text, "html.parser")
-            links = soup.find_all("a", class_="result__a")
-
-            for link in links[:10]:
-                href = link.get("href", "")
-                title = link.get_text(strip=True)
-                if href:
-                    if "uddg=" in href:
-                        import urllib.parse
-                        href = urllib.parse.parse_qs(urllib.parse.urlparse(href).query).get("uddg", [href])[0]
-                    results.append({"title": title, "url": href, "source": "1flex"})
-    except Exception:
-        pass
-
-    return {"query": query, "results": results, "count": len(results)}
+    return {
+        "query": query,
+        "results": results,
+        "count": len(results),
+        "warning": warning,
+        "note": "Results from fmhy.net — the ultimate free resources directory",
+    }

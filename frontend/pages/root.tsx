@@ -54,7 +54,7 @@ export default function RootDashboard() {
     const command = parts[0];
     const args = parts.slice(1).join(" ");
 
-    const res = await fetch("/api/v1/root/root/exec", {
+    const res = await fetch("/api/v1/root/exec", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...getAuthHeader() },
       body: JSON.stringify({ command, args }),

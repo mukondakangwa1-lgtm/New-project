@@ -32,6 +32,7 @@ export default function MediaHub() {
   const [vlcTitle, setVlcTitle] = useState("");
   const [loading, setLoading] = useState(true);
   const [searching, setSearching] = useState(false);
+  const [searchWarning, setSearchWarning] = useState("");
 
   useEffect(() => {
     fetch("/api/v1/media/sources")
@@ -44,21 +45,26 @@ export default function MediaHub() {
   const searchMedia = async () => {
     if (!searchQuery.trim()) return;
     setSearching(true);
+    setSearchWarning("");
     try {
       const [mediaRes, fmhyRes] = await Promise.all([
         fetch(`/api/v1/media/search?query=${encodeURIComponent(searchQuery)}`),
         fetch(`/api/v1/media/fmhy?query=${encodeURIComponent(searchQuery)}`),
       ]);
       const results: SearchResult[] = [];
+      const warnings: string[] = [];
       if (mediaRes.ok) {
         const d = await mediaRes.json();
         results.push(...(d.results || []));
+        if (d.warning) warnings.push(d.warning);
       }
       if (fmhyRes.ok) {
         const d = await fmhyRes.json();
         results.push(...(d.results || []));
+        if (d.warning) warnings.push(d.warning);
       }
       setSearchResults(results);
+      setSearchWarning(Array.from(new Set(warnings)).join(" "));
     } catch {}
     setSearching(false);
   };
@@ -89,7 +95,7 @@ export default function MediaHub() {
         <div>
           <h2 className="text-2xl md:text-3xl font-bold">🎬 Media Hub</h2>
           <p className="text-gray-600 text-sm">
-            Free movies, TV, music & more — powered by FMHY & 1flex
+            Free movies, TV, music & more — powered by FMHY
           </p>
         </div>
       </div>
@@ -210,6 +216,11 @@ export default function MediaHub() {
           </div>
 
           {/* Search Results */}
+          {searchWarning && (
+            <div className="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 text-sm">
+              ⚠️ {searchWarning}
+            </div>
+          )}
           {searchResults.length > 0 ? (
             <div className="space-y-3">
               {searchResults.map((result, i) => (

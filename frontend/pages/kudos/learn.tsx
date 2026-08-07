@@ -1,4 +1,4 @@
-import { useState, FormEvent } from "react";
+import { useState, useEffect, FormEvent } from "react";
 import Layout from "@/components/Layout";
 
 function getAuthHeader(): Record<string, string> {
@@ -14,12 +14,12 @@ export default function KudosLearn() {
   const [loading, setLoading] = useState(false);
   const [webItems, setWebItems] = useState<any[]>([]);
 
-  useState(() => {
+  useEffect(() => {
     fetch("/api/v1/kudos/learn/web", { headers: getAuthHeader() })
       .then((r) => r.json())
       .then((d) => Array.isArray(d) && setWebItems(d))
       .catch(() => {});
-  });
+  }, []);
 
   const handleLearn = async (e: FormEvent) => {
     e.preventDefault();
