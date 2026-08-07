@@ -6,7 +6,6 @@ Everything secured — admin-only access.
 import json
 import os
 from datetime import datetime, timezone
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -16,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.deps import require_admin
+from app.core.paths import project_root
 from app.core.kudos_brain import (
     start_brain, stop_brain, get_brain_status, get_brain_log,
     get_brain_thoughts, get_self_knowledge, get_improvement_report,
@@ -30,7 +30,7 @@ from app.models import User, Course, Enrollment, Attendance, Session as SessionM
 from app.models_extended import Notification, Assignment, Submission, Grade, ExamAttempt
 
 router = APIRouter()
-REPO_PATH = str(Path(__file__).resolve().parents[6])
+REPO_PATH = str(project_root(__file__))
 
 
 # ──────────────────────────────────────────────

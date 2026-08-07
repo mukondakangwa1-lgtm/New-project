@@ -8,10 +8,11 @@ import os
 import subprocess
 import tempfile
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Optional
 
-REPO_PATH = str(Path(__file__).resolve().parents[4])
+from app.core.paths import project_root
+
+REPO_PATH = str(project_root(__file__))
 
 # ──────────────────────────────────────────────
 # SANDBOX STATE

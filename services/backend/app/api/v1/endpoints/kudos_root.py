@@ -6,13 +6,13 @@ import json
 import os
 import subprocess
 from datetime import datetime, timezone
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 
 from app.core.deps import require_admin
+from app.core.paths import project_root
 from app.core.kudos_identity import (
     get_identity, update_identity, rename, get_guidelines, set_guidelines,
     add_guideline, update_body_part, get_status_report, get_improvement_log,
@@ -22,7 +22,7 @@ from app.models import User
 
 router = APIRouter()
 
-REPO_PATH = str(Path(__file__).resolve().parents[6])
+REPO_PATH = str(project_root(__file__))
 
 
 # ──────────────────────────────────────────────

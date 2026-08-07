@@ -6,11 +6,12 @@ import json
 import os
 import subprocess
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Optional
 
-# deployment.py lives at <repo>/services/backend/app/core/deployment.py.
-REPO_PATH = str(Path(__file__).resolve().parents[4])
+from app.core.paths import backend_root, project_root
+
+BACKEND_PATH = str(backend_root(__file__))
+REPO_PATH = str(project_root(__file__))
 
 
 # ──────────────────────────────────────────────
@@ -143,7 +144,7 @@ PLATFORMS = {
 # ENV FILE MANAGEMENT
 # ──────────────────────────────────────────────
 
-ENV_PATH = os.path.join(REPO_PATH, "services", "backend", ".env")
+ENV_PATH = os.path.join(BACKEND_PATH, ".env")
 
 
 def get_env_content() -> dict:
