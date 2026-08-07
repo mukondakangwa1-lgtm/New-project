@@ -1,32 +1,33 @@
 """
 Digital Campus - Speaking, Broadcasting, Radio, Video Calls, Journal
+Persistence via SQLAlchemy; WebRTC signaling via database-backed queues.
 """
+import json
+import os
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from typing import Optional
+from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models import User
+from app.models_extended import (
+    Broadcast,
+    CallParticipant,
+    JournalBlock,
+    SpeakingSession,
+    VideoCall,
+    WebRtcSignal,
+    WhiteboardStroke,
+)
 
 router = APIRouter()
 
-# ──────────────────────────────────────────────
-# IN-MEMORY STORES (for POC)
-# ──────────────────────────────────────────────
-
-# Active broadcasts
-_active_broadcasts: dict[int, dict] = {}  # user_id -> broadcast info
-_broadcast_counter = 0
-
-# Active calls
-_active_calls: dict[int, dict] = {}  # call_id -> call info
-_call_counter = 0
-
-# Speaking practice sessions
-_practice_sessions: list[dict] = []
+UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "..", "uploads")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
 # ──────────────────────────────────────────────
@@ -94,53 +95,134 @@ def random_prompt(difficulty: str = "beginner"):
 
 
 @router.post("/speaking/session", status_code=201)
-def start_practice(body: PracticeSession, user: User = Depends(get_current_user)):
+def start_practice(body: PracticeSession, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Start a speaking practice session."""
-    global _practice_sessions
-    session = {
-        "id": len(_practice_sessions) + 1,
-        "user_id": user.id,
-        "user_name": user.full_name,
-        "prompt": body.prompt,
-        "duration_seconds": body.duration_seconds,
-        "difficulty": body.difficulty,
-        "started_at": datetime.now(timezone.utc).isoformat(),
-        "status": "active",
-    }
-    _practice_sessions.append(session)
-    return session
+    session = SpeakingSession(
+        user_id=user.id,
+        prompt=body.prompt,
+        duration_seconds=body.duration_seconds,
+        difficulty=body.difficulty,
+        status="active",
+    )
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+    return _session_dict(session, user)
 
 
 @router.post("/speaking/session/{session_id}/complete")
-def complete_practice(session_id: int, body: PracticeResult, user: User = Depends(get_current_user)):
+def complete_practice(
+    session_id: int, body: PracticeResult,
+    user: User = Depends(get_current_user), db: Session = Depends(get_db),
+):
     """Complete a speaking practice session with self-assessment."""
-    for s in _practice_sessions:
-        if s["id"] == session_id and s["user_id"] == user.id:
-            s["status"] = "completed"
-            s["duration_spoken"] = body.duration_spoken
-            s["self_rating"] = body.self_rating
-            s["notes"] = body.notes
-            s["completed_at"] = datetime.now(timezone.utc).isoformat()
-            return s
-    raise HTTPException(404, "Session not found")
+    session = (
+        db.query(SpeakingSession)
+        .filter(SpeakingSession.id == session_id, SpeakingSession.user_id == user.id)
+        .first()
+    )
+    if not session:
+        raise HTTPException(404, "Session not found")
+    session.status = "completed"
+    session.duration_spoken = body.duration_spoken
+    session.self_rating = body.self_rating
+    session.notes = body.notes
+    session.completed_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(session)
+    return _session_dict(session, user)
+
+
+@router.post("/speaking/session/{session_id}/audio", status_code=200)
+async def upload_practice_audio(
+    session_id: int, file: UploadFile = File(...),
+    user: User = Depends(get_current_user), db: Session = Depends(get_db),
+):
+    """Upload the recorded audio for a speaking session."""
+    session = (
+        db.query(SpeakingSession)
+        .filter(SpeakingSession.id == session_id, SpeakingSession.user_id == user.id)
+        .first()
+    )
+    if not session:
+        raise HTTPException(404, "Session not found")
+
+    ext = os.path.splitext(file.filename or "recording.webm")[1] or ".webm"
+    filename = f"speaking_{session.id}_{user.id}{ext}"
+    path = os.path.join(UPLOAD_DIR, filename)
+    with open(path, "wb") as fh:
+        content = await file.read()
+        fh.write(content)
+
+    session.audio_url = filename
+    db.commit()
+    return {
+        "status": "saved",
+        "audio_url": f"/api/v1/studio/speaking/session/{session.id}/audio",
+        "bytes": len(content),
+    }
+
+
+@router.get("/speaking/session/{session_id}/audio")
+def get_practice_audio(session_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Stream a speaking session recording."""
+    session = (
+        db.query(SpeakingSession)
+        .filter(SpeakingSession.id == session_id, SpeakingSession.user_id == user.id)
+        .first()
+    )
+    if not session or not session.audio_url:
+        raise HTTPException(404, "No recording for this session")
+    path = os.path.join(UPLOAD_DIR, session.audio_url)
+    if not os.path.exists(path):
+        raise HTTPException(404, "Recording file missing")
+    return FileResponse(path, media_type="audio/webm", filename=session.audio_url)
 
 
 @router.get("/speaking/history")
-def practice_history(user: User = Depends(get_current_user)):
+def practice_history(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Get user's speaking practice history."""
-    sessions = [s for s in _practice_sessions if s["user_id"] == user.id]
-    total_time = sum(s.get("duration_spoken", 0) for s in sessions)
-    avg_rating = sum(s.get("self_rating", 0) for s in sessions if s.get("self_rating")) / max(len(sessions), 1)
+    sessions = (
+        db.query(SpeakingSession)
+        .filter(SpeakingSession.user_id == user.id)
+        .order_by(SpeakingSession.started_at.desc())
+        .limit(50)
+        .all()
+    )
+    total_time = sum(s.duration_spoken or 0 for s in sessions)
+    rated = [s.self_rating for s in sessions if s.self_rating]
+    avg_rating = sum(rated) / len(rated) if rated else 0
     return {
-        "sessions": sessions[-20:],
+        "sessions": [_session_dict(s, user) for s in sessions],
         "total_sessions": len(sessions),
         "total_time_seconds": total_time,
         "average_rating": round(avg_rating, 1),
     }
 
 
+def _session_dict(session: SpeakingSession, user: User | None = None) -> dict:
+    return {
+        "id": session.id,
+        "user_id": session.user_id,
+        "user_name": user.full_name if user else None,
+        "prompt": session.prompt,
+        "duration_seconds": session.duration_seconds,
+        "difficulty": session.difficulty,
+        "status": session.status,
+        "duration_spoken": session.duration_spoken,
+        "self_rating": session.self_rating,
+        "notes": session.notes,
+        "audio_url": (
+            f"/api/v1/studio/speaking/session/{session.id}/audio"
+            if session.audio_url else None
+        ),
+        "started_at": session.started_at.isoformat() if session.started_at else None,
+        "completed_at": session.completed_at.isoformat() if session.completed_at else None,
+    }
+
+
 # ──────────────────────────────────────────────
-# LIVE BROADCASTING (Radio-style)
+# LIVE BROADCASTING (Radio-style + WebRTC mesh)
 # ──────────────────────────────────────────────
 
 class BroadcastCreate(BaseModel):
@@ -151,61 +233,94 @@ class BroadcastCreate(BaseModel):
 
 
 @router.post("/broadcast/start", status_code=201)
-def start_broadcast(body: BroadcastCreate, user: User = Depends(get_current_user)):
+def start_broadcast(body: BroadcastCreate, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Start a live radio-style broadcast."""
-    global _broadcast_counter, _active_broadcasts
-    if user.id in _active_broadcasts:
+    existing = (
+        db.query(Broadcast)
+        .filter(Broadcast.host_id == user.id, Broadcast.status == "live")
+        .first()
+    )
+    if existing:
         raise HTTPException(400, "You already have an active broadcast")
 
-    _broadcast_counter += 1
-    broadcast = {
-        "id": _broadcast_counter,
-        "host_id": user.id,
-        "host_name": user.full_name,
-        "title": body.title,
-        "description": body.description,
-        "duration_minutes": body.duration_minutes,
-        "is_public": body.is_public,
-        "listeners": 0,
-        "started_at": datetime.now(timezone.utc).isoformat(),
-        "status": "live",
-    }
-    _active_broadcasts[user.id] = broadcast
-    return broadcast
+    broadcast = Broadcast(
+        host_id=user.id,
+        title=body.title,
+        description=body.description,
+        duration_minutes=body.duration_minutes,
+        is_public=body.is_public,
+        status="live",
+    )
+    db.add(broadcast)
+    db.commit()
+    db.refresh(broadcast)
+    return _broadcast_dict(broadcast, user)
 
 
 @router.post("/broadcast/stop")
-def stop_broadcast(user: User = Depends(get_current_user)):
+def stop_broadcast(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Stop your active broadcast."""
-    if user.id not in _active_broadcasts:
+    broadcast = (
+        db.query(Broadcast)
+        .filter(Broadcast.host_id == user.id, Broadcast.status == "live")
+        .first()
+    )
+    if not broadcast:
         raise HTTPException(404, "No active broadcast")
-    broadcast = _active_broadcasts.pop(user.id)
-    broadcast["status"] = "ended"
-    broadcast["ended_at"] = datetime.now(timezone.utc).isoformat()
-    return broadcast
+    broadcast.status = "ended"
+    broadcast.ended_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(broadcast)
+    return _broadcast_dict(broadcast, user)
 
 
 @router.get("/broadcast/active")
-def list_broadcasts():
+def list_broadcasts(db: Session = Depends(get_db)):
     """List all active broadcasts."""
-    return {
-        "broadcasts": list(_active_broadcasts.values()),
-        "count": len(_active_broadcasts),
-    }
+    broadcasts = (
+        db.query(Broadcast)
+        .filter(Broadcast.status == "live")
+        .order_by(Broadcast.started_at.desc())
+        .all()
+    )
+    result = []
+    for b in broadcasts:
+        host = db.get(User, b.host_id)
+        result.append(_broadcast_dict(b, host))
+    return {"broadcasts": result, "count": len(result)}
 
 
 @router.post("/broadcast/{broadcast_id}/join")
-def join_broadcast(broadcast_id: int, user: User = Depends(get_current_user)):
+def join_broadcast(broadcast_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Join a live broadcast as a listener."""
-    for b in _active_broadcasts.values():
-        if b["id"] == broadcast_id:
-            b["listeners"] += 1
-            return {"status": "joined", "broadcast": b}
-    raise HTTPException(404, "Broadcast not found or ended")
+    broadcast = db.query(Broadcast).filter(Broadcast.id == broadcast_id, Broadcast.status == "live").first()
+    if not broadcast:
+        raise HTTPException(404, "Broadcast not found or ended")
+    broadcast.listeners += 1
+    db.commit()
+    db.refresh(broadcast)
+    host = db.get(User, broadcast.host_id)
+    return {"status": "joined", "broadcast": _broadcast_dict(broadcast, host)}
+
+
+def _broadcast_dict(broadcast: Broadcast, host: User | None = None) -> dict:
+    return {
+        "id": broadcast.id,
+        "host_id": broadcast.host_id,
+        "host_name": host.full_name if host else None,
+        "title": broadcast.title,
+        "description": broadcast.description,
+        "duration_minutes": broadcast.duration_minutes,
+        "is_public": broadcast.is_public,
+        "listeners": broadcast.listeners,
+        "status": broadcast.status,
+        "started_at": broadcast.started_at.isoformat() if broadcast.started_at else None,
+        "ended_at": broadcast.ended_at.isoformat() if broadcast.ended_at else None,
+    }
 
 
 # ──────────────────────────────────────────────
-# LIVE VIDEO CALLS (P2P + Group)
+# LIVE VIDEO CALLS (P2P mesh + whiteboard)
 # ──────────────────────────────────────────────
 
 class CallCreate(BaseModel):
@@ -216,82 +331,271 @@ class CallCreate(BaseModel):
     enable_screen_share: bool = True
 
 
+class SignalIn(BaseModel):
+    recipient_id: int
+    signal_type: str  # offer, answer, ice
+    payload: str  # JSON-encoded SDP or ICE candidate
+
+
 @router.post("/calls/create", status_code=201)
-def create_call(body: CallCreate, user: User = Depends(get_current_user)):
+def create_call(body: CallCreate, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Create a video call room."""
-    global _call_counter, _active_calls
-    _call_counter += 1
-    call = {
-        "id": _call_counter,
-        "host_id": user.id,
-        "host_name": user.full_name,
-        "title": body.title,
-        "is_group": body.is_group,
-        "max_participants": body.max_participants,
-        "enable_whiteboard": body.enable_whiteboard,
-        "enable_screen_share": body.enable_screen_share,
-        "participants": [{"user_id": user.id, "name": user.full_name, "role": "host"}],
-        "whiteboard_data": [],  # Canvas drawing data
-        "status": "active",
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
-    _active_calls[_call_counter] = call
-    return call
+    call = VideoCall(
+        host_id=user.id,
+        title=body.title,
+        is_group=body.is_group,
+        max_participants=body.max_participants,
+        enable_whiteboard=body.enable_whiteboard,
+        enable_screen_share=body.enable_screen_share,
+        status="active",
+    )
+    db.add(call)
+    db.flush()
+    db.add(CallParticipant(call_id=call.id, user_id=user.id, role="host"))
+    db.commit()
+    db.refresh(call)
+    return _call_dict(call, db, current_user=user)
 
 
 @router.get("/calls/active")
-def list_calls():
+def list_calls(db: Session = Depends(get_db)):
     """List active video calls."""
-    return {"calls": list(_active_calls.values()), "count": len(_active_calls)}
+    calls = (
+        db.query(VideoCall)
+        .filter(VideoCall.status == "active")
+        .order_by(VideoCall.created_at.desc())
+        .all()
+    )
+    return {"calls": [_call_dict(c, db) for c in calls], "count": len(calls)}
+
+
+@router.get("/calls/{call_id}/participants")
+def call_participants(call_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """List participants in a call (for mesh discovery)."""
+    call = db.query(VideoCall).filter(VideoCall.id == call_id, VideoCall.status == "active").first()
+    if not call:
+        raise HTTPException(404, "Call not found")
+    return {"participants": _participants(call, db)}
 
 
 @router.post("/calls/{call_id}/join")
-def join_call(call_id: int, user: User = Depends(get_current_user)):
+def join_call(call_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Join a video call."""
-    if call_id not in _active_calls:
+    call = db.query(VideoCall).filter(VideoCall.id == call_id, VideoCall.status == "active").first()
+    if not call:
         raise HTTPException(404, "Call not found")
-    call = _active_calls[call_id]
-    if len(call["participants"]) >= call["max_participants"]:
+    count = db.query(CallParticipant).filter(CallParticipant.call_id == call_id).count()
+    if count >= call.max_participants:
         raise HTTPException(400, "Call is full")
-    call["participants"].append({"user_id": user.id, "name": user.full_name, "role": "participant"})
-    return {"status": "joined", "call": call}
+
+    existing = (
+        db.query(CallParticipant)
+        .filter(CallParticipant.call_id == call_id, CallParticipant.user_id == user.id)
+        .first()
+    )
+    if not existing:
+        db.add(CallParticipant(call_id=call_id, user_id=user.id, role="participant"))
+        db.commit()
+    return {"status": "joined", "call": _call_dict(call, db, current_user=user)}
 
 
 @router.post("/calls/{call_id}/leave")
-def leave_call(call_id: int, user: User = Depends(get_current_user)):
+def leave_call(call_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Leave a video call."""
-    if call_id not in _active_calls:
+    call = db.query(VideoCall).filter(VideoCall.id == call_id, VideoCall.status == "active").first()
+    if not call:
         raise HTTPException(404, "Call not found")
-    call = _active_calls[call_id]
-    call["participants"] = [p for p in call["participants"] if p["user_id"] != user.id]
-    if not call["participants"]:
-        del _active_calls[call_id]
+    participant = (
+        db.query(CallParticipant)
+        .filter(CallParticipant.call_id == call_id, CallParticipant.user_id == user.id)
+        .first()
+    )
+    if participant:
+        participant.left_at = datetime.now(timezone.utc)
+        db.delete(participant)
+        db.flush()
+    remaining = db.query(CallParticipant).filter(CallParticipant.call_id == call_id).count()
+    if remaining == 0:
+        call.status = "ended"
+        db.commit()
         return {"status": "call ended (no participants)"}
-    return {"status": "left", "call": call}
+    db.commit()
+    return {"status": "left", "call": _call_dict(call, db)}
+
+
+# ── WebRTC signaling (database-backed queue) ──
+
+@router.post("/calls/{call_id}/signal", status_code=201)
+def send_call_signal(call_id: int, body: SignalIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Queue a WebRTC signal (offer/answer/ice) for another participant."""
+    call = db.query(VideoCall).filter(VideoCall.id == call_id, VideoCall.status == "active").first()
+    if not call:
+        raise HTTPException(404, "Call not found")
+    db.add(WebRtcSignal(
+        room_type="call", room_id=call_id,
+        sender_id=user.id, recipient_id=body.recipient_id,
+        signal_type=body.signal_type, payload=body.payload,
+    ))
+    db.commit()
+    return {"status": "queued"}
+
+
+@router.get("/calls/{call_id}/signals")
+def poll_call_signals(call_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Fetch and consume signals addressed to me."""
+    signals = (
+        db.query(WebRtcSignal)
+        .filter(
+            WebRtcSignal.room_type == "call",
+            WebRtcSignal.room_id == call_id,
+            WebRtcSignal.recipient_id == user.id,
+            WebRtcSignal.is_consumed.is_(False),
+        )
+        .order_by(WebRtcSignal.created_at.asc())
+        .limit(50)
+        .all()
+    )
+    out = []
+    for s in signals:
+        s.is_consumed = True
+        out.append({
+            "id": s.id,
+            "sender_id": s.sender_id,
+            "signal_type": s.signal_type,
+            "payload": s.payload,
+        })
+    db.commit()
+    return {"signals": out}
 
 
 @router.post("/calls/{call_id}/whiteboard/save")
-def save_whiteboard(call_id: int, data: dict, user: User = Depends(get_current_user)):
-    """Save whiteboard drawing data."""
-    if call_id not in _active_calls:
+def save_whiteboard(call_id: int, data: dict, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Append whiteboard stroke batches."""
+    call = db.query(VideoCall).filter(VideoCall.id == call_id, VideoCall.status == "active").first()
+    if not call:
         raise HTTPException(404, "Call not found")
-    _active_calls[call_id]["whiteboard_data"] = data.get("strokes", [])
-    return {"status": "saved", "strokes": len(data.get("strokes", []))}
+    strokes = data.get("strokes", [])
+    if strokes:
+        db.add(WhiteboardStroke(
+            call_id=call_id, author_id=user.id,
+            data=json.dumps(strokes),
+        ))
+        db.commit()
+    return {"status": "saved", "strokes": len(strokes)}
 
 
 @router.get("/calls/{call_id}/whiteboard")
-def get_whiteboard(call_id: int):
-    """Get whiteboard data for a call."""
-    if call_id not in _active_calls:
-        raise HTTPException(404, "Call not found")
-    return {"strokes": _active_calls[call_id]["whiteboard_data"]}
+def get_whiteboard(call_id: int, db: Session = Depends(get_db)):
+    """Get all whiteboard strokes for a call."""
+    strokes = (
+        db.query(WhiteboardStroke)
+        .filter(WhiteboardStroke.call_id == call_id)
+        .order_by(WhiteboardStroke.created_at.asc())
+        .all()
+    )
+    merged = []
+    for s in strokes:
+        try:
+            batch = json.loads(s.data)
+        except (ValueError, TypeError):
+            batch = []
+        merged.extend(batch)
+    return {"strokes": merged}
+
+
+def _participants(call: VideoCall, db: Session) -> list[dict]:
+    rows = (
+        db.query(CallParticipant, User)
+        .join(User, User.id == CallParticipant.user_id)
+        .filter(CallParticipant.call_id == call.id, CallParticipant.left_at.is_(None))
+        .all()
+    )
+    return [
+        {"user_id": u.id, "name": u.full_name, "role": p.role}
+        for p, u in rows
+    ]
+
+
+def _call_dict(call: VideoCall, db: Session, current_user: User | None = None) -> dict:
+    return {
+        "id": call.id,
+        "host_id": call.host_id,
+        "host_name": None,
+        "title": call.title,
+        "is_group": call.is_group,
+        "max_participants": call.max_participants,
+        "enable_whiteboard": call.enable_whiteboard,
+        "enable_screen_share": call.enable_screen_share,
+        "participants": _participants(call, db),
+        "status": call.status,
+        "created_at": call.created_at.isoformat() if call.created_at else None,
+        "is_joined": bool(current_user) and any(
+            p["user_id"] == current_user.id for p in _participants(call, db)
+        ),
+    }
+
+
+# ──────────────────────────────────────────────
+# BROADCAST SIGNALING (WebRTC mesh, audio-only)
+# ──────────────────────────────────────────────
+
+class BroadcastSignal(BaseModel):
+    recipient_id: int
+    signal_type: str  # offer, answer, ice
+    payload: str
+
+
+@router.post("/broadcast/{broadcast_id}/signal", status_code=201)
+def send_broadcast_signal(
+    broadcast_id: int, body: BroadcastSignal,
+    user: User = Depends(get_current_user), db: Session = Depends(get_db),
+):
+    """Queue a WebRTC signal for a broadcast participant."""
+    broadcast = db.query(Broadcast).filter(Broadcast.id == broadcast_id, Broadcast.status == "live").first()
+    if not broadcast:
+        raise HTTPException(404, "Broadcast not found or ended")
+    db.add(WebRtcSignal(
+        room_type="broadcast", room_id=broadcast_id,
+        sender_id=user.id, recipient_id=body.recipient_id,
+        signal_type=body.signal_type, payload=body.payload,
+    ))
+    db.commit()
+    return {"status": "queued"}
+
+
+@router.get("/broadcast/{broadcast_id}/signals")
+def poll_broadcast_signals(broadcast_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Fetch and consume broadcast signals addressed to me."""
+    signals = (
+        db.query(WebRtcSignal)
+        .filter(
+            WebRtcSignal.room_type == "broadcast",
+            WebRtcSignal.room_id == broadcast_id,
+            WebRtcSignal.recipient_id == user.id,
+            WebRtcSignal.is_consumed.is_(False),
+        )
+        .order_by(WebRtcSignal.created_at.asc())
+        .limit(50)
+        .all()
+    )
+    out = []
+    for s in signals:
+        s.is_consumed = True
+        out.append({
+            "id": s.id,
+            "sender_id": s.sender_id,
+            "signal_type": s.signal_type,
+            "payload": s.payload,
+        })
+    db.commit()
+    return {"signals": out}
 
 
 # ──────────────────────────────────────────────
 # JOURNALIST JOURNAL PAGE
 # ──────────────────────────────────────────────
 
-class JournalBlock(BaseModel):
+class JournalBlockIn(BaseModel):
     title: str
     block_type: str  # video, photo, webpage, social, youtube, text
     url: str = ""
@@ -299,51 +603,72 @@ class JournalBlock(BaseModel):
     position: int = 0
 
 
-# In-memory journal blocks per user
-_journal_blocks: dict[int, list[dict]] = {}
-
-
 @router.get("/journal/my")
-def get_journal(user: User = Depends(get_current_user)):
+def get_journal(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Get user's journal page blocks."""
+    blocks = (
+        db.query(JournalBlock)
+        .filter(JournalBlock.user_id == user.id)
+        .order_by(JournalBlock.position.asc(), JournalBlock.created_at.asc())
+        .all()
+    )
     return {
-        "blocks": _journal_blocks.get(user.id, []),
+        "blocks": [_journal_dict(b) for b in blocks],
         "user": user.full_name,
-        "occupation": "journalist" if user.is_admin else "student",  # POC: admin = journalist
+        "occupation": "journalist" if user.is_admin else "student",
     }
 
 
 @router.post("/journal/blocks", status_code=201)
-def add_journal_block(body: JournalBlock, user: User = Depends(get_current_user)):
+def add_journal_block(body: JournalBlockIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Add a block to journal page."""
-    if user.id not in _journal_blocks:
-        _journal_blocks[user.id] = []
-
-    block = {
-        "id": len(_journal_blocks[user.id]) + 1,
-        "user_id": user.id,
-        "title": body.title,
-        "block_type": body.block_type,
-        "url": body.url,
-        "content": body.content,
-        "position": body.position or len(_journal_blocks[user.id]),
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
-    _journal_blocks[user.id].append(block)
-    return block
+    block = JournalBlock(
+        user_id=user.id,
+        title=body.title,
+        block_type=body.block_type,
+        url=body.url,
+        content=body.content,
+        position=body.position,
+    )
+    db.add(block)
+    db.commit()
+    db.refresh(block)
+    return _journal_dict(block)
 
 
 @router.delete("/journal/blocks/{block_id}", status_code=204)
-def delete_journal_block(block_id: int, user: User = Depends(get_current_user)):
+def delete_journal_block(block_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Delete a journal block."""
-    if user.id in _journal_blocks:
-        _journal_blocks[user.id] = [b for b in _journal_blocks[user.id] if b["id"] != block_id]
+    block = (
+        db.query(JournalBlock)
+        .filter(JournalBlock.id == block_id, JournalBlock.user_id == user.id)
+        .first()
+    )
+    if block:
+        db.delete(block)
+        db.commit()
 
 
 @router.get("/journal/{user_id}")
-def view_journal(user_id: int):
+def view_journal(user_id: int, db: Session = Depends(get_db)):
     """View another user's public journal page."""
+    blocks = (
+        db.query(JournalBlock)
+        .filter(JournalBlock.user_id == user_id)
+        .order_by(JournalBlock.position.asc())
+        .all()
+    )
+    return {"blocks": [_journal_dict(b) for b in blocks], "user_id": user_id}
+
+
+def _journal_dict(block: JournalBlock) -> dict:
     return {
-        "blocks": _journal_blocks.get(user_id, []),
-        "user_id": user_id,
+        "id": block.id,
+        "user_id": block.user_id,
+        "title": block.title,
+        "block_type": block.block_type,
+        "url": block.url,
+        "content": block.content,
+        "position": block.position,
+        "created_at": block.created_at.isoformat() if block.created_at else None,
     }

@@ -2,43 +2,10 @@
 Digital Campus - API Tests
 """
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 
 from app.main import app
-from app.core.database import Base, get_db
 
-# --- Test database (in-memory SQLite) ---
-TEST_DATABASE_URL = "sqlite:///./test.db"
-engine = create_engine(TEST_DATABASE_URL, connect_args={"check_same_thread": False})
-TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-
-def override_get_db():
-    db = TestSessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
-app.dependency_overrides[get_db] = override_get_db
-
-
-def setup_module():
-    """Create test tables before all tests."""
-    Base.metadata.create_all(bind=engine)
-
-
-def teardown_module():
-    """Drop test tables after all tests."""
-    Base.metadata.drop_all(bind=engine)
-    import os
-
-    if os.path.exists("./test.db"):
-        os.remove("./test.db")
-
-
+# Test DB, override and table lifecycle come from conftest.py
 client = TestClient(app)
 
 # --- Test data ---
@@ -144,6 +111,7 @@ def test_courses_create_as_admin():
         json={"email": "admin@test.com", "full_name": "Admin", "password": "admin123"},
     )
     # Make admin directly in DB
+    from tests.conftest import TestSessionLocal
     db = TestSessionLocal()
     from app.models import User
     user = db.query(User).filter(User.email == "admin@test.com").first()

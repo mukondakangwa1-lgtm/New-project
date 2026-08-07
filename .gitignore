@@ -9,3 +9,13 @@ node_modules/
 .venv/
 venv/
 
+# Build artifacts
+frontend/tsconfig.tsbuildinfo
+frontend/.next/
+
+# User uploads
+services/backend/app/uploads/
+
+# Runtime backups
+services/backups/
+

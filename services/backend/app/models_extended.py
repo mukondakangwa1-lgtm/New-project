@@ -5,12 +5,18 @@ Assignments, Grades, Study Groups, Forums, Calendar, Goals, Exams, Notifications
 from datetime import datetime, timezone
 
 from sqlalchemy import (
-    Boolean, Column, DateTime, Date, Time, ForeignKey, Integer, Float, String, Text,
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
 )
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
-
 
 # ──────────────────────────────────────────────
 # ASSIGNMENTS & GRADES
@@ -268,3 +274,119 @@ class Certificate(Base):
 
     user = relationship("User")
     course = relationship("Course")
+
+
+# ──────────────────────────────────────────────
+# STUDIO: SPEAKING, BROADCASTS, VIDEO CALLS, JOURNAL
+# ──────────────────────────────────────────────
+
+class SpeakingSession(Base):
+    __tablename__ = "speaking_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    prompt = Column(Text, nullable=False)
+    difficulty = Column(String(20), default="beginner")
+    duration_seconds = Column(Integer, default=120)
+    status = Column(String(20), default="active")  # active, completed
+    duration_spoken = Column(Integer, default=0)
+    self_rating = Column(Integer, nullable=True)  # 1-5
+    notes = Column(Text, default="")
+    audio_url = Column(Text, default="")  # path to saved recording
+    started_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    completed_at = Column(DateTime, nullable=True)
+
+    user = relationship("User")
+
+
+class Broadcast(Base):
+    __tablename__ = "broadcasts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    host_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    title = Column(String(255), nullable=False)
+    description = Column(Text, default="")
+    duration_minutes = Column(Integer, default=30)
+    is_public = Column(Boolean, default=True)
+    status = Column(String(20), default="live")  # live, ended
+    listeners = Column(Integer, default=0)
+    started_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    ended_at = Column(DateTime, nullable=True)
+
+    host = relationship("User")
+
+
+class VideoCall(Base):
+    __tablename__ = "video_calls"
+
+    id = Column(Integer, primary_key=True, index=True)
+    host_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    title = Column(String(255), default="Video Call")
+    is_group = Column(Boolean, default=False)
+    max_participants = Column(Integer, default=10)
+    enable_whiteboard = Column(Boolean, default=True)
+    enable_screen_share = Column(Boolean, default=True)
+    status = Column(String(20), default="active")  # active, ended
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    host = relationship("User")
+    participants = relationship("CallParticipant", back_populates="call", cascade="all, delete-orphan")
+
+
+class CallParticipant(Base):
+    __tablename__ = "call_participants"
+
+    id = Column(Integer, primary_key=True, index=True)
+    call_id = Column(Integer, ForeignKey("video_calls.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    role = Column(String(20), default="participant")  # host, participant
+    joined_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    left_at = Column(DateTime, nullable=True)
+
+    call = relationship("VideoCall", back_populates="participants")
+    user = relationship("User")
+
+
+class WhiteboardStroke(Base):
+    __tablename__ = "whiteboard_strokes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    call_id = Column(Integer, ForeignKey("video_calls.id"), nullable=False)
+    author_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    data = Column(Text, default="[]")  # JSON batch of stroke points
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    call = relationship("VideoCall")
+    author = relationship("User")
+
+
+class WebRtcSignal(Base):
+    __tablename__ = "webrtc_signals"
+
+    id = Column(Integer, primary_key=True, index=True)
+    room_type = Column(String(20), nullable=False)  # call, broadcast
+    room_id = Column(Integer, nullable=False)
+    sender_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    recipient_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    signal_type = Column(String(20), nullable=False)  # offer, answer, ice
+    payload = Column(Text, nullable=False)  # JSON SDP / ICE candidate
+    is_consumed = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    sender = relationship("User", foreign_keys=[sender_id])
+    recipient = relationship("User", foreign_keys=[recipient_id])
+
+
+class JournalBlock(Base):
+    __tablename__ = "journal_blocks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    title = Column(String(255), nullable=False)
+    block_type = Column(String(30), default="webpage")
+    url = Column(Text, default="")
+    content = Column(Text, default="")
+    position = Column(Integer, default=0)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    user = relationship("User")
