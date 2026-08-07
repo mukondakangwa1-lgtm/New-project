@@ -21,3 +21,6 @@ openai
 pgvector
 celery[redis]
 redis
+
+# Model Context Protocol tools
+mcp>=1.28,<2.0

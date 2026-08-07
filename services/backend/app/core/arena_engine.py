@@ -48,25 +48,25 @@ ARENA_MODES = {
         "name": "Battle Mode",
         "description": "Multiple AIs compete to answer — best answer wins",
         "icon": "⚔️",
-        "sources": ["knowledge_base", "cached", "documents", "connectors", "llm"],
+        "sources": ["knowledge_base", "cached", "documents", "connectors", "mcp", "llm"],
     },
     "agent": {
         "name": "Agent Mode",
         "description": "AI agent with tools — searches, reads, reasons",
         "icon": "🤖",
-        "sources": ["knowledge_base", "cached", "documents", "web_search", "llm"],
+        "sources": ["knowledge_base", "cached", "documents", "web_search", "mcp", "llm"],
     },
     "sidebyside": {
         "name": "Side by Side",
         "description": "Compare answers from multiple sources side by side",
         "icon": "📊",
-        "sources": ["knowledge_base", "cached", "web_search", "wikipedia", "llm"],
+        "sources": ["knowledge_base", "cached", "web_search", "wikipedia", "mcp", "llm"],
     },
     "directchat": {
         "name": "Direct Chat",
         "description": "Direct conversation with KUDOS's full knowledge",
         "icon": "💬",
-        "sources": ["knowledge_base", "cached", "llm"],
+        "sources": ["knowledge_base", "cached", "mcp", "llm"],
     },
 }
 
@@ -115,6 +115,7 @@ def score_answer(query: str, answer: str, source: str) -> float:
         "web_search": 0.7,
         "documents": 0.85,
         "llm": 0.95,
+        "mcp": 0.9,
         "cached": 0.6,
     }
     score += source_scores.get(source, 0.5) * 0.2
@@ -265,6 +266,16 @@ async def query_multiple_sources(
                 answer = await asyncio.wait_for(asyncio.to_thread(_query_documents, query, db_session), timeout=SOURCE_TIMEOUT)
             elif source == "connectors" and db_session:
                 answer = await asyncio.wait_for(asyncio.to_thread(_query_connectors, query, db_session), timeout=SOURCE_TIMEOUT)
+            elif source == "mcp":
+                from app.core.mcp_client import search_mcp_sources
+                mcp_results = await asyncio.wait_for(
+                    search_mcp_sources(query, limit=3), timeout=SOURCE_TIMEOUT * 2
+                )
+                answer = "\n\n".join(
+                    item.get("content", "")[:600]
+                    for item in mcp_results
+                    if item.get("content")
+                )
             else:
                 return None
 

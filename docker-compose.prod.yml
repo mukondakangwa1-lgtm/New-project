@@ -42,10 +42,34 @@ services:
       HOST: 0.0.0.0
       PORT: 8000
       AUTO_CREATE_TABLES: "false"
+      MCP_ENABLED: "true"
+      MCP_URL: http://mcp:8765/mcp
+      MCP_REQUIRE_AUTH: "true"
       DATABASE_URL: postgresql://${POSTGRES_USER:-dc_user}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the project .env file}@db:5432/${POSTGRES_DB:-digital_campus}
     ports:
       - "127.0.0.1:8000:8000"
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    depends_on:
+      - db
+      - redis
+      - mcp
+    restart: unless-stopped
+
+  mcp:
+    build: ./services/backend
+    env_file:
+      - ./services/backend/.env
+    environment:
+      MCP_ENABLED: "true"
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: 8765
+      MCP_REQUIRE_AUTH: "true"
+      MCP_ALLOW_MUTATIONS: "false"
+      MCP_URL: http://mcp:8765/mcp
+      DATABASE_URL: postgresql://${POSTGRES_USER:-dc_user}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the project .env file}@db:5432/${POSTGRES_DB:-digital_campus}
+    expose:
+      - "8765"
+    command: python -m app.mcp_server
     depends_on:
       - db
       - redis

@@ -230,6 +230,23 @@ that can be embedded into the deployed application. KUDOS uses a provider-
 neutral adapter; configure Gemini, OpenAI, Groq, or an Ollama server through
 `services/backend/.env`.
 
+### Model Context Protocol (MCP)
+
+KUDOS can connect to its tools through the official MCP Python SDK. The
+production Compose file includes a private `mcp` service exposing Streamable
+HTTP tools for:
+
+- approved document and web-knowledge search;
+- web and Wikipedia search;
+- connector status and database health;
+- optionally queued connector syncs when mutations are explicitly enabled.
+
+The MCP service is not published to the LAN. Backend-to-MCP calls use the
+shared `MCP_AUTH_TOKEN`, and mutating tools are disabled by default. Add a
+random token to `services/backend/.env`, then start the production stack; the
+backend uses `MCP_ENABLED=true` and `MCP_URL=http://mcp:8765/mcp` in the
+production Compose definition.
+
 ---
 
 ## 📡 API Documentation

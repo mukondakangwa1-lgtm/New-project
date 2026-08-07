@@ -341,6 +341,17 @@ async def ask_kudos(body: KudosAskRequest, db: Session = Depends(get_db), curren
         except Exception:
             pass
 
+        # Ask the internal MCP gateway for additional tool-backed sources when
+        # enabled. The local database/search fallback remains authoritative when
+        # MCP is unavailable.
+        if settings.MCP_ENABLED:
+            try:
+                from app.core.mcp_client import search_mcp_sources
+                mcp_sources = await search_mcp_sources(body.question)
+                sources = mcp_sources + sources
+            except Exception:
+                pass
+
         # Build knowledge context from sources
         knowledge_context = ""
         if sources:

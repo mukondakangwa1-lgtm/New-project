@@ -58,6 +58,15 @@ class Settings(BaseSettings):
     OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
     EMBED_DIM: int = 1536
 
+    # Model Context Protocol tool gateway
+    MCP_ENABLED: bool = False
+    MCP_URL: str = "http://mcp:8765/mcp"
+    MCP_HOST: str = "0.0.0.0"
+    MCP_PORT: int = 8765
+    MCP_AUTH_TOKEN: Optional[str] = None
+    MCP_REQUIRE_AUTH: bool = True
+    MCP_ALLOW_MUTATIONS: bool = False
+
     # Optional LLM providers
     OPENAI_API_KEY: Optional[str] = None
     GOOGLE_GEMINI_API_KEY: Optional[str] = None
