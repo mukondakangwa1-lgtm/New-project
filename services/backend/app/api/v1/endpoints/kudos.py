@@ -353,6 +353,14 @@ async def ask_kudos(body: KudosAskRequest, db: Session = Depends(get_db), curren
         if sources:
             knowledge_context = "\n".join(s.get("content", "")[:300] for s in sources[:3])
 
+        # Retrieve user memory relevant to the question
+        memory_context = ""
+        try:
+            from app.core.memory_store import build_memory_context
+            memory_context = build_memory_context(db, current_user.id, query=body.question)
+        except Exception:
+            pass
+
         # Try LLM first (human-like response)
         answer = ""
         try:
@@ -371,6 +379,7 @@ async def ask_kudos(body: KudosAskRequest, db: Session = Depends(get_db), curren
                 knowledge_context=knowledge_context,
                 conversation_history=conv_history,
                 user_name=current_user.full_name.split()[0] if current_user.full_name else "",
+                memory_context=memory_context,
             )
             if llm_answer and len(llm_answer) > 10:
                 answer = llm_answer
@@ -406,6 +415,22 @@ async def ask_kudos(body: KudosAskRequest, db: Session = Depends(get_db), curren
             db.commit()
         except Exception:
             db.rollback()
+
+        # Remember the exchange (short-term conversation memory)
+        try:
+            from app.core.memory_store import consolidate_memories, write_memory
+            write_memory(
+                db, current_user.id,
+                content=f"User asked: {body.question[:200]}. I answered: {answer[:300]}",
+                layer="short_term", kind="context",
+                importance=0.4, source="conversation",
+            )
+            consolidate_memories(db, current_user.id)
+        except Exception:
+            try:
+                db.rollback()
+            except Exception:
+                pass
 
         return KudosAskResponse(
             answer=answer,

@@ -8,6 +8,7 @@ from app.api.v1.endpoints import (
     kudos, connectors, guardian, search_connectors, arena, social_learning, llm_api,
     assignments, study_groups, calendar_goals, exams, analytics, code_agent,
     internet_archive, auto_learner, speaking, kudos_root, superadmin, shield, embed, media,
+    memory,
 )
 
 api_router = APIRouter()
@@ -40,3 +41,4 @@ api_router.include_router(superadmin.router, prefix="/superadmin", tags=["Supera
 api_router.include_router(shield.router, prefix="/shield", tags=["KUDOS Shield"])
 api_router.include_router(embed.router, prefix="/tools", tags=["Embed & Sandbox"])
 api_router.include_router(media.router, prefix="/media", tags=["Media Hub"])
+api_router.include_router(memory.router, prefix="/kudos/memory", tags=["KUDOS Memory"])

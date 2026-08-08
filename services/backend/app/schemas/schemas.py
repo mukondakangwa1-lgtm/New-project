@@ -390,6 +390,40 @@ class KudosAskResponse(BaseModel):
     conversation_id: int
 
 
+class MemoryCreate(BaseModel):
+    """Write a memory KUDOS should keep."""
+    content: str = Field(min_length=1, max_length=5000)
+    layer: str = "short_term"  # short_term | long_term | knowledge | system
+    kind: str = "fact"  # fact | preference | concept | event | rule | error | success | context
+    importance: float = 0.5
+    tags: list[str] = []
+    source: str = Field(default="", max_length=120)
+    expires_at: Optional[datetime] = None
+
+
+class MemoryResponse(BaseModel):
+    id: int
+    layer: str
+    kind: str
+    content: str
+    summary: str = ""
+    importance: float
+    tags: list[str] = []
+    source: str = ""
+    access_count: int = 0
+    expires_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+
+
+class MemoryRetrieveResponse(BaseModel):
+    query: str
+    memories: list[MemoryResponse]
+
+
+class MemoryClearResponse(BaseModel):
+    deleted: int
+
+
 class LLMConfigureRequest(BaseModel):
     """Configure a provider for the current process.
 

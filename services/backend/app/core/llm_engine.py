@@ -331,6 +331,7 @@ def build_human_prompt(
     knowledge_context: str = "",
     conversation_history: list = [],
     user_name: str = "",
+    memory_context: str = "",
 ) -> tuple[str, str]:
     """
     Build a prompt that makes the LLM respond like a human.
@@ -364,6 +365,10 @@ RULES:
     if knowledge_context:
         user_prompt += f"RELEVANT KNOWLEDGE:\n{knowledge_context}\n\n"
 
+    # Add user memory (facts/preferences KUDOS remembers)
+    if memory_context:
+        user_prompt += f"{memory_context}\n\n"
+
     # Add conversation history
     if conversation_history:
         user_prompt += "CONVERSATION HISTORY:\n"
@@ -383,6 +388,7 @@ async def get_llm_response(
     knowledge_context: str = "",
     conversation_history: list = [],
     user_name: str = "",
+    memory_context: str = "",
 ) -> Optional[str]:
     """
     Get a human-like response from the best available LLM.
@@ -392,6 +398,7 @@ async def get_llm_response(
         knowledge_context=knowledge_context,
         conversation_history=conversation_history,
         user_name=user_name,
+        memory_context=memory_context,
     )
 
     result = await query_best_llm(user_prompt, system_prompt)

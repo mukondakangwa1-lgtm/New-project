@@ -8,6 +8,7 @@ from sqlalchemy import (
     Column,
     DateTime,
     Date,
+    Float,
     ForeignKey,
     Integer,
     String,
@@ -17,6 +18,11 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
+
+try:
+    from pgvector.sqlalchemy import Vector
+except Exception:  # pragma: no cover - optional dependency import guard
+    Vector = None
 
 
 class User(Base):
@@ -375,3 +381,33 @@ class KudosKnowledgePack(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     creator = relationship("User")
+
+
+class KudosMemory(Base):
+    """
+    A persistent memory for KUDOS: facts, preferences, concepts, events,
+    rules and conversation context the assistant remembers per user.
+
+    layer: short_term | long_term | knowledge | system
+    kind:  fact | preference | concept | event | rule | error | success | context
+    """
+    __tablename__ = "kudos_memories"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    layer = Column(String(20), nullable=False, index=True, default="short_term")
+    kind = Column(String(40), nullable=False, default="fact")
+    content = Column(Text, nullable=False)
+    summary = Column(Text, default="")
+    embedding = Column(Vector(1536) if Vector else Text, nullable=True)
+    importance = Column(Float, default=0.5)
+    tags = Column(Text, default="[]")  # JSON list of tags
+    source = Column(String(120), default="")
+    access_count = Column(Integer, default=0)
+    last_access_at = Column(DateTime, nullable=True)
+    expires_at = Column(DateTime, nullable=True)  # TTL for short-term memories
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc),
+                        onupdate=lambda: datetime.now(timezone.utc))
+
+    user = relationship("User")
