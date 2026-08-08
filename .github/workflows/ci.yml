@@ -87,6 +87,7 @@ jobs:
             'users', 'courses', 'enrollments', 'chat_rooms', 'chat_messages',
             'kudos_documents', 'kudos_connectors', 'speaking_sessions',
             'broadcasts', 'video_calls', 'whiteboard_strokes', 'journal_blocks',
+            'kudos_sandbox_proposals', 'kudos_sandbox_logs', 'kudos_agent_tasks',
           }
           missing = required - tables
           assert not missing, f'Missing tables: {missing}'

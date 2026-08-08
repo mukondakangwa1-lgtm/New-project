@@ -1,0 +1,45 @@
+# KUDOS E2E stack — boots backend (SQLite) + frontend for Playwright.
+# Admin + workspace are seeded by scripts/bootstrap_admin.py.
+services:
+  backend:
+    build: ../services/backend
+    ports:
+      - "8100:8000"
+    environment:
+      - DATABASE_URL=sqlite:////data/e2e.db
+      - AUTO_CREATE_TABLES=true
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-e2e@campus.edu}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-E2e-pass-1234}
+      - E2E_REPO_ROOT=${E2E_REPO_ROOT:-/e2e-repo}
+      - SECRET_KEY=e2e-secret-key-not-for-production
+    volumes:
+      - e2e-data:/data
+    command: >
+      sh -c "python scripts/bootstrap_admin.py &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health')"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  frontend:
+    build:
+      context: ../frontend
+      args:
+        BACKEND_INTERNAL_URL: http://backend:8000
+    environment:
+      - BACKEND_INTERNAL_URL=http://backend:8000
+    ports:
+      - "3100:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/login"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  e2e-data:
