@@ -207,8 +207,8 @@ async def create_post_with_upload(
         raise HTTPException(400, "Filename required")
     import io
     content = await file.read()
-    if len(content) > 50 * 1024 * 1024:
-        raise HTTPException(400, "File too large (max 50MB)")
+    if len(content) > 250 * 1024 * 1024:
+        raise HTTPException(400, "File too large (max 250MB)")
     if not store.settings.s3_is_configured:
         raise HTTPException(503, "Storage not enabled — start MinIO: docker-compose up -d minio")
 

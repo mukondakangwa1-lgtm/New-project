@@ -29,12 +29,12 @@ async def upload(
     """Upload any file to MinIO/S3 (private, AES256). Returns presigned URL."""
     if not store.settings.s3_is_configured:
         raise HTTPException(503, "Storage not enabled — set S3_ENABLED=true and configure S3_* in .env / start MinIO")
-    if file.size and file.size > 50 * 1024 * 1024:
-        raise HTTPException(400, "File too large (max 50MB)")
+    if file.size and file.size > 250 * 1024 * 1024:
+        raise HTTPException(400, "File too large (max 250MB)")
     # read size check
     content = await file.read()
-    if len(content) > 50 * 1024 * 1024:
-        raise HTTPException(400, "File too large (max 50MB)")
+    if len(content) > 250 * 1024 * 1024:
+        raise HTTPException(400, "File too large (max 250MB)")
     import io
     key = store.make_key(prefix, file.filename or "file.bin", current_user.id)
     ctype = file.content_type or "application/octet-stream"

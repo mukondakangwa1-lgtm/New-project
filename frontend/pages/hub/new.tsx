@@ -122,7 +122,7 @@ export default function NewPost() {
                 <input type="text" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} className="w-full rounded border px-3 py-2 text-sm focus:ring-2 focus:ring-primary focus:outline-none" placeholder="My lecture notes" required />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">File * (50MB max)</label>
+                <label className="block text-sm font-medium mb-1">File * (250MB max)</label>
                 <input type="file" onChange={(e) => setFile(e.target.files?.[0] || null)} className="w-full rounded border px-3 py-2 text-sm" required />
                 <p className="text-xs text-gray-400 mt-1">Stored in MinIO `campus-media/posts/...` (private). Free, secure, works offline. Backend: <code>POST /api/v1/social/upload</code></p>
                 {file && <p className="text-xs text-green-600 mt-1">Selected: {file.name} ({(file.size / 1024).toFixed(1)} KB)</p>}
