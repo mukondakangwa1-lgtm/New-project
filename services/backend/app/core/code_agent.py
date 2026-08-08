@@ -346,42 +346,47 @@ def reject_proposal(proposal_id: int) -> dict:
 
 
 # ──────────────────────────────────────────────
-# GIT OPERATIONS
+# GIT OPERATIONS (safe workflow via gitops.py)
 # ──────────────────────────────────────────────
 
-def _run_git(args: list[str]) -> tuple[int, str]:
-    """Run a git command and return (returncode, output)."""
-    repo = get_repo_path()
-    try:
-        result = subprocess.run(
-            ["git"] + args,
-            cwd=repo,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        return result.returncode, result.stdout + result.stderr
-    except Exception as e:
-        return 1, str(e)
+def _repo() -> str:
+    return get_repo_path()
 
 
 def get_git_status() -> dict:
-    """Get current git status."""
-    _, branch = _run_git(["branch", "--show-current"])
-    _, status = _run_git(["status", "--short"])
+    """Get current git status with branch protection info."""
+    from app.core import gitops
+    from pathlib import Path
+
+    repo = Path(_repo())
+    state = gitops.repo_state(repo)
     _, log = _run_git(["log", "--oneline", "-5"])
-    _, diff = _run_git(["diff", "--stat"])
 
     return {
-        "branch": branch.strip(),
-        "status": status.strip(),
+        "branch": state.branch,
+        "protected": state.protected,
+        "status": "\n".join(
+            [f"{'A ' if f in state.staged else '  '}{f}" for f in state.staged]
+            + [f" {f}" for f in state.unstaged]
+            + [f"?? {f}" for f in state.untracked]
+        ).strip(),
+        "staged": state.staged,
+        "unstaged": state.unstaged,
+        "untracked": state.untracked,
         "recent_commits": log.strip().split("\n") if log.strip() else [],
-        "diff_stat": diff.strip(),
+        "diff_stat": _run_git(["diff", "--stat"])[1].strip(),
     }
 
 
-def commit_approved_changes(proposal_id: int) -> dict:
-    """Commit changes for an approved proposal."""
+def commit_approved_changes(proposal_id: int, approval: bool = False) -> dict:
+    """Commit changes for an approved proposal (allowlist staging).
+
+    Only the files listed in the proposal are staged — never ``git add -A``.
+    Protected branches require explicit approval.
+    """
+    from app.core import gitops
+    from pathlib import Path
+
     proposal = None
     for p in _proposals:
         if p.id == proposal_id:
@@ -393,46 +398,47 @@ def commit_approved_changes(proposal_id: int) -> dict:
     if proposal.status != "approved":
         return {"error": f"Proposal must be approved first (current: {proposal.status})"}
 
-    # Stage and commit
-    rc, output = _run_git(["add", "-A"])
-    if rc != 0:
-        return {"error": f"Git add failed: {output}"}
+    files = [c["file"] for c in proposal.files_changed if c.get("file")]
+    if not files:
+        return {"error": "Proposal lists no files to commit"}
 
-    commit_msg = f"kudos-improve: {proposal.title}\n\n{proposal.description}\n\nCategory: {proposal.category}\nApproved by: superadmin"
-    rc, output = _run_git(["commit", "-m", commit_msg])
-    if rc != 0:
-        return {"error": f"Git commit failed: {output}"}
+    repo = Path(_repo())
+    try:
+        gitops.assert_task_branch(repo, approval=approval)
+        commit_msg = f"kudos-improve: {proposal.title}\n\n{proposal.description}\n\nCategory: {proposal.category}\nApproved by: superadmin"
+        result = gitops.commit(repo, commit_msg, files, repo_root=repo)
+    except gitops.GitOpsError as exc:
+        return {"error": str(exc)}
 
-    # Get commit hash
-    _, hash_output = _run_git(["rev-parse", "HEAD"])
-    proposal.commit_hash = hash_output.strip()
+    proposal.commit_hash = result["committed"]
+    proposal.git_branch = result["branch"]
     proposal.status = "committed"
-
     return {
         "status": "committed",
         "commit_hash": proposal.commit_hash,
+        "branch": result["branch"],
         "message": f"Committed: {proposal.title}",
     }
 
 
-def push_changes() -> dict:
-    """Push committed changes to remote."""
-    _, branch = _run_git(["branch", "--show-current"])
-    branch = branch.strip()
-    rc, output = _run_git(["push", "origin", branch])
-    if rc != 0:
-        return {"error": f"Push failed: {output}"}
-    return {"status": "pushed", "branch": branch}
+def push_changes(approved: bool = False) -> dict:
+    """Push committed changes to remote (requires approval, no force)."""
+    from app.core import gitops
+    from pathlib import Path
+
+    try:
+        result = gitops.push(Path(_repo()), approved=approved)
+    except gitops.GitOpsError as exc:
+        return {"error": str(exc)}
+    return {"status": "pushed", "branch": result["branch"]}
 
 
 def get_git_diff() -> dict:
-    """Get current uncommitted changes."""
-    _, diff = _run_git(["diff"])
-    _, staged = _run_git(["diff", "--cached"])
-    return {
-        "unstaged": diff.strip(),
-        "staged": staged.strip(),
-    }
+    """Get staged and unstaged diffs separately."""
+    from app.core import gitops
+    from pathlib import Path
+
+    return gitops.diff_sections(Path(_repo()))
 
 
 # ──────────────────────────────────────────────

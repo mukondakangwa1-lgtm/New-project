@@ -95,18 +95,22 @@ def reject(proposal_id: int, admin: User = Depends(require_admin)):
 
 
 @router.post("/proposals/{proposal_id}/commit")
-def commit(proposal_id: int, admin: User = Depends(require_admin)):
-    """Commit an approved proposal to git (superadmin only)."""
-    result = commit_approved_changes(proposal_id)
+def commit(proposal_id: int, approve: bool = False, admin: User = Depends(require_admin)):
+    """Commit an approved proposal to git (allowlist staging only).
+
+    ``approve`` acknowledges protected-branch rules (main/master/develop
+    commits are refused without it). Pass approve=true on the task branch.
+    """
+    result = commit_approved_changes(proposal_id, approval=approve)
     if "error" in result:
         raise HTTPException(400, result["error"])
     return result
 
 
 @router.post("/push")
-def push(admin: User = Depends(require_admin)):
-    """Push committed changes to remote (superadmin only)."""
-    result = push_changes()
+def push(approved: bool = False, admin: User = Depends(require_admin)):
+    """Push committed changes to remote (requires explicit approval)."""
+    result = push_changes(approved=approved)
     if "error" in result:
         raise HTTPException(400, result["error"])
     return result

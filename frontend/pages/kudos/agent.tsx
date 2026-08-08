@@ -93,7 +93,7 @@ export default function CodeAgent() {
   };
 
   const commitProposal = async (id: number) => {
-    const res = await fetch(`/api/v1/kudos/agent/proposals/${id}/commit`, {
+    const res = await fetch(`/api/v1/kudos/agent/proposals/${id}/commit?approve=true`, {
       method: "POST",
       headers: getAuthHeader(),
     });
@@ -108,7 +108,7 @@ export default function CodeAgent() {
   };
 
   const pushChanges = async () => {
-    const res = await fetch("/api/v1/kudos/agent/push", {
+    const res = await fetch("/api/v1/kudos/agent/push?approved=true", {
       method: "POST",
       headers: getAuthHeader(),
     });
