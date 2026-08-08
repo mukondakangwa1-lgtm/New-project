@@ -103,3 +103,16 @@ def test_commit_syncs_hash(repo: Path, proposal):
         assert row.commit_hash == result["commit_hash"]
     finally:
         db.close()
+
+
+def test_get_git_status(repo: Path, _use_test_db):
+    from app.core.code_agent import get_git_status, set_repo_path
+
+    set_repo_path(str(repo))
+    (repo / "b.txt").write_text("b\n")
+    status = get_git_status()
+    assert status["branch"] == "kudos-task/persist"
+    assert status["protected"] is False
+    assert "b.txt" in status["untracked"]
+    assert status["recent_commits"], "recent commits should be populated"
+    assert "diff_stat" in status

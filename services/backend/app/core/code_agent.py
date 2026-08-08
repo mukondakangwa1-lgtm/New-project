@@ -420,7 +420,10 @@ def get_git_status() -> dict:
 
     repo = Path(_repo())
     state = gitops.repo_state(repo)
-    _, log = _run_git(["log", "--oneline", "-5"])
+    log = subprocess.run(["git", "log", "--oneline", "-5"], cwd=repo,
+                         capture_output=True, text=True, timeout=30)
+    diff_stat = subprocess.run(["git", "diff", "--stat"], cwd=repo,
+                               capture_output=True, text=True, timeout=30)
 
     return {
         "branch": state.branch,
@@ -433,8 +436,8 @@ def get_git_status() -> dict:
         "staged": state.staged,
         "unstaged": state.unstaged,
         "untracked": state.untracked,
-        "recent_commits": log.strip().split("\n") if log.strip() else [],
-        "diff_stat": _run_git(["diff", "--stat"])[1].strip(),
+        "recent_commits": log.stdout.strip().split("\n") if log.stdout.strip() else [],
+        "diff_stat": diff_stat.stdout.strip(),
     }
 
 
