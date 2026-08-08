@@ -29,6 +29,18 @@ class ProposalCreate(BaseModel):
     file_changes: list = []
 
 
+def _proposal_edits(proposal_id: int) -> list | None:
+    """Fetch an existing proposal's edit set (files_changed -> edits)."""
+    try:
+        proposals = get_proposals()
+    except Exception:
+        return None
+    for p in proposals:
+        if p["id"] == proposal_id and p.get("files_changed"):
+            return [c for c in p["files_changed"] if isinstance(c, dict)]
+    return None
+
+
 # ──────────────────────────────────────────────
 # CODEBASE ANALYSIS
 # ──────────────────────────────────────────────
@@ -154,16 +166,28 @@ def architecture(force: bool = False, admin: User = Depends(require_admin)):
 
 class TaskCreate(BaseModel):
     task_type: str = "run_command"
-    command: str
+    command: str = ""
     workspace: Optional[str] = None
     repo_root: Optional[str] = None
     name: Optional[str] = None
     timeout: int = 120
+    edits: Optional[list] = None
+    proposal_id: Optional[int] = None
+    wait: bool = True
 
 
 @router.post("/tasks", status_code=201)
-def run_new_task(body: TaskCreate, admin: User = Depends(require_admin)):
-    """Create and execute a task inside an isolated KUDOS workspace."""
+async def run_new_task(body: TaskCreate, admin: User = Depends(require_admin)):
+    """Create and execute a task inside an isolated KUDOS workspace.
+
+    With ``wait=true`` (default) the request blocks until the task finishes
+    and returns the full result. With ``wait=false`` the task executes in the
+    background and the response returns immediately with a ``task_id``; poll
+    ``GET /tasks/{task_id}`` for progress (status: pending|running|done|failed).
+    """
+    import asyncio
+
+    from anyio import to_thread
     from app.core import task_runner
     from app.core.task_runner import TaskRunnerError
 
@@ -176,8 +200,21 @@ def run_new_task(body: TaskCreate, admin: User = Depends(require_admin)):
     elif body.repo_root and body.name:
         payload["repo_root"] = body.repo_root
         payload["name"] = body.name
+    if body.edits is not None:
+        payload["edits"] = body.edits[:200]
+    if body.proposal_id is not None:
+        payload["proposal_id"] = body.proposal_id
+        if body.edits is None:
+            payload["edits"] = _proposal_edits(body.proposal_id)
     try:
         task = task_runner.create_task(body.task_type, payload)
+        if not body.wait:
+            asyncio.create_task(to_thread.run_sync(task_runner.run_task, task.id))
+            return {
+                "task_id": task.id,
+                "status": "pending",
+                "message": f"Task {task.id} queued — poll GET /tasks/{task.id}",
+            }
         result = task_runner.run_task(task.id)
     except TaskRunnerError as exc:
         raise HTTPException(400, str(exc))

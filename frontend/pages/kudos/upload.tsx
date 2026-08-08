@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, FormEvent } from "react";
 import { getAuthHeader } from "@/lib/api";
 import Layout from "@/components/Layout";
+import { ProgressBar, useLongProcess } from "@/components/ProgressBar";
 
 export default function KudosUpload() {
   const [title, setTitle] = useState("");
@@ -9,6 +10,7 @@ export default function KudosUpload() {
   const [loading, setLoading] = useState(false);
   const [docs, setDocs] = useState<any[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
+  const uploadProgress = useLongProcess();
 
   useEffect(() => {
     fetch("/api/v1/kudos/documents", { headers: getAuthHeader() })
@@ -21,6 +23,7 @@ export default function KudosUpload() {
     e.preventDefault();
     if (!fileRef.current?.files?.[0]) return;
     setLoading(true);
+    uploadProgress.start("Uploading and indexing document…");
     setMessage({ text: "", type: "" });
 
     const formData = new FormData();
@@ -55,6 +58,7 @@ export default function KudosUpload() {
     } catch (err: any) {
       setMessage({ text: `❌ ${err.message}`, type: "error" });
     }
+    uploadProgress.stop();
     setLoading(false);
   };
 
@@ -75,6 +79,9 @@ export default function KudosUpload() {
         >
           {message.text}
         </div>
+      )}
+      {uploadProgress.active && (
+        <div className="mb-6 max-w-xl"><ProgressBar label={uploadProgress.label} elapsed={uploadProgress.elapsed} /></div>
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">

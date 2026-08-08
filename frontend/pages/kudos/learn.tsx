@@ -1,6 +1,7 @@
 import { useState, useEffect, FormEvent } from "react";
 import { getAuthHeader } from "@/lib/api";
 import Layout from "@/components/Layout";
+import { ProgressBar, useLongProcess } from "@/components/ProgressBar";
 
 export default function KudosLearn() {
   const [url, setUrl] = useState("");
@@ -8,6 +9,7 @@ export default function KudosLearn() {
   const [message, setMessage] = useState({ text: "", type: "" });
   const [loading, setLoading] = useState(false);
   const [webItems, setWebItems] = useState<any[]>([]);
+  const learnProgress = useLongProcess();
 
   useEffect(() => {
     fetch("/api/v1/kudos/learn/web", { headers: getAuthHeader() })
@@ -19,6 +21,7 @@ export default function KudosLearn() {
   const handleLearn = async (e: FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    learnProgress.start("Fetching and learning from web…");
     setMessage({ text: "", type: "" });
 
     try {
@@ -45,6 +48,7 @@ export default function KudosLearn() {
     } catch (err: any) {
       setMessage({ text: `❌ ${err.message}`, type: "error" });
     }
+    learnProgress.stop();
     setLoading(false);
   };
 
@@ -62,9 +66,12 @@ export default function KudosLearn() {
               ? "bg-green-50 border border-green-200 text-green-700"
               : "bg-red-50 border border-red-200 text-red-700"
           }`}
-        >
+          >
           {message.text}
         </div>
+      )}
+      {learnProgress.active && (
+        <div className="mb-6 max-w-xl"><ProgressBar label={learnProgress.label} elapsed={learnProgress.elapsed} /></div>
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">

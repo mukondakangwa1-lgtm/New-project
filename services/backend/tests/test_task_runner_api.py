@@ -114,6 +114,67 @@ def test_run_task_allows_workspace_local_absolute_path(ws: Workspace, admin_head
     assert "x" in data["output"]
 
 
+def test_edit_apply_happy_path(ws: Workspace, admin_headers, monkeypatch):
+    from app.core import task_runner
+
+    monkeypatch.setattr(task_runner, "SessionLocal", TestSessionLocal)
+    r = client.post("/api/v1/kudos/agent/tasks", headers=admin_headers, json={
+        "task_type": "edit_apply",
+        "workspace": str(ws.path),
+        "edits": [
+            {"path": "new_file.txt", "action": "create", "content": "hello\n"},
+            {"path": "x.txt", "action": "append", "content": "appended"},
+            {"path": "x.txt", "action": "insert", "line": 1, "content": "mid"},
+        ],
+    })
+    assert r.status_code == 201, r.text
+    data = r.json()
+    assert data["status"] == "done", data
+    assert data["applied"] == 3
+    assert data["refused"] == 0
+    assert (ws.path / "new_file.txt").read_text() == "hello\n"
+    assert (ws.path / "x.txt").read_text().startswith("x\nmid")
+
+
+def test_edit_apply_refusals(ws: Workspace, admin_headers, monkeypatch):
+    from app.core import task_runner
+
+    monkeypatch.setattr(task_runner, "SessionLocal", TestSessionLocal)
+    r = client.post("/api/v1/kudos/agent/tasks", headers=admin_headers, json={
+        "task_type": "edit_apply",
+        "workspace": str(ws.path),
+        "edits": [
+            {"path": "../escape.txt", "action": "create", "content": "x"},
+            {"path": ".env", "action": "create", "content": "SECRET=1"},
+            {"path": "/etc/hosts", "action": "append", "content": "x"},
+            {"path": "fine.txt", "action": "create", "content": "ok"},
+        ],
+    })
+    assert r.status_code == 201, r.text
+    data = r.json()
+    assert data["status"] == "failed", data
+    assert data["applied"] == 1
+    assert data["refused"] == 3
+    assert "escape" in data["error"]
+    assert not (ws.repo_root / "escape.txt").exists()
+    assert not (ws.path / ".env").exists()
+
+
+def test_edit_apply_requires_edits(ws: Workspace, admin_headers, monkeypatch):
+    from app.core import task_runner
+
+    monkeypatch.setattr(task_runner, "SessionLocal", TestSessionLocal)
+    r = client.post("/api/v1/kudos/agent/tasks", headers=admin_headers, json={
+        "task_type": "edit_apply",
+        "workspace": str(ws.path),
+        "edits": [],
+    })
+    assert r.status_code == 201, r.text
+    data = r.json()
+    assert data["status"] == "failed"
+    assert "edits" in data["error"].lower()
+
+
 def test_run_task_missing_workspace(admin_headers, monkeypatch):
     from app.core import task_runner
 
@@ -199,3 +260,39 @@ def test_unknown_task_type(ws: Workspace, admin_headers, monkeypatch):
     })
     assert r.status_code == 400
     assert "task type" in r.json()["detail"].lower()
+
+
+def test_task_async_mode(ws: Workspace, admin_headers, monkeypatch):
+    """wait=false queues the task and returns immediately; polling sees it
+    progress through running to done with the full result."""
+    import time
+
+    from app.core import task_runner
+
+    monkeypatch.setattr(task_runner, "SessionLocal", TestSessionLocal)
+    r = client.post("/api/v1/kudos/agent/tasks", headers=admin_headers, json={
+        "task_type": "run_command",
+        "workspace": str(ws.path),
+        "command": "python3 -c 'print(42)'",
+        "timeout": 30,
+        "wait": False,
+    })
+    assert r.status_code == 201, r.text
+    queued = r.json()
+    assert queued["status"] == "pending"
+    tid = queued["task_id"]
+
+    deadline = time.time() + 15
+    final = None
+    while time.time() < deadline:
+        d = client.get(f"/api/v1/kudos/agent/tasks/{tid}", headers=admin_headers)
+        assert d.status_code == 200
+        body = d.json()
+        assert body["status"] in ("pending", "running", "done", "failed")
+        if body["status"] in ("done", "failed"):
+            final = body
+            break
+        time.sleep(0.2)
+    assert final, "task did not finish in time"
+    assert final["status"] == "done", final
+    assert "42" in final["result"]["output"]

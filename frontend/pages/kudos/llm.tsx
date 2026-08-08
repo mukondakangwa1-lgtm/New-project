@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { getAuthHeader } from "@/lib/api";
 import Layout from "@/components/Layout";
+import { ProgressBar, useLongProcess } from "@/components/ProgressBar";
 
 interface LLMProvider {
   id: string;
@@ -16,6 +17,7 @@ export default function LLMConfig() {
   const [message, setMessage] = useState({ text: "", type: "" });
   const [testResult, setTestResult] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const testProgress = useLongProcess();
 
   useEffect(() => {
     fetch("/api/v1/kudos/llm/status", { headers: getAuthHeader() })
@@ -54,12 +56,17 @@ export default function LLMConfig() {
 
   const testLLM = async () => {
     setTestResult(null);
-    const res = await fetch("/api/v1/kudos/llm/test?prompt=Hello, who are you?", {
-      method: "POST",
-      headers: getAuthHeader(),
-    });
-    if (res.ok) {
-      setTestResult(await res.json());
+    testProgress.start("Testing LLM providers…");
+    try {
+      const res = await fetch("/api/v1/kudos/llm/test?prompt=Hello, who are you?", {
+        method: "POST",
+        headers: getAuthHeader(),
+      });
+      if (res.ok) {
+        setTestResult(await res.json());
+      }
+    } finally {
+      testProgress.stop();
     }
   };
 
@@ -110,11 +117,16 @@ export default function LLMConfig() {
         </div>
         <button
           onClick={testLLM}
-          className="bg-purple-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-purple-700"
+          disabled={testProgress.active}
+          className="bg-purple-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-purple-700 disabled:opacity-50"
         >
-          🧪 Test LLM
+          {testProgress.active ? "⏳ Testing…" : "🧪 Test LLM"}
         </button>
       </div>
+
+      {testProgress.active && (
+        <div className="mb-6 max-w-xl"><ProgressBar label={testProgress.label} elapsed={testProgress.elapsed} /></div>
+      )}
 
       {testResult && (
         <div className="mb-6 p-4 bg-gray-50 rounded-xl border">

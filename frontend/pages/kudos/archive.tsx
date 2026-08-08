@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { getAuthHeader } from "@/lib/api";
 import Layout from "@/components/Layout";
+import { ProgressBar, useLongProcess } from "@/components/ProgressBar";
 
 export default function InternetArchive() {
   const [waybackUrl, setWaybackUrl] = useState("");
@@ -16,10 +17,17 @@ export default function InternetArchive() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState({ text: "", type: "" });
   const [activeTab, setActiveTab] = useState<"wayback" | "search" | "timemachine" | "batch">("wayback");
+  const archiveProgress = useLongProcess();
+
+  const finishLoading = () => {
+    setLoading(false);
+    archiveProgress.stop();
+  };
 
   const fetchWayback = async () => {
     if (!waybackUrl) return;
     setLoading(true);
+    archiveProgress.start("Fetching from Wayback Machine…");
     setMessage({ text: "", type: "" });
     const params = new URLSearchParams({ url: waybackUrl });
     if (waybackYear) params.append("year", waybackYear);
@@ -35,7 +43,7 @@ export default function InternetArchive() {
       const data = await res.json();
       setMessage({ text: `❌ ${data.detail}`, type: "error" });
     }
-    setLoading(false);
+    finishLoading();
   };
 
   const fetchHistory = async () => {
@@ -50,6 +58,7 @@ export default function InternetArchive() {
   const searchArchive = async () => {
     if (!searchQuery) return;
     setLoading(true);
+    archiveProgress.start("Searching archive.org…");
     setMessage({ text: "", type: "" });
     const res = await fetch(`/api/v1/kudos/archive/search?query=${encodeURIComponent(searchQuery)}&media_type=${searchType}&max_results=5`, {
       method: "POST",
@@ -63,12 +72,13 @@ export default function InternetArchive() {
       const data = await res.json();
       setMessage({ text: `❌ ${data.detail}`, type: "error" });
     }
-    setLoading(false);
+    finishLoading();
   };
 
   const timemachineLearn = async () => {
     if (!timemachineUrl) return;
     setLoading(true);
+    archiveProgress.start("Traveling through time…");
     setMessage({ text: "", type: "" });
     const res = await fetch(`/api/v1/kudos/archive/timemachine?url=${encodeURIComponent(timemachineUrl)}&start_year=${timemachineStart}&end_year=${timemachineEnd}&interval=2`, {
       method: "POST",
@@ -82,11 +92,12 @@ export default function InternetArchive() {
       const data = await res.json();
       setMessage({ text: `❌ ${data.detail}`, type: "error" });
     }
-    setLoading(false);
+    finishLoading();
   };
 
   const batchLearn = async () => {
     setLoading(true);
+    archiveProgress.start("Learning from archive.org topics…");
     setMessage({ text: "", type: "" });
     const res = await fetch(`/api/v1/kudos/archive/batch-learn?topics=${encodeURIComponent(batchTopics)}&media_type=texts`, {
       method: "POST",
@@ -100,7 +111,7 @@ export default function InternetArchive() {
       const data = await res.json();
       setMessage({ text: `❌ ${data.detail}`, type: "error" });
     }
-    setLoading(false);
+    finishLoading();
   };
 
   return (
@@ -114,6 +125,9 @@ export default function InternetArchive() {
 
       {message.text && (
         <div className={`mb-6 p-4 rounded-lg text-sm ${message.type === "success" ? "bg-green-50 border border-green-200 text-green-700" : "bg-red-50 border border-red-200 text-red-700"}`}>{message.text}</div>
+      )}
+      {archiveProgress.active && (
+        <div className="mb-6 max-w-xl"><ProgressBar label={archiveProgress.label} elapsed={archiveProgress.elapsed} /></div>
       )}
 
       {/* Tabs */}

@@ -55,6 +55,9 @@ export async function apiFetch<T = any>(
   if (rest.method && rest.method !== "GET") {
     mergedHeaders["X-Requested-With"] = "XMLHttpRequest";
   }
+  if (rest.body != null && typeof rest.body === "string" && !mergedHeaders["Content-Type"]) {
+    mergedHeaders["Content-Type"] = "application/json";
+  }
   if (auth) {
     const legacy = getLegacyToken();
     if (legacy) mergedHeaders["Authorization"] = `Bearer ${legacy}`;

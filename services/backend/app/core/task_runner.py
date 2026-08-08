@@ -13,7 +13,6 @@ import json
 import shlex
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
 from app.core.database import SessionLocal
 from app.core.workspace import Workspace, WorkspaceError, WORKSPACES_DIR_NAME
@@ -99,21 +98,29 @@ def run_task(task_id: int) -> dict:
         ws = _workspace_from_payload(payload)
         if not ws.path.exists():
             raise WorkspaceError("Not a KUDOS workspace (path missing)")
-        command = payload.get("command", "")
-        if not command:
-            raise TaskRunnerError("No command in payload")
-        if any(seq in command for seq in ("..", ";", "&&", "||", "|", "$(", "`")):
-            raise TaskRunnerError("Shell chaining / traversal is not allowed")
-        parts = shlex.split(command)
-        ws_root = Path(ws.path).resolve()
-        for token in parts:
-            if token.startswith("/") and not _is_inside(token, ws_root):
-                raise TaskRunnerError("Path escapes the workspace sandbox")
+        if task.task_type == "edit_apply":
+            edits = payload.get("edits")
+            if not isinstance(edits, list) or not edits:
+                raise TaskRunnerError("edit_apply requires an edits list")
+        else:
+            command = payload.get("command", "")
+            if not command:
+                raise TaskRunnerError("No command in payload")
+            if any(seq in command for seq in ("..", ";", "&&", "||", "|", "$(", "`")):
+                raise TaskRunnerError("Shell chaining / traversal is not allowed")
+            parts = shlex.split(command)
+            ws_root = Path(ws.path).resolve()
+            for token in parts:
+                if token.startswith("/") and not _is_inside(token, ws_root):
+                    raise TaskRunnerError("Path escapes the workspace sandbox")
     except (TaskRunnerError, WorkspaceError, json.JSONDecodeError) as exc:
         _fail(task_id, str(exc))
         return {"task_id": task_id, "status": "failed", "error": str(exc)}
     finally:
         db.close()
+
+    if task.task_type == "edit_apply":
+        return _run_edits(task, ws, edits, payload.get("proposal_uuid"))
 
     _log(ws.path.name, "command", command, "queued")
     try:
@@ -140,6 +147,83 @@ def run_task(task_id: int) -> dict:
 def _is_inside(path: str, ws_root: Path) -> bool:
     p = Path(path).resolve()
     return p == ws_root or ws_root in p.parents
+
+
+ALLOWED_EDIT_ACTIONS = {"create", "replace", "append", "insert"}
+
+
+def _run_edits(task: "AgentTask", ws: "Workspace", edits: list,
+               proposal_uuid: str | None = None) -> dict:
+    """Apply a guarded edit set inside the workspace.
+
+    Every edit path goes through pathguard.resolve_inside, so ``..``
+    traversal, symlink escapes, system paths and protected names (credentials,
+    keys, .git) are refused. Each edit resolves atomically on its own file.
+    """
+    from app.core.pathguard import PathError, resolve_inside
+
+    applied, refusals = [], []
+    for i, edit in enumerate(edits):
+        if not isinstance(edit, dict):
+            refusals.append({"index": i, "error": "edit must be an object"})
+            continue
+        relpath = edit.get("path")
+        action = (edit.get("action") or "replace").lower()
+        if not relpath or action not in ALLOWED_EDIT_ACTIONS:
+            refusals.append({"index": i, "error": "edit needs a path and action in "
+                             f"create|replace|append|insert (got action={action!r})"})
+            continue
+        try:
+            target = resolve_inside(ws.path, str(relpath), allow_missing=True)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            content = edit.get("content", edit.get("content_preview", ""))
+            if action == "create":
+                if target.exists():
+                    refusals.append({"index": i, "path": relpath,
+                                     "error": "file already exists"})
+                    continue
+                target.write_text(content)
+            elif action == "replace":
+                target.write_text(content)
+            elif action == "append":
+                with open(target, "a") as fh:
+                    fh.write(content if content.endswith("\n") else content + "\n")
+            elif action == "insert":
+                line = int(edit.get("line") or 0)
+                text = target.read_text() if target.exists() else ""
+                lines = text.splitlines(keepends=True)
+                lines.insert(min(max(line, 0), len(lines)), content + "\n")
+                target.write_text("".join(lines))
+        except (PathError, OSError, ValueError) as exc:
+            refusals.append({"index": i, "path": relpath, "error": str(exc)})
+            continue
+        applied.append({"index": i, "path": str(target), "action": action})
+
+    outcome = {
+        "applied": len(applied),
+        "refused": len(refusals),
+        "files": [a["path"] for a in applied],
+        "refusals": refusals[:50],
+    }
+    error = ""
+    status = "done"
+    if not applied and refusals:
+        error = f"All {len(refusals)} edits refused"
+        status = "failed"
+    elif refusals:
+        first = refusals[0]
+        first_ref = first.get("path", "edit #%d" % first["index"])
+        error = f"{len(refusals)} of {len(edits)} edits refused (first: {first_ref}: {first['error']})"
+        status = "failed"
+
+    _log(ws.path.name, "edit_apply",
+         f"{len(edits)} edits ({', '.join(sorted({e.get('action', 'replace') for e in edits}))})",
+         status if not error else "partial",
+         output=json.dumps({"applied": applied, "refusals": refusals[:50]}),
+         exit_code=0 if status == "done" else -1,
+         proposal_uuid=proposal_uuid)
+    _finish(task.id, outcome, error)
+    return {"task_id": task.id, "status": status, "error": error, **outcome}
 
 
 def _fail(task_id: int, error: str):

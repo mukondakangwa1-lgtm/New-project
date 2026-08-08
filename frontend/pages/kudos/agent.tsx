@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
-import { getAuthHeader } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
 import Layout from "@/components/Layout";
+import { ProgressBar, useLongProcess } from "@/components/ProgressBar";
 
 interface Analysis {
   stats: { files: number; lines: number; functions: number; classes: number };
@@ -69,34 +70,31 @@ export default function CodeAgent() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"analysis" | "proposals" | "git" | "arch" | "tasks">("analysis");
 
+  const loadProgress = useLongProcess();
+  const genProgress = useLongProcess();
+  const gitProgress = useLongProcess();
+  const taskProgress = useLongProcess();
+
   const fetchAll = async () => {
     setLoading(true);
+    loadProgress.start("Loading agent data (analysis, architecture, git)…");
     try {
-      const headers = getAuthHeader();
-      const [analysisRes, proposalsRes, gitRes, archRes, tasksRes, logsRes] = await Promise.all([
-        fetch("/api/v1/kudos/agent/analyze", { headers }),
-        fetch("/api/v1/kudos/agent/proposals", { headers }),
-        fetch("/api/v1/kudos/agent/git/status", { headers }),
-        fetch("/api/v1/kudos/agent/architecture", { headers }),
-        fetch("/api/v1/kudos/agent/tasks", { headers }),
-        fetch("/api/v1/kudos/agent/tasks/logs", { headers }),
+      const [analysis, proposals, git, arch, tasks, logs] = await Promise.all([
+        apiFetch<Analysis>("/api/v1/kudos/agent/analyze"),
+        apiFetch<{ proposals: Proposal[] }>("/api/v1/kudos/agent/proposals"),
+        apiFetch<GitStatus>("/api/v1/kudos/agent/git/status"),
+        apiFetch<ArchIndex>("/api/v1/kudos/agent/architecture"),
+        apiFetch<{ tasks: AgentTask[] }>("/api/v1/kudos/agent/tasks"),
+        apiFetch<{ logs: SandboxLog[] }>("/api/v1/kudos/agent/tasks/logs"),
       ]);
-      if (analysisRes.ok) setAnalysis(await analysisRes.json());
-      if (proposalsRes.ok) {
-        const data = await proposalsRes.json();
-        setProposals(data.proposals || []);
-      }
-      if (gitRes.ok) setGitStatus(await gitRes.json());
-      if (archRes.ok) setArch(await archRes.json());
-      if (tasksRes.ok) {
-        const data = await tasksRes.json();
-        setTasks(data.tasks || []);
-      }
-      if (logsRes.ok) {
-        const data = await logsRes.json();
-        setLogs(data.logs || []);
-      }
+      setAnalysis(analysis);
+      setProposals(proposals.proposals || []);
+      setGitStatus(git);
+      setArch(arch);
+      setTasks(tasks.tasks || []);
+      setLogs(logs.logs || []);
     } catch {}
+    loadProgress.stop();
     setLoading(false);
   };
 
@@ -104,67 +102,62 @@ export default function CodeAgent() {
 
   const generateProposals = async () => {
     setMessage({ text: "", type: "" });
-    const res = await fetch("/api/v1/kudos/agent/auto-improvement/generate", {
-      method: "POST",
-      headers: getAuthHeader(),
-    });
-    if (res.ok) {
-      const data = await res.json();
+    genProgress.start("Generating improvement proposals…");
+    try {
+      const data = await apiFetch<{ message: string }>(
+        "/api/v1/kudos/agent/auto-improvement/generate", { method: "POST" });
       setMessage({ text: `✅ ${data.message}`, type: "success" });
-      fetchAll();
+    } catch (err) {
+      setMessage({ text: `❌ ${(err as Error).message}`, type: "error" });
     }
+    genProgress.stop();
+    fetchAll();
   };
 
   const approveProposal = async (id: number) => {
-    const res = await fetch(`/api/v1/kudos/agent/proposals/${id}/approve`, {
-      method: "POST",
-      headers: getAuthHeader(),
-    });
-    if (res.ok) {
+    try {
+      await apiFetch(`/api/v1/kudos/agent/proposals/${id}/approve`, { method: "POST" });
       setMessage({ text: "✅ Proposal approved!", type: "success" });
-      fetchAll();
+    } catch (err) {
+      setMessage({ text: `❌ ${(err as Error).message}`, type: "error" });
     }
+    fetchAll();
   };
 
   const rejectProposal = async (id: number) => {
-    const res = await fetch(`/api/v1/kudos/agent/proposals/${id}/reject`, {
-      method: "POST",
-      headers: getAuthHeader(),
-    });
-    if (res.ok) {
+    try {
+      await apiFetch(`/api/v1/kudos/agent/proposals/${id}/reject`, { method: "POST" });
       setMessage({ text: "❌ Proposal rejected", type: "error" });
-      fetchAll();
+    } catch (err) {
+      setMessage({ text: `❌ ${(err as Error).message}`, type: "error" });
     }
+    fetchAll();
   };
 
   const commitProposal = async (id: number) => {
-    const res = await fetch(`/api/v1/kudos/agent/proposals/${id}/commit?approve=true`, {
-      method: "POST",
-      headers: getAuthHeader(),
-    });
-    if (res.ok) {
-      const data = await res.json();
+    gitProgress.start("Committing changes…");
+    try {
+      const data = await apiFetch<{ message: string }>(
+        `/api/v1/kudos/agent/proposals/${id}/commit?approve=true`, { method: "POST" });
       setMessage({ text: `✅ ${data.message}`, type: "success" });
-      fetchAll();
-    } else {
-      const data = await res.json();
-      setMessage({ text: `❌ ${data.detail}`, type: "error" });
+    } catch (err) {
+      setMessage({ text: `❌ ${(err as Error).message}`, type: "error" });
     }
+    gitProgress.stop();
+    fetchAll();
   };
 
   const pushChanges = async () => {
-    const res = await fetch("/api/v1/kudos/agent/push?approved=true", {
-      method: "POST",
-      headers: getAuthHeader(),
-    });
-    if (res.ok) {
-      const data = await res.json();
+    gitProgress.start("Pushing to GitHub…");
+    try {
+      const data = await apiFetch<{ branch: string }>(
+        "/api/v1/kudos/agent/push?approved=true", { method: "POST" });
       setMessage({ text: `✅ Pushed to ${data.branch}!`, type: "success" });
-      fetchAll();
-    } else {
-      const data = await res.json();
-      setMessage({ text: `❌ ${data.detail}`, type: "error" });
+    } catch (err) {
+      setMessage({ text: `❌ ${(err as Error).message}`, type: "error" });
     }
+    gitProgress.stop();
+    fetchAll();
   };
 
   const runTask = async () => {
@@ -174,26 +167,50 @@ export default function CodeAgent() {
     }
     setRunningTask(true);
     setMessage({ text: "", type: "" });
-    const res = await fetch("/api/v1/kudos/agent/tasks", {
-      method: "POST",
-      headers: getAuthHeader(),
-      body: JSON.stringify({
-        task_type: "run_command",
-        command: taskForm.command,
-        workspace: taskForm.workspace || undefined,
-        timeout: taskForm.timeout,
-      }),
-    });
-    setRunningTask(false);
-    if (res.ok) {
-      const data = await res.json();
-      const outcome = data.status === "done" ? "succeeded" : `failed: ${data.error || "exit " + data.exit_code}`;
-      setMessage({ text: `⚙️ Task #${data.task_id} ${outcome}`, type: data.status === "done" ? "success" : "error" });
-      fetchAll();
-    } else {
-      const data = await res.json();
-      setMessage({ text: `❌ ${data.detail}`, type: "error" });
+    try {
+      const queued = await apiFetch<{ task_id: number; status: string }>(
+        "/api/v1/kudos/agent/tasks", {
+          method: "POST",
+          body: JSON.stringify({
+            task_type: "run_command",
+            command: taskForm.command,
+            workspace: taskForm.workspace || undefined,
+            timeout: taskForm.timeout,
+            wait: false,
+          }),
+        });
+      const tid = queued.task_id;
+      const timeout = taskForm.timeout;
+      const startedAt = Date.now();
+      taskProgress.start(`Task #${tid} queued…`, 8);
+      let final: { status: string; error?: string; result?: { exit_code?: number; output?: string } } | null = null;
+      while (!final) {
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        const poll = await apiFetch<{ status: string; error?: string; result?: { exit_code?: number; output?: string } }>(
+          `/api/v1/kudos/agent/tasks/${tid}`);
+        if (poll.status === "done" || poll.status === "failed") {
+          final = poll;
+          break;
+        }
+        const pct = poll.status === "pending"
+          ? 8
+          : Math.min(95, Math.round(((Date.now() - startedAt) / 1000 / timeout) * 100));
+        taskProgress.update(`Task #${tid} ${poll.status}… ${pct}%`, pct);
+      }
+      const outcome = final.status === "done"
+        ? "succeeded"
+        : `failed: ${final.error || "exit " + final.result?.exit_code}`;
+      taskProgress.stop();
+      setMessage({
+        text: `⚙️ Task #${tid} ${outcome}`,
+        type: final.status === "done" ? "success" : "error",
+      });
+    } catch (err) {
+      taskProgress.stop();
+      setMessage({ text: `❌ ${(err as Error).message}`, type: "error" });
     }
+    setRunningTask(false);
+    fetchAll();
   };
 
   const STATUS_COLORS: Record<string, string> = {
@@ -226,14 +243,27 @@ export default function CodeAgent() {
           <p className="text-gray-600">Autonomous code improvement — analyzes, proposes, waits for your approval</p>
         </div>
         <div className="flex gap-2">
-          <button onClick={generateProposals} className="bg-purple-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-purple-700">
-            🔍 Analyze & Propose
+          <button
+            onClick={generateProposals}
+            disabled={genProgress.active}
+            className="bg-purple-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-purple-700 disabled:opacity-50">
+            {genProgress.active ? "⏳ Analyzing…" : "🔍 Analyze & Propose"}
           </button>
-          <button onClick={pushChanges} className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700">
-            🚀 Push to GitHub
+          <button
+            onClick={pushChanges}
+            disabled={gitProgress.active}
+            className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50">
+            {gitProgress.active ? "⏳ Pushing…" : "🚀 Push to GitHub"}
           </button>
         </div>
       </div>
+
+      {genProgress.active && (
+        <div className="mb-6"><ProgressBar label={genProgress.label} elapsed={genProgress.elapsed} /></div>
+      )}
+      {gitProgress.active && (
+        <div className="mb-6"><ProgressBar label={gitProgress.label} elapsed={gitProgress.elapsed} /></div>
+      )}
 
       {message.text && (
         <div className={`mb-6 p-4 rounded-lg text-sm ${message.type === "success" ? "bg-green-50 border border-green-200 text-green-700" : "bg-red-50 border border-red-200 text-red-700"}`}>{message.text}</div>
@@ -256,7 +286,12 @@ export default function CodeAgent() {
       </div>
 
       {loading ? (
-        <p className="text-gray-500">Analyzing codebase...</p>
+        <div className="space-y-3">
+          <p className="text-gray-500">Analyzing codebase...</p>
+          <div className="max-w-xl">
+            <ProgressBar label={loadProgress.label || "Loading agent data…"} elapsed={loadProgress.elapsed} />
+          </div>
+        </div>
       ) : activeTab === "analysis" ? (
         <div className="space-y-6">
           {/* Stats */}
@@ -391,9 +426,15 @@ export default function CodeAgent() {
             </div>
           )}
 
-          <button onClick={pushChanges} className="bg-green-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-green-700">
+          <button
+            onClick={pushChanges}
+            disabled={gitProgress.active}
+            className="bg-green-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-green-700 disabled:opacity-50">
             🚀 Push All Committed Changes to GitHub
           </button>
+          {gitProgress.active && (
+            <div className="max-w-md"><ProgressBar label={gitProgress.label} elapsed={gitProgress.elapsed} /></div>
+          )}
         </div>
       ) : activeTab === "tasks" ? (
         /* Tasks tab */
@@ -428,6 +469,16 @@ export default function CodeAgent() {
               className="px-4 py-2 rounded-lg text-sm font-medium bg-primary text-white hover:opacity-90 disabled:opacity-50">
               {runningTask ? "Running..." : "▶️ Run Task"}
             </button>
+            {taskProgress.active && (
+              <div className="mt-3 max-w-xl">
+                <ProgressBar
+                  label={taskProgress.label}
+                  percent={taskProgress.percent}
+                  elapsed={taskProgress.elapsed}
+                  tone={taskProgress.tone}
+                />
+              </div>
+            )}
           </div>
 
           <div className="bg-white rounded-xl border shadow p-6">

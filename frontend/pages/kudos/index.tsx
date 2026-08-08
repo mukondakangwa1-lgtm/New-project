@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { getAuthHeader } from "@/lib/api";
 import Layout from "@/components/Layout";
+import { ProgressBar, useLongProcess } from "@/components/ProgressBar";
 
 interface Message {
   id: number;
@@ -30,6 +31,7 @@ export default function KudosChat() {
   const [lastSources, setLastSources] = useState<Source[]>([]);
   const [arenaMode, setArenaMode] = useState("directchat");
   const [arenaResult, setArenaResult] = useState<any>(null);
+  const askProgress = useLongProcess();
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -61,6 +63,7 @@ export default function KudosChat() {
     const question = input.trim();
     setInput("");
     setLoading(true);
+    askProgress.start("Asking KUDOS…");
     setLastSources([]);
     setArenaResult(null);
 
@@ -127,6 +130,7 @@ export default function KudosChat() {
       ]);
     }
     setLoading(false);
+    askProgress.stop();
   };
 
   const newConversation = () => {
@@ -476,6 +480,11 @@ export default function KudosChat() {
                 {loading ? "Thinking..." : "⚔️ Ask"}
               </button>
             </div>
+            {askProgress.active && (
+              <div className="mt-3">
+                <ProgressBar label={askProgress.label} elapsed={askProgress.elapsed} />
+              </div>
+            )}
           </div>
         </div>
       </div>

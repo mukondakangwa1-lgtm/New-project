@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { getAuthHeader } from "@/lib/api";
 import Layout from "@/components/Layout";
+import { ProgressBar, useLongProcess } from "@/components/ProgressBar";
 
 export default function SuperadminDashboard() {
   const [dashboard, setDashboard] = useState<any>(null);
@@ -9,7 +10,9 @@ export default function SuperadminDashboard() {
   const [chatMessages, setChatMessages] = useState<{from: string; message: string; action?: string}[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [loading, setLoading] = useState(true);
+  const [chatSending, setChatSending] = useState(false);
   const chatRef = useRef<HTMLDivElement>(null);
+  const chatProgress = useLongProcess();
 
   useEffect(() => {
     fetchAll();
@@ -47,20 +50,27 @@ export default function SuperadminDashboard() {
   };
 
   const sendChat = async () => {
-    if (!chatInput.trim()) return;
+    if (!chatInput.trim() || chatSending) return;
     const msg = chatInput.trim();
     setChatInput("");
+    setChatSending(true);
+    chatProgress.start("Asking KUDOS…");
     setChatMessages((prev) => [...prev, { from: "Superadmin", message: msg }]);
 
-    const res = await fetch("/api/v1/superadmin/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...getAuthHeader() },
-      body: JSON.stringify({ message: msg }),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      setChatMessages((prev) => [...prev, { from: data.from || "KUDOS", message: data.message, action: data.action }]);
-      fetchAll();
+    try {
+      const res = await fetch("/api/v1/superadmin/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...getAuthHeader() },
+        body: JSON.stringify({ message: msg }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setChatMessages((prev) => [...prev, { from: data.from || "KUDOS", message: data.message, action: data.action }]);
+        fetchAll();
+      }
+    } finally {
+      chatProgress.stop();
+      setChatSending(false);
     }
   };
 
@@ -257,11 +267,18 @@ export default function SuperadminDashboard() {
               <input type="text" value={chatInput} onChange={(e) => setChatInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && sendChat()}
                 className="flex-1 bg-transparent text-green-400 font-mono text-sm px-4 py-3 outline-none"
-                placeholder={`Message ${identity?.name || "KUDOS"}...`} />
-              <button onClick={sendChat} className="bg-green-600 text-white px-6 py-3 text-sm font-medium hover:bg-green-700">
-                Send
+                placeholder={`Message ${identity?.name || "KUDOS"}...`}
+                disabled={chatSending} />
+              <button onClick={sendChat} disabled={chatSending}
+                className="bg-green-600 text-white px-6 py-3 text-sm font-medium hover:bg-green-700 disabled:opacity-50">
+                {chatSending ? "Thinking..." : "Send"}
               </button>
             </div>
+            {chatProgress.active && (
+              <div className="border-t border-gray-700 px-4 py-2">
+                <ProgressBar label={chatProgress.label} elapsed={chatProgress.elapsed} />
+              </div>
+            )}
           </div>
         </div>
 

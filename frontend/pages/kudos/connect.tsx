@@ -1,6 +1,7 @@
 import { useState, useEffect, FormEvent } from "react";
 import { getAuthHeader } from "@/lib/api";
 import Layout from "@/components/Layout";
+import { ProgressBar, useLongProcess } from "@/components/ProgressBar";
 
 interface Connector {
   id: number;
@@ -62,6 +63,7 @@ export default function KudosConnect() {
   const [message, setMessage] = useState({ text: "", type: "" });
   const [syncing, setSyncing] = useState<number | null>(null);
   const [syncingAll, setSyncingAll] = useState(false);
+  const syncProgress = useLongProcess();
   const [bulkResults, setBulkResults] = useState<any[]>([]);
   const [showNew, setShowNew] = useState(false);
   const [showPack, setShowPack] = useState(false);
@@ -120,6 +122,7 @@ export default function KudosConnect() {
 
   const syncConnector = async (id: number) => {
     setSyncing(id);
+    syncProgress.start("Syncing connector…");
     setMessage({ text: "", type: "" });
     try {
       const res = await fetch(`/api/v1/kudos/connectors/${id}/sync`, { method: "POST", headers: getAuthHeader() });
@@ -134,11 +137,13 @@ export default function KudosConnect() {
     } catch (err: any) {
       setMessage({ text: `❌ ${err.message}`, type: "error" });
     }
+    syncProgress.stop();
     setSyncing(null);
   };
 
   const syncAll = async () => {
     setSyncingAll(true);
+    syncProgress.start("Syncing all connectors…");
     setMessage({ text: "", type: "" });
     setBulkResults([]);
     try {
@@ -152,6 +157,7 @@ export default function KudosConnect() {
     } catch (err: any) {
       setMessage({ text: `❌ ${err.message}`, type: "error" });
     }
+    syncProgress.stop();
     setSyncingAll(false);
   };
 
@@ -187,10 +193,15 @@ export default function KudosConnect() {
   };
 
   const importPack = async (id: number) => {
-    const res = await fetch(`/api/v1/kudos/connectors/packs/${id}/import`, { method: "POST", headers: getAuthHeader() });
-    if (res.ok) {
-      const data = await res.json();
-      setMessage({ text: `✅ Imported ${data.imported} items from "${data.pack_name}"`, type: "success" });
+    syncProgress.start("Importing knowledge pack…");
+    try {
+      const res = await fetch(`/api/v1/kudos/connectors/packs/${id}/import`, { method: "POST", headers: getAuthHeader() });
+      if (res.ok) {
+        const data = await res.json();
+        setMessage({ text: `✅ Imported ${data.imported} items from "${data.pack_name}"`, type: "success" });
+      }
+    } finally {
+      syncProgress.stop();
     }
   };
 
@@ -229,6 +240,9 @@ export default function KudosConnect() {
 
       {message.text && (
         <div className={`mb-6 p-4 rounded-lg text-sm ${message.type === "success" ? "bg-green-50 border border-green-200 text-green-700" : "bg-red-50 border border-red-200 text-red-700"}`}>{message.text}</div>
+      )}
+      {syncProgress.active && (
+        <div className="mb-6 max-w-xl"><ProgressBar label={syncProgress.label} elapsed={syncProgress.elapsed} /></div>
       )}
 
       {autoSyncStatus?.running && (

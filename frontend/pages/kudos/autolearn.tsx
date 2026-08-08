@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { getAuthHeader } from "@/lib/api";
 import Layout from "@/components/Layout";
+import { ProgressBar, useLongProcess } from "@/components/ProgressBar";
 
 interface LearnerStatus {
   running: boolean;
@@ -23,6 +24,7 @@ export default function AutoLearner() {
   const [message, setMessage] = useState({ text: "", type: "" });
   const [loading, setLoading] = useState(true);
   const [triggering, setTriggering] = useState(false);
+  const triggerProgress = useLongProcess();
 
   const fetchStatus = async () => {
     try {
@@ -57,14 +59,19 @@ export default function AutoLearner() {
 
   const triggerNow = async () => {
     setTriggering(true);
+    triggerProgress.start("Running learning cycle — this may take a minute…");
     setMessage({ text: "⏳ Learning cycle running... This may take a minute.", type: "success" });
-    const res = await fetch("/api/v1/kudos/learn/trigger", { method: "POST", headers: getAuthHeader() });
-    if (res.ok) {
-      const data = await res.json();
-      setMessage({ text: `✅ ${data.message}`, type: "success" });
-      fetchStatus();
+    try {
+      const res = await fetch("/api/v1/kudos/learn/trigger", { method: "POST", headers: getAuthHeader() });
+      if (res.ok) {
+        const data = await res.json();
+        setMessage({ text: `✅ ${data.message}`, type: "success" });
+        fetchStatus();
+      }
+    } finally {
+      triggerProgress.stop();
+      setTriggering(false);
     }
-    setTriggering(false);
   };
 
   return (
@@ -98,6 +105,9 @@ export default function AutoLearner() {
 
       {message.text && (
         <div className={`mb-6 p-4 rounded-lg text-sm ${message.type === "success" ? "bg-green-50 border border-green-200 text-green-700" : "bg-red-50 border border-red-200 text-red-700"}`}>{message.text}</div>
+      )}
+      {triggerProgress.active && (
+        <div className="mb-6 max-w-xl"><ProgressBar label={triggerProgress.label} elapsed={triggerProgress.elapsed} /></div>
       )}
 
       {loading ? (
