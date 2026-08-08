@@ -16,18 +16,22 @@ export default function Layout({ children }: LayoutProps) {
           </a>
 
           {/* Desktop nav */}
-          <ul className="hidden md:flex gap-4 lg:gap-6 text-sm font-medium text-gray-600">
-            <li><a href="/" className="hover:text-primary transition">Home</a></li>
-            <li><a href="/courses" className="hover:text-primary transition">Courses</a></li>
-            <li><a href="/register/attendance" className="hover:text-primary transition">Register</a></li>
-            <li><a href="/media" className="hover:text-primary transition">🎬 Media</a></li>
-            <li><a href="/studio" className="hover:text-primary transition">🎙️ Studio</a></li>
-            <li><a href="/hub/feed" className="hover:text-primary transition">Hub</a></li>
-            <li><a href="/chat" className="hover:text-primary transition">Chat</a></li>
-            <li><a href="/kudos" className="hover:text-purple-600 transition font-bold text-purple-700">🧠 KUDOS</a></li>
-            <li><a href="/admin/dashboard" className="hover:text-yellow-600 transition text-yellow-600">👑</a></li>
-            <li><a href="/dashboard" className="hover:text-primary transition">Dashboard</a></li>
-            <li><a href="/login" className="hover:text-primary transition">Login</a></li>
+          <ul className="hidden md:flex gap-2 lg:gap-3 text-sm font-medium text-gray-600 flex-wrap items-center">
+            <li><a href="/" className="hover:text-primary transition px-1">Home</a></li>
+            <li><a href="/courses" className="hover:text-primary transition px-1">Courses</a></li>
+            <li><a href="/assignments" className="hover:text-primary transition px-1">Assignments</a></li>
+            <li><a href="/exams" className="hover:text-primary transition px-1">Exams</a></li>
+            <li><a href="/groups" className="hover:text-primary transition px-1">Groups</a></li>
+            <li><a href="/planner" className="hover:text-primary transition px-1">Planner</a></li>
+            <li><a href="/register/attendance" className="hover:text-primary transition px-1">Register</a></li>
+            <li><a href="/hub/feed" className="hover:text-primary transition px-1">Hub</a></li>
+            <li><a href="/chat" className="hover:text-primary transition px-1">Chat</a></li>
+            <li><a href="/media" className="hover:text-primary transition px-1">🎬 Media</a></li>
+            <li><a href="/studio" className="hover:text-primary transition px-1">🎙️ Studio</a></li>
+            <li><a href="/kudos" className="hover:text-purple-600 transition font-bold text-purple-700 px-1">🧠 KUDOS</a></li>
+            <li><a href="/admin/dashboard" className="hover:text-yellow-600 transition text-yellow-600 px-1">👑</a></li>
+            <li><a href="/dashboard" className="hover:text-primary transition px-1">Dashboard</a></li>
+            <li><a href="/login" className="hover:text-primary transition px-1">Login</a></li>
           </ul>
 
           {/* Mobile hamburger */}
@@ -53,14 +57,20 @@ export default function Layout({ children }: LayoutProps) {
               {[
                 { href: "/", label: "🏠 Home" },
                 { href: "/courses", label: "📚 Courses" },
+                { href: "/assignments", label: "📝 Assignments" },
+                { href: "/exams", label: "🎓 Exams" },
+                { href: "/groups", label: "👥 Groups & Forums" },
+                { href: "/planner", label: "📅 Planner" },
                 { href: "/register/attendance", label: "📋 Register" },
-                { href: "/studio", label: "🎙️ Studio" },
-                { href: "/media", label: "🎬 Media" },
                 { href: "/hub/feed", label: "🌐 Hub" },
+                { href: "/hub/new", label: "📤 Share (S3)" },
                 { href: "/chat", label: "💬 Chat" },
+                { href: "/media", label: "🎬 Media" },
+                { href: "/studio", label: "🎙️ Studio" },
                 { href: "/kudos", label: "🧠 KUDOS" },
                 { href: "/kudos/connect", label: "🔌 Connectors" },
                 { href: "/kudos/autolearn", label: "🚀 Auto-Learn" },
+                { href: "/kudos/upload", label: "📄 Upload" },
                 { href: "/admin/dashboard", label: "👑 Superadmin" },
                 { href: "/dashboard", label: "📊 Dashboard" },
                 { href: "/login", label: "🔑 Login" },
@@ -83,7 +93,7 @@ export default function Layout({ children }: LayoutProps) {
       <main className="max-w-7xl mx-auto px-3 md:px-4 py-4 md:py-8">{children}</main>
 
       <footer className="text-center text-xs text-gray-400 py-4 md:py-6 border-t">
-        © 2026 Digital Campus • Powered by KUDOS AI
+        © 2026 Digital Campus • PostgreSQL + SQLite + MinIO (S3) • Powered by KUDOS AI
       </footer>
     </div>
   );
