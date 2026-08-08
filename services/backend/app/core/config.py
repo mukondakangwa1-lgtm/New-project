@@ -4,7 +4,7 @@ import json
 import re
 from typing import Annotated, Any, List, Optional
 
-from pydantic import ConfigDict, field_validator
+from pydantic import ConfigDict, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode
 
 
@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     # Application
     APP_NAME: str = "Digital Campus API"
     APP_VERSION: str = "0.1.0"
+    APP_ENV: str = "development"
     DEBUG: bool = True
 
     # Server
@@ -37,9 +38,16 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
 
+    # Redis (broker / cache); only used when configured.
+    REDIS_URL: str = "redis://redis:6379/0"
+
     # Database
     DATABASE_URL: str = "sqlite:///./digital_campus.db"
     AUTO_CREATE_TABLES: bool = False
+
+    # Backups (PostgreSQL)
+    BACKUP_DIR: str = "backups"
+    BACKUP_KEEP: int = 14
 
     # LLM runtime configuration. Set LLM_PROVIDER to a provider ID or
     # ``auto`` to use the first configured provider.
@@ -110,6 +118,18 @@ class Settings(BaseSettings):
             return [str(key).strip() for key in value if str(key).strip()]
 
         return value
+
+    @model_validator(mode="after")
+    def _harden(self) -> "Settings":
+        """Fail fast on insecure defaults when running in production."""
+        if self.APP_ENV == "production":
+            if not self.SECRET_KEY or self.SECRET_KEY == "changeme-in-production":
+                raise ValueError(
+                    "SECRET_KEY must be a strong random value when APP_ENV=production"
+                )
+            if self.DEBUG:
+                raise ValueError("DEBUG must be false when APP_ENV=production")
+        return self
 
 
 settings = Settings()

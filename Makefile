@@ -38,6 +38,16 @@ docker-prod-up: ## Start the LAN/VPS production stack
 docker-prod-migrate: ## Apply Alembic migrations to the production database
 	docker-compose -f docker-compose.prod.yml run --rm backend python -m alembic upgrade head
 
+# --------------- Backups ---------------
+backup: ## Create a PostgreSQL dump in BACKUP_DIR (default: backups/)
+	cd services/backend && .venv/bin/python -m app.core.backup dump
+
+backup-restore: ## Restore a dump: make backup-restore FILE=backups/xxx.dump
+	cd services/backend && .venv/bin/python -m app.core.backup restore $(FILE)
+
+backup-prune: ## Remove old dumps beyond BACKUP_KEEP (default: 14)
+	cd services/backend && .venv/bin/python -m app.core.backup prune
+
 # --------------- Lint & Test ---------------
 lint: ## Lint backend (ruff) and frontend (eslint)
 	cd services/backend && .venv/bin/ruff check app/

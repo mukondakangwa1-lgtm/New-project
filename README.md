@@ -117,7 +117,7 @@ New-project/
 │   ├── alembic/                 # Database migrations (Alembic)
 │   │   └── versions/            # Initial schema + studio tables
 │   ├── initdb/pgvector.sql      # Postgres init: CREATE EXTENSION vector
-│   ├── tests/                   # Pytest test suite (59 tests)
+│   ├── tests/                   # Pytest test suite (77 tests)
 │   ├── Dockerfile
 │   ├── requirements.txt
 │   ├── requirements-dev.txt     # Pinned: ruff, black, pytest, pytest-asyncio
@@ -405,11 +405,50 @@ After starting the backend, visit:
 - **JWT Authentication** — Stateless, scalable
 - **bcrypt Password Hashing** — Industry standard
 - **CORS Protection** — Configurable origins
-- **Rate Limiting** — 100 requests/minute per IP
+- **Rate Limiting** — Shield middleware: 100 requests/minute per IP, blocking
 - **File Integrity** — SHA-256 monitoring
 - **Intrusion Detection** — Brute force protection
-- **Auto-Backup** — Hourly knowledge backups
+- **Auto-Backup** — Hourly knowledge backups (Shield)
 - **Self-Healing** — Auto-recovery from errors
+- **Fail-fast configuration** — `APP_ENV=production` refuses to start with a
+  default `SECRET_KEY` or with `DEBUG=true`
+- **Correlation IDs** — every response and error carries an `X-Request-ID`;
+  all logs include it for end-to-end tracing
+
+## 📊 Operations
+
+### Health & readiness
+
+- `GET /api/v1/health` — liveness
+- `GET /api/v1/health/ready` — database round-trip latency, Redis state;
+  returns `503` when the database is unreachable
+
+### Metrics
+
+`GET /api/v1/admin/metrics` (superadmin only) reports host stats (CPU load,
+memory, disk), database latency, Redis state, request counters, and Shield
+(blocked IPs, performance, threat log) — no external tooling required.
+
+### Logging
+
+All requests are logged with method, path, status, duration and a
+`request_id`, with a single uniform format on stdout.
+
+### Database backups
+
+PostgreSQL dumps via `pg_dump` (custom format), with automatic pruning:
+
+```bash
+make backup                     # dump to backups/ < TIMESTAMP >.dump
+make backup-restore FILE=backups/digital_campus_20260101_120000.dump
+make backup-prune               # keep newest BACKUP_KEEP (default 14)
+```
+
+In Docker:
+
+```bash
+docker compose exec backend python -m app.core.backup dump
+```
 
 ---
 
@@ -420,13 +459,15 @@ cd services/backend
 .venv/bin/python -m pytest tests/ -v
 ```
 
-59 tests covering:
-- Health endpoints, authentication, user management, course CRUD, authorization
+77 tests covering:
+- Health, readiness, metrics, correlation IDs, error envelopes, fail-fast config
+- Authentication, user management, course CRUD, authorization
 - Academic: assignments, grades, exams, planner, timetable, community
 - Studio: speaking sessions, broadcasts, video calls, journal blocks
 - KUDOS: documents, connectors, web knowledge, sync tasks, embeddings
 - MCP: HTTP auth middleware, tool registration, mutation guard, DB-backed tools,
   and end-to-end tests against a live uvicorn subprocess via the real client
+- Backup helpers: filename format, pruning policy, PostgreSQL-only guard
 
 Frontend typecheck (`npx tsc --noEmit`) and production build (`npm run build`)
 are part of the same gates.
@@ -452,7 +493,7 @@ are part of the same gates.
 | **AI** | Google Gemini, OpenAI, Groq, Ollama via provider-neutral adapter |
 | **MCP** | MCP Python SDK, Streamable HTTP gateway, token auth |
 | **Real-time** | WebSocket (chat), SSE (notifications) |
-| **Testing** | Pytest (59 tests), pytest-asyncio, FastAPI TestClient, ruff |
+| **Testing** | Pytest (77 tests), pytest-asyncio, FastAPI TestClient, ruff |
 | **CI** | GitHub Actions (backend, frontend, migrations) |
 | **Deployment** | Docker, Docker Compose (dev + prod stacks) |
 

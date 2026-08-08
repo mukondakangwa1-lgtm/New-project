@@ -5,15 +5,25 @@ import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.api.v1 import api_router
 from app.core.config import settings
 from app.core.database import init_db
+from app.core.logging import (
+    RequestLogMiddleware,
+    configure_logging,
+    get_request_id,
+)
 # Import all models so tables get created
 from app.models import *  # noqa
 from app.models_extended import *  # noqa
+
+configure_logging()
 
 
 class ShieldMiddleware(BaseHTTPMiddleware):
@@ -85,6 +95,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Request logging (outermost) — adds X-Request-ID and per-request logs
+app.add_middleware(RequestLogMiddleware)
+
 # Shield middleware — intrusion detection, rate limiting, performance
 app.add_middleware(ShieldMiddleware)
 
@@ -114,5 +127,56 @@ def root():
         "version": settings.APP_VERSION,
         "docs": "/docs",
         "health": "/api/v1/health",
+        "ready": "/api/v1/health/ready",
         "shield": "active",
     }
+
+
+# ---------- Global exception handlers ----------
+
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    """Uniform error envelope that always includes the request id.
+
+    Registered on Starlette's HTTPException so router-level errors (404/405)
+    and FastAPI's HTTPException subclass are both covered.
+    """
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "detail": exc.detail,
+            "request_id": get_request_id(),
+        },
+        headers=exc.headers,
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": "Request validation failed",
+            "errors": exc.errors()[:10],
+            "request_id": get_request_id(),
+        },
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """Last resort — log the traceback, hide internals from the client."""
+    import logging
+
+    logging.getLogger("digital_campus").exception(
+        "unhandled exception %s %s", request.method, request.url.path
+    )
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "Internal server error",
+            # carried by the request-log middleware when we ran inside it
+            "request_id": getattr(exc, "request_id", None) or get_request_id(),
+        },
+    )
