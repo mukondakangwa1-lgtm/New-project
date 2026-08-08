@@ -356,6 +356,7 @@ RULES:
 - If the user shares good news, congratulate them
 - If the user seems stressed, be supportive
 - Always end with a helpful follow-up question or suggestion
+- When your answer uses RELEVANT KNOWLEDGE, cite it inline like [1], [2] — one marker per source actually used
 
 {f"The user's name is {user_name}. Use it occasionally." if user_name else ""}
 
@@ -409,3 +410,33 @@ async def get_llm_response(
 
     result = await query_best_llm(user_prompt, system_prompt)
     return result.get("response")
+
+
+def extract_citations(text: str, sources: list[dict], max_index: int = 9) -> list[dict]:
+    """Map [n] markers in an answer back to the numbered sources.
+
+    Returns entries in citation order, each carrying the source fields plus
+    the citation index used in the text. Unmatched markers are skipped.
+    """
+    import re as _re
+
+    citations: list[dict] = []
+    seen: set[int] = set()
+    for match in _re.finditer(r"\[(\d+)\]", text or ""):
+        idx = int(match.group(1))
+        if idx < 1 or idx > max_index or idx in seen:
+            continue
+        seen.add(idx)
+        source = sources[idx - 1] if idx - 1 < len(sources) else {}
+        if not source:
+            continue
+        citations.append(
+            {
+                "document_id": source.get("document_id"),
+                "web_id": source.get("web_id"),
+                "title": source.get("title", ""),
+                "preview": source.get("content", "")[:200],
+                "citation": idx,
+            }
+        )
+    return citations

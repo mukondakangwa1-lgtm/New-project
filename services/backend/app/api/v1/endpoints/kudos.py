@@ -139,7 +139,9 @@ def search_chunks(db: Session, query: str, limit: int = 5) -> list[dict]:
         keywords = set(chunk.keywords.split(",")) if chunk.keywords else set()
         score = sum(3 if w in keywords else 1 for w in query_words if w in content_lower)
         if score > 0:
-            scored.append({"chunk_id": chunk.id, "document_id": chunk.document_id, "content": chunk.content[:500], "score": score})
+            scored.append({"chunk_id": chunk.id, "document_id": chunk.document_id,
+                           "title": chunk.document.title, "content": chunk.content[:500],
+                           "score": score})
 
     try:
         web_items = db.query(KudosWebKnowledge).filter(
@@ -348,10 +350,12 @@ async def ask_kudos(body: KudosAskRequest, db: Session = Depends(get_db), curren
             except Exception:
                 pass
 
-        # Build knowledge context from sources
+        # Build knowledge context from sources (numbered for citations)
         knowledge_context = ""
         if sources:
-            knowledge_context = "\n".join(s.get("content", "")[:300] for s in sources[:3])
+            knowledge_context = "\n".join(
+                f"[{i}] {s.get('content', '')[:300]}" for i, s in enumerate(sources[:3], start=1)
+            )
 
         # Retrieve user memory relevant to the question
         memory_context = ""
@@ -396,8 +400,10 @@ async def ask_kudos(body: KudosAskRequest, db: Session = Depends(get_db), curren
             pass
 
         # Fallback to internal engine
+        used_fallback = False
         if not answer or len(answer) < 10:
             try:
+                used_fallback = True
                 from app.core.conversation_engine import generate_human_response
                 answer = generate_human_response(
                     query=body.question, sources=sources, conv_id=conv.id,
@@ -408,6 +414,24 @@ async def ask_kudos(body: KudosAskRequest, db: Session = Depends(get_db), curren
 
         if not answer or len(answer) < 10:
             answer = generate_answer(body.question, sources)
+            used_fallback = True
+
+        # Fallback answers don't emit [n] markers — make the sources explicit
+        if used_fallback and sources:
+            from app.models import KudosDocument
+
+            titles = []
+            for i, s in enumerate(sources[:3], start=1):
+                title = s.get("title") or ""
+                if not title and s.get("document_id"):
+                    doc_row = db.get(KudosDocument, s["document_id"])
+                    title = doc_row.title if doc_row else ""
+                titles.append(f"[{i}] {title or s.get('source', '') or 'source'}")
+            answer = f"{answer}\n\nSources: {', '.join(titles)}"
+
+        # Parse inline [n] citations the LLM used
+        from app.core.llm_engine import extract_citations
+        cited = extract_citations(answer, sources[:3])
 
         # Self-improvement logging
         try:
@@ -443,7 +467,7 @@ async def ask_kudos(body: KudosAskRequest, db: Session = Depends(get_db), curren
 
         return KudosAskResponse(
             answer=answer,
-            sources=[
+            sources=cited if cited else [
                 {"document_id": s.get("document_id"), "web_id": s.get("web_id"), "title": s.get("title", ""), "preview": s.get("content", "")[:200]}
                 for s in (sources[:3] if sources else [])
             ],
