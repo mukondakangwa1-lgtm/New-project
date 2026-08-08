@@ -1,6 +1,6 @@
 """
 Digital Campus - Backend Configuration
-Hybrid PostgreSQL + SQLite support.
+Hybrid PostgreSQL + SQLite + MinIO (S3) support.
 """
 from pydantic_settings import BaseSettings
 from typing import Optional
@@ -24,24 +24,25 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
 
     # ──────────────────────────────────────────
-    # Database — Hybrid Support
+    # Database — Hybrid Support (PostgreSQL + SQLite)
     # ──────────────────────────────────────────
-    # Primary DB: flip between SQLite (laptop) and Postgres (prod) via one var.
-    # Examples:
-    #   SQLite laptop: sqlite:///./digital_campus.db
-    #   Postgres prod: postgresql+psycopg2://dc_user:dc_pass@db:5432/digital_campus
     DATABASE_URL: str = "sqlite:///./digital_campus.db"
-
-    # Optional local replica for offline-first (Pattern B).
-    # When set, app can use this SQLite file as fallback/cache.
-    # Example: sqlite:///./digital_campus_local.db
     DATABASE_URL_LOCAL: Optional[str] = None
-
-    # Optional Redis / Celery (docker-compose)
     REDIS_URL: str = "redis://redis:6379/0"
-
-    # Embeddings
     EMBED_DIM: int = 1536
+
+    # ──────────────────────────────────────────
+    # Object Storage — MinIO / S3 (connected)
+    # ──────────────────────────────────────────
+    # Primary storage for files: MinIO local or Cloudflare R2 / AWS S3
+    # If not set, uploads fall back to DB text (graceful), but MinIO is preferred.
+    S3_ENDPOINT: str = "http://localhost:9000"  # Docker: http://minio:9000
+    S3_BUCKET: str = "campus-media"
+    S3_ACCESS_KEY: str = "dc_minio"
+    S3_SECRET_KEY: str = "dc_minio_pass_32chars_change_me"
+    S3_REGION: str = "us-east-1"
+    S3_SECURE: bool = False  # true for R2/ prod
+    S3_ENABLED: bool = True  # set false to disable S3 and use DB-only (no MinIO)
 
     @property
     def is_sqlite(self) -> bool:
@@ -54,6 +55,10 @@ class Settings(BaseSettings):
     @property
     def has_local_replica(self) -> bool:
         return bool(self.DATABASE_URL_LOCAL and self.DATABASE_URL_LOCAL.startswith("sqlite"))
+
+    @property
+    def s3_is_configured(self) -> bool:
+        return bool(self.S3_ENABLED and self.S3_BUCKET and self.S3_ACCESS_KEY and self.S3_SECRET_KEY)
 
 
 settings = Settings()

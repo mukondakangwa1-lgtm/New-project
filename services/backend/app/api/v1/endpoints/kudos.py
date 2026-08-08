@@ -164,6 +164,15 @@ async def upload_document(
     text = extract_text_from_file(content_bytes, file.filename or "unknown.txt")
     if not text.strip():
         raise HTTPException(status_code=400, detail="Could not extract text from file")
+    # Connected storage: also persist raw file to MinIO/S3 (PostgreSQL/SQLite keep text, S3 keeps bytes)
+    try:
+        from app.core import storage as store
+        if store.settings.s3_is_configured:
+            import io
+            key = store.make_key("kudos", file.filename or "doc.bin", current_user.id)
+            store.upload_file(io.BytesIO(content_bytes), key, file.content_type or "application/octet-stream")
+    except Exception:
+        pass  # DB is source of truth, S3 is best-effort backup
     doc = KudosDocument(
         uploaded_by=current_user.id, title=title, filename=file.filename or "unknown",
         file_type=file.filename.rsplit(".", 1)[-1].lower() if "." in (file.filename or "") else "",

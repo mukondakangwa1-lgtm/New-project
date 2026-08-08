@@ -210,7 +210,7 @@ class PostBase(BaseModel):
     title: str
     description: str = ""
     storage_url: str
-    storage_type: str = "link"  # link, gdrive, dropbox, onedrive, s3, youtube, image
+    storage_type: str = "link"  # connected: s3 (MinIO/R2), link, youtube, image | dead gdrive/dropbox/onedrive removed -> use s3
     content_type: str = ""  # image, video, document, audio
     thumbnail_url: str = ""
     is_public: bool = True

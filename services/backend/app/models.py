@@ -139,8 +139,8 @@ class Post(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     title = Column(String(255), nullable=False)
     description = Column(Text, default="")
-    storage_url = Column(Text, nullable=False)  # external URL (Drive, Dropbox, S3, etc.)
-    storage_type = Column(String(50), default="link")  # link, gdrive, dropbox, onedrive, s3, youtube, image
+    storage_url = Column(Text, nullable=False)  # S3 key (s3) or external URL (link/youtube/image)
+    storage_type = Column(String(50), default="link")  # connected: s3 (MinIO/R2), link, youtube, image (dead gdrive/dropbox removed)
     content_type = Column(String(100), default="")  # mime type hint: image, video, document, audio
     thumbnail_url = Column(Text, default="")
     is_public = Column(Boolean, default=True)
