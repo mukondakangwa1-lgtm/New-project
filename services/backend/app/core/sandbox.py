@@ -9,8 +9,10 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from app.core.paths import project_root
+from app.models import KudosMemory
 
 REPO_PATH = str(project_root(__file__))
+SANDBOX_KB_USER_ID = 0  # KUDOS itself holds the knowledge-layer rememberings
 
 # ──────────────────────────────────────────────
 # SANDBOX STATE
@@ -169,6 +171,163 @@ def test_proposal(proposal_id: int) -> dict:
 # ──────────────────────────────────────────────
 # APPROVAL & DEPLOYMENT
 # ──────────────────────────────────────────────
+
+def recommend_proposal(proposal_id: int) -> dict:
+    """KUDOS reviews a tested proposal and decides whether to recommend it.
+
+    Uses the best LLM when available; falls back to a deterministic heuristic
+    (no failures ⇒ recommend) so the flow works offline. Only proposals that
+    have been tested can be reviewed.
+    """
+    import asyncio
+
+    proposal = get_proposal(proposal_id)
+    if not proposal:
+        return {"error": "Proposal not found"}
+    if not proposal.get("test_result"):
+        return {"error": "Proposal has not been tested yet"}
+    if proposal["status"] not in ("pending", "recommended", "not_recommended"):
+        return {"error": f"Cannot review: status is {proposal['status']}"}
+
+    proposal["status"] = "testing"
+
+    test_result = proposal.get("test_result") or {"passed": 0, "failed": 0, "tests": []}
+    summary = "\n".join(
+        f"- {t.get('name')}: {t.get('status')} ({t.get('details', '')[:160]})"
+        for t in (test_result.get("tests") or [])
+    ) or "no tests recorded"
+
+    system_prompt = (
+        "You are KUDOS's sandbox reviewer. A university feature proposal has "
+        "been tested in an isolated sandbox. Decide whether to recommend it "
+        "for the Digital Campus platform. Reply with ONLY JSON: "
+        '{"decision": "recommend"|"not_recommend", "confidence": 0.0-1.0, '
+        '"rationale": "one paragraph"}'
+    )
+    user_prompt = (
+        f"PROPOSAL #{proposal['id']}: {proposal['title']}\n"
+        f"Category: {proposal['category']}\nDescription: {proposal['description']}\n"
+        f"TEST RESULTS:\n{summary}\n\nVerdict JSON:"
+    )
+
+    try:
+        from app.core.llm_engine import query_best_llm
+
+        result = asyncio.run(query_best_llm(user_prompt, system_prompt))
+        raw = (result or {}).get("response") or ""
+    except Exception:
+        raw = ""
+
+    decision, confidence, rationale = _parse_recommendation(raw, test_result)
+    recommendation = {
+        "decision": decision,
+        "confidence": confidence,
+        "rationale": rationale,
+        "reviewed_at": datetime.now(timezone.utc).isoformat(),
+    }
+    proposal["recommendation"] = recommendation
+    proposal["status"] = "recommended" if decision == "recommend" else "not_recommended"
+    _log("recommended", f"Proposal #{proposal_id}: {decision} ({confidence}) by KUDOS")
+    return {"status": proposal["status"], "recommendation": recommendation}
+
+
+def _parse_recommendation(raw: str, test_result: dict) -> tuple[str, float, str]:
+    """Parse the LLM verdict; degrade gracefully."""
+    import json
+    import re
+
+    decision, confidence, rationale = "not_recommend", 0.0, "No LLM verdict — heuristic fallback."
+    match = re.search(r"\{.*\}", raw or "", re.DOTALL)
+    if match:
+        try:
+            obj = json.loads(match.group(0))
+            decision = "recommend" if str(obj.get("decision", "")).startswith("recommend") else "not_recommend"
+            confidence = max(0.0, min(1.0, float(obj.get("confidence", 0))))
+            rationale = str(obj.get("rationale", ""))[:500] or rationale
+        except Exception:
+            decision = ""
+
+    if not decision:
+        # Deterministic policy fallback: green test suite → recommend.
+        passed = int(test_result.get("passed") or 0)
+        failed = int(test_result.get("failed") or 0)
+        if failed == 0 and passed > 0:
+            decision, confidence, rationale = "recommend", 0.7, "Heuristic: all sandbox tests passed"
+        else:
+            decision, confidence = "not_recommend", 0.8
+            rationale = "Heuristic: sandbox tests reported failures"
+
+    if decision == "recommend" and test_result.get("failed"):
+        # never recommend a proposal with failing tests
+        decision = "not_recommend"
+        confidence = min(confidence, 0.5)
+        rationale = f"Tests failed in the sandbox — {rationale}"
+    return decision, confidence, rationale
+
+
+# ──────────────────────────────────────────────
+# SANDBOX KNOWLEDGE BASE
+# ──────────────────────────────────────────────
+
+SANDBOX_KNOWLEDGE = [
+    ("concept", "A sandbox is an isolated environment for safely testing changes without touching the main system."),
+    ("concept", "KUDOS sandbox flow: proposal created by the admin panel, tests run in isolation, KUDOS recommends, the superadmin approves, deployment commits via git."),
+    ("concept", "Sandbox file writes keep a .sandbox_backup of every touched file so anything can be rolled back."),
+    ("concept", "Sandbox tests: full pytest suite, syntax check on changed Python files, and an app import check."),
+    ("concept", "Sandbox isolation: tests use a separate SQLite database, subprocess limits and timeouts, so failures do not touch production."),
+    ("concept", "The sandbox browses only through the Secure Web Bridge, which validates every URL to block private and reserved networks."),
+    ("fact", "The internet uses HTTPS (TLS) to encrypt traffic between clients and servers; the bridge only allows https URLs."),
+    ("fact", "A URL is: scheme://host[:port]/path?query — the bridge enforces an https scheme and a real public host."),
+    ("fact", "SSRF is an attack where a server-side request is tricked into hitting internal addresses; blocking private IPs, loopback and link-local ranges prevents it."),
+    ("fact", "DNS resolves host names to addresses; the bridge re-validates the address after every redirect for up to 4 hops."),
+    ("fact", "Web content fetched by the bridge is sanitized: scripts and styles are stripped, size capped at 256 KB, then truncated to plain text for the LLM."),
+    ("fact", "KUDOS also learns the internet through kudos web connectors and the Internet Archive; everything is chunked, embedded, and searchable."),
+]
+
+
+def build_sandbox_knowledge_context(db, limit: int = 6) -> str:
+    """Prose block of what KUDOS knows about sandboxes and the internet.
+
+    Read from the knowledge-layer memories KUDOS seeded for itself, so the
+    ask-flow can feed it into the system prompt as 'what you know'.
+    """
+    try:
+        from app.core.memory_store import retrieve_memories
+
+        entries = retrieve_memories(db, user_id=SANDBOX_KB_USER_ID, layers=["knowledge"], limit=limit)
+    except Exception:
+        return ""
+    if not entries:
+        return ""
+    return "\n".join(f"- {e.content}" for e in entries[:limit])
+
+
+def seed_sandbox_knowledge(db) -> int:
+    """Give KUDOS the knowledge about sandboxes and the internet.
+
+    Stored as knowledge-layer memories; seeded once per token. Returns the
+    number of entries written.
+    """
+    from app.core.memory_store import write_memory
+
+    if db.query(KudosMemory).filter(KudosMemory.source == "sandbox-kb").first():
+        return 0
+    seeded = 0
+    try:
+        db.rollback()
+    except Exception:
+        pass
+    for kind, content in SANDBOX_KNOWLEDGE:
+        try:
+            write_memory(
+                db, user_id=SANDBOX_KB_USER_ID,
+                content=content, layer="knowledge", kind=kind,
+                importance=0.8, source="sandbox-kb",
+            )
+            seeded += 1
+        except Exception:
+            continue
+    return seeded
 
 def approve_proposal(proposal_id: int) -> dict:
     """Superadmin approves a proposal."""

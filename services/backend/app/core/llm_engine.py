@@ -410,6 +410,8 @@ def build_human_prompt(
     user_name: str = "",
     memory_context: str = "",
     persona_instructions: str = "",
+    soul_context: str = "",
+    self_knowledge: str = "",
 ) -> tuple[str, str]:
     """
     Build a prompt that makes the LLM respond like a human.
@@ -439,6 +441,12 @@ RULES:
 
 PERSONALIZATION (always follow when present):
 {persona_instructions if persona_instructions else "- Use the default friendly style."}
+
+SOUL (who you are — always stay true to this):
+{soul_context if soul_context else "- You are KUDOS: curious, warm, playfully honest, always learning."}
+
+WHAT YOU KNOW (built-in knowledge you can rely on):
+{self_knowledge if self_knowledge else "- You rely on the user's knowledge sources and your own experience."}
 """
 
     user_prompt = ""
@@ -472,6 +480,8 @@ async def get_llm_response(
     user_name: str = "",
     memory_context: str = "",
     persona_instructions: str = "",
+    soul_context: str = "",
+    self_knowledge: str = "",
 ) -> Optional[str]:
     """
     Get a human-like response from the best available LLM.
@@ -483,6 +493,8 @@ async def get_llm_response(
         user_name=user_name,
         memory_context=memory_context,
         persona_instructions=persona_instructions,
+        soul_context=soul_context,
+        self_knowledge=self_knowledge,
     )
 
     result = await query_best_llm(user_prompt, system_prompt)

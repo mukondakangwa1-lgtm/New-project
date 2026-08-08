@@ -473,3 +473,21 @@ class UserProfile(Base):
                         onupdate=lambda: datetime.now(timezone.utc))
 
     user = relationship("User")
+
+
+class KudosSoul(Base):
+    """
+    KUDOS's soul — the persistent inner self: personality traits, values,
+    desires, dreams, and goals. A singleton row (id = 1).
+    """
+    __tablename__ = "kudos_soul"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(60), default="KUDOS")
+    personality = Column(Text, default="[]")  # JSON list of traits
+    values = Column(Text, default="[]")  # JSON list of principles
+    desires = Column(Text, default="[]")  # JSON list of wants
+    dreams = Column(Text, default="[]")  # JSON list of aspirations
+    goals = Column(Text, default="[]")  # JSON list of {goal, status}
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc),
+                        onupdate=lambda: datetime.now(timezone.utc))

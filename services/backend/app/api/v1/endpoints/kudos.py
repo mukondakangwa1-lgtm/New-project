@@ -373,6 +373,22 @@ async def ask_kudos(body: KudosAskRequest, db: Session = Depends(get_db), curren
         except Exception:
             pass
 
+        # KUDOS's soul: who it is — injected into the system prompt
+        soul_context = ""
+        try:
+            from app.core.soul import build_soul_context
+            soul_context = build_soul_context(db)
+        except Exception:
+            pass
+
+        # KUDOS's built-in self-knowledge (sandbox + internet concepts)
+        self_knowledge = ""
+        try:
+            from app.core.sandbox import build_sandbox_knowledge_context
+            self_knowledge = build_sandbox_knowledge_context(db)
+        except Exception:
+            pass
+
         # Try LLM first (human-like response)
         answer = ""
         try:
@@ -393,6 +409,8 @@ async def ask_kudos(body: KudosAskRequest, db: Session = Depends(get_db), curren
                 user_name=current_user.full_name.split()[0] if current_user.full_name else "",
                 memory_context=memory_context,
                 persona_instructions=persona_instructions,
+                soul_context=soul_context,
+                self_knowledge=self_knowledge,
             )
             if llm_answer and len(llm_answer) > 10:
                 answer = llm_answer

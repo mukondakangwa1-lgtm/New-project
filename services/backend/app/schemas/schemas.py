@@ -499,6 +499,24 @@ class ProfileResponse(BaseModel):
     greeting: str = ""
 
 
+class SoulUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, max_length=60)
+    personality: Optional[list[str]] = None
+    values: Optional[list[str]] = None
+    desires: Optional[list[str]] = None
+    dreams: Optional[list[str]] = None
+    goals: Optional[list[dict]] = None
+
+
+class SoulResponse(BaseModel):
+    name: str
+    personality: list[str] = []
+    values: list[str] = []
+    desires: list[str] = []
+    dreams: list[str] = []
+    goals: list[dict] = []
+
+
 class LLMConfigureRequest(BaseModel):
     """Configure a provider for the current process.
 
