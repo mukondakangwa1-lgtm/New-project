@@ -19,7 +19,10 @@ class ChangeProposal:
     """A proposed change to the codebase."""
     
     def __init__(self, proposal_id: int, title: str, description: str, category: str):
+        import uuid as uuid_mod
+
         self.id = proposal_id
+        self.uuid = str(uuid_mod.uuid4())
         self.title = title
         self.description = description
         self.category = category  # feature, fix, improvement, security, performance
@@ -290,14 +293,69 @@ def generate_improvements() -> list[dict]:
 # ──────────────────────────────────────────────
 
 def create_proposal(title: str, description: str, category: str, file_changes: list[dict] = None) -> ChangeProposal:
-    """Create a new change proposal."""
+    """Create a new change proposal and mirror it to SQLite (Phase 4)."""
+    import json
+    import uuid as uuid_mod
+
+    from app.core.database import SessionLocal
+    from app.models import SandboxProposal
+
     global _proposal_counter
     _proposal_counter += 1
     proposal = ChangeProposal(_proposal_counter, title, description, category)
     if file_changes:
         proposal.files_changed = file_changes
     _proposals.append(proposal)
+
+    try:
+        db = SessionLocal()
+        try:
+            row = SandboxProposal(
+                uuid=proposal.uuid,
+                title=title,
+                description=description,
+                category=category,
+                status=proposal.status,
+                source="code_agent",
+                files_changed=json.dumps(file_changes or [], default=str),
+                created_by=None,
+            )
+            db.add(row)
+            db.commit()
+        finally:
+            db.close()
+    except Exception:
+        # Persistence is best-effort; the in-memory flow still works.
+        pass
     return proposal
+
+
+def _sync_proposal_row(proposal: "ChangeProposal") -> None:
+    """Best-effort mirror of an in-memory proposal into SQLite."""
+    import json
+
+    from app.core.database import SessionLocal
+    from app.models import SandboxProposal
+
+    try:
+        db = SessionLocal()
+        try:
+            row = db.query(SandboxProposal).filter(SandboxProposal.uuid == proposal.uuid).first()
+            if not row:
+                row = SandboxProposal(uuid=proposal.uuid)
+                db.add(row)
+            row.title = proposal.title
+            row.description = proposal.description
+            row.category = proposal.category
+            row.status = proposal.status
+            row.files_changed = json.dumps(proposal.files_changed or [], default=str)
+            row.commit_hash = proposal.commit_hash
+            row.branch = proposal.git_branch or ""
+            db.commit()
+        finally:
+            db.close()
+    except Exception:
+        pass
 
 
 def get_proposals(status: Optional[str] = None) -> list[dict]:
@@ -329,6 +387,7 @@ def approve_proposal(proposal_id: int) -> dict:
                 return {"error": f"Proposal is already {p.status}"}
             p.status = "approved"
             p.reviewed_at = datetime.now(timezone.utc)
+            _sync_proposal_row(p)
             return {"status": "approved", "id": p.id, "title": p.title}
     return {"error": "Proposal not found"}
 
@@ -341,6 +400,7 @@ def reject_proposal(proposal_id: int) -> dict:
                 return {"error": f"Proposal is already {p.status}"}
             p.status = "rejected"
             p.reviewed_at = datetime.now(timezone.utc)
+            _sync_proposal_row(p)
             return {"status": "rejected", "id": p.id, "title": p.title}
     return {"error": "Proposal not found"}
 
@@ -413,6 +473,7 @@ def commit_approved_changes(proposal_id: int, approval: bool = False) -> dict:
     proposal.commit_hash = result["committed"]
     proposal.git_branch = result["branch"]
     proposal.status = "committed"
+    _sync_proposal_row(proposal)
     return {
         "status": "committed",
         "commit_hash": proposal.commit_hash,

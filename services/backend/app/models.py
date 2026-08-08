@@ -539,3 +539,73 @@ class KudosTerminalCommand(Base):
     executed_at = Column(DateTime, nullable=True)
 
     session = relationship("KudosTerminalSession")
+
+
+class SandboxProposal(Base):
+    """
+    A persisted KUDOS coding-agent proposal (the in-memory _proposals list in
+    code_agent.py is mirrored here so proposals survive restarts).
+    status: pending | approved | rejected | committed | pushed | failed
+    """
+    __tablename__ = "kudos_sandbox_proposals"
+
+    id = Column(Integer, primary_key=True, index=True)
+    uuid = Column(String(64), unique=True, index=True, nullable=False)
+    title = Column(String(255), nullable=False)
+    description = Column(Text, default="")
+    category = Column(String(50), default="improve")  # feature | fix | improve | optimize
+    priority = Column(String(20), default="medium")
+    status = Column(String(30), default="pending")
+    source = Column(String(50), default="code_agent")  # code_agent | task_runner | manual
+    workspace = Column(String(300), nullable=True)
+    branch = Column(String(120), default="")
+    commit_hash = Column(String(64), nullable=True)
+    files_changed = Column(Text, default="[]")  # JSON: [{"file": "...", "diff": "..."}]
+    analysis = Column(Text, default="")
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc),
+                        onupdate=lambda: datetime.now(timezone.utc))
+
+    creator = relationship("User")
+
+
+class SandboxLog(Base):
+    """
+    One operation executed inside a KUDOS sandbox (command run, quality gate,
+    edit applied). Append-only audit trail.
+    """
+    __tablename__ = "kudos_sandbox_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    workspace = Column(String(300), nullable=True)
+    operation = Column(String(80), nullable=False)  # command | edit | gate | commit | push
+    command = Column(Text, default="")
+    status = Column(String(20), default="queued")  # queued | running | done | failed
+    exit_code = Column(Integer, nullable=True)
+    output = Column(Text, default="")
+    proposal_uuid = Column(String(64), nullable=True, index=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    finished_at = Column(DateTime, nullable=True)
+
+
+class AgentTask(Base):
+    """
+    A queued/executed agent task (e.g. "run tests", "lint", "improve X").
+    task_type drives how task_runner.py executes it.
+    status: pending | running | done | failed
+    """
+    __tablename__ = "kudos_agent_tasks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    task_type = Column(String(80), nullable=False)
+    payload = Column(Text, default="{}")  # JSON: {workspace, command, args, ...}
+    status = Column(String(20), default="pending")
+    result = Column(Text, default="")  # JSON: {exit_code, output, ...}
+    error = Column(Text, default="")
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    started_at = Column(DateTime, nullable=True)
+    finished_at = Column(DateTime, nullable=True)
+
+    creator = relationship("User")
