@@ -28,22 +28,31 @@ interface GitStatus {
   diff_stat: string;
 }
 
+interface ArchIndex {
+  summary: string;
+  stats: { files: number; lines_of_code: number; functions: number; classes: number; by_extension: Record<string, number> };
+  features: { name: string; files: number; examples: string[] }[];
+  modules: { path: string; kind: string; symbols?: string[] }[];
+}
+
 export default function CodeAgent() {
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
+  const [arch, setArch] = useState<ArchIndex | null>(null);
   const [message, setMessage] = useState({ text: "", type: "" });
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"analysis" | "proposals" | "git">("analysis");
+  const [activeTab, setActiveTab] = useState<"analysis" | "proposals" | "git" | "arch">("analysis");
 
   const fetchAll = async () => {
     setLoading(true);
     try {
       const headers = getAuthHeader();
-      const [analysisRes, proposalsRes, gitRes] = await Promise.all([
+      const [analysisRes, proposalsRes, gitRes, archRes] = await Promise.all([
         fetch("/api/v1/kudos/agent/analyze", { headers }),
         fetch("/api/v1/kudos/agent/proposals", { headers }),
         fetch("/api/v1/kudos/agent/git/status", { headers }),
+        fetch("/api/v1/kudos/agent/architecture", { headers }),
       ]);
       if (analysisRes.ok) setAnalysis(await analysisRes.json());
       if (proposalsRes.ok) {
@@ -51,6 +60,7 @@ export default function CodeAgent() {
         setProposals(data.proposals || []);
       }
       if (gitRes.ok) setGitStatus(await gitRes.json());
+      if (archRes.ok) setArch(await archRes.json());
     } catch {}
     setLoading(false);
   };
@@ -171,6 +181,7 @@ export default function CodeAgent() {
           { id: "analysis" as const, label: "📊 Analysis", count: analysis?.issue_count || 0 },
           { id: "proposals" as const, label: "📋 Proposals", count: proposals.length },
           { id: "git" as const, label: "🔀 Git", count: 0 },
+          { id: "arch" as const, label: "🏗️ Architecture", count: 0 },
         ].map((t) => (
           <button key={t.id} onClick={() => setActiveTab(t.id)}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition ${activeTab === t.id ? "bg-primary text-white" : "bg-white border hover:bg-gray-50"}`}>
@@ -288,7 +299,7 @@ export default function CodeAgent() {
             ))
           )}
         </div>
-      ) : (
+      ) : activeTab === "git" ? (
         /* Git tab */
         <div className="space-y-6">
           {gitStatus && (
@@ -318,6 +329,57 @@ export default function CodeAgent() {
           <button onClick={pushChanges} className="bg-green-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-green-700">
             🚀 Push All Committed Changes to GitHub
           </button>
+        </div>
+      ) : (
+        /* Architecture tab */
+        <div className="space-y-6">
+          {arch && (
+            <>
+              <div className="bg-white rounded-xl border shadow p-6">
+                <h3 className="font-semibold text-lg mb-3">🏗️ Architecture Index</h3>
+                <p className="text-sm text-gray-600 mb-4">{arch.summary}</p>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  {[
+                    { label: "Files", value: arch.stats.files, icon: "📄" },
+                    { label: "LOC", value: arch.stats.lines_of_code, icon: "📝" },
+                    { label: "Functions", value: arch.stats.functions, icon: "⚡" },
+                    { label: "Classes", value: arch.stats.classes, icon: "🏗️" },
+                  ].map((s) => (
+                    <div key={s.label} className="bg-gray-50 rounded-lg border p-4 text-center">
+                      <p className="text-2xl mb-1">{s.icon}</p>
+                      <p className="text-2xl font-bold text-primary">{s.value.toLocaleString()}</p>
+                      <p className="text-xs text-gray-500">{s.label}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="bg-white rounded-xl border shadow p-6">
+                <h4 className="font-semibold mb-3">🧩 Feature Areas</h4>
+                <div className="flex flex-wrap gap-2">
+                  {arch.features.map((f) => (
+                    <span key={f.name} className="text-xs bg-purple-50 text-purple-700 border border-purple-200 px-3 py-1 rounded-full">
+                      {f.name} ({f.files})
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              <div className="bg-white rounded-xl border shadow p-6">
+                <h4 className="font-semibold mb-3">🗂️ Modules</h4>
+                <div className="max-h-96 overflow-y-auto">
+                  {arch.modules.map((m) => (
+                    <div key={m.path} className="flex justify-between items-start py-1.5 border-b border-gray-100 text-sm">
+                      <span className="font-mono text-xs text-gray-700">{m.path}</span>
+                      {m.symbols && m.symbols.length > 0 && (
+                        <span className="text-xs text-gray-400 ml-4">{m.symbols.slice(0, 5).join(", ")}</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
         </div>
       )}
     </Layout>

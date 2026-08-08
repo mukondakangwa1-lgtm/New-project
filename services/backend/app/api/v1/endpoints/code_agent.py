@@ -133,6 +133,22 @@ def git_diff(admin: User = Depends(require_admin)):
 
 
 # ──────────────────────────────────────────────
+# ARCHITECTURE INDEX
+# ──────────────────────────────────────────────
+
+@router.get("/architecture")
+def architecture(force: bool = False, admin: User = Depends(require_admin)):
+    """Get the architecture index — tree, modules, symbols, stats."""
+    from app.core import archindex
+    from app.core.code_agent import get_repo_path
+
+    index = archindex.get_architecture_index(get_repo_path(), force=force)
+    if "error" in index:
+        raise HTTPException(404, index["error"])
+    return {"summary": archindex.summarize(index), **index}
+
+
+# ──────────────────────────────────────────────
 # AUTO-IMPROVEMENT
 # ──────────────────────────────────────────────
 
