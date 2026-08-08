@@ -23,6 +23,29 @@ from typing import Optional
 
 WORKSPACES_DIR_NAME = ".kudos_workspaces"
 
+# Names / substrings that mark environment variables as secret-bearing.
+# They are never inherited by sandbox subprocesses, so an agent task cannot
+# exfiltrate backend credentials via `env` / `printenv` / os.environ.
+_SECRET_VARS = {"DATABASE_URL", "REDIS_URL", "API_KEYS", "ADMIN_PASSWORD", "ADMIN_EMAIL"}
+_SECRET_PATTERNS = ("KEY", "TOKEN", "PASSWORD", "SECRET", "CREDENTIAL")
+
+
+def _sandbox_env(cwd: str | None = None) -> dict:
+    """Environment for sandboxed subprocesses: host env minus secrets.
+
+    When ``cwd`` is given, ``HOME`` is redirected there so ``~`` expansion
+    cannot reach host user files (git/user config, ssh keys).
+    """
+    env = {}
+    for name, value in os.environ.items():
+        upper = name.upper()
+        if upper in _SECRET_VARS or any(p in upper for p in _SECRET_PATTERNS):
+            continue
+        env[name] = value
+    if cwd is not None:
+        env["HOME"] = cwd
+    return env
+
 
 class WorkspaceError(RuntimeError):
     """Raised when a workspace operation fails."""
@@ -44,8 +67,13 @@ def _limit_resources() -> None:
         pass
 
 
-def _run(cwd: Path, args: list[str], timeout: int = 60) -> subprocess.CompletedProcess:
-    """Run a command inside a workspace with limits and a timeout."""
+def _run(cwd: Path, args: list[str], timeout: int = 60,
+         env: dict | None = None) -> subprocess.CompletedProcess:
+    """Run a command inside a workspace with limits and a timeout.
+
+    Secrets are always scrubbed from the inherited environment; ``env`` can
+    additionally provide a HOME override (see Workspace.run).
+    """
     return subprocess.run(
         args,
         cwd=str(cwd),
@@ -53,7 +81,7 @@ def _run(cwd: Path, args: list[str], timeout: int = 60) -> subprocess.CompletedP
         text=True,
         timeout=timeout,
         preexec_fn=_limit_resources,
-        env={**os.environ},
+        env=env if env is not None else _sandbox_env(),
     )
 
 
@@ -161,8 +189,12 @@ class Workspace:
         self._git(["clean", "-fd"], timeout=120)
 
     def run(self, args: list[str], timeout: int = 120) -> subprocess.CompletedProcess:
-        """Run a command inside the workspace with limits applied."""
-        return _run(self.path, args, timeout=timeout)
+        """Run a command inside the workspace with limits applied.
+
+        The child env is scrubbed of secrets and ``HOME`` is redirected to
+        the workspace so ``~``-based lookups cannot reach host files.
+        """
+        return _run(self.path, args, timeout=timeout, env=_sandbox_env(str(self.path)))
 
     def files_changed(self) -> list[str]:
         """Names of files modified in the workspace vs the base commit.

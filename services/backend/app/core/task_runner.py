@@ -10,6 +10,7 @@ Design rules:
 - everything is append-only logged in kudos_sandbox_logs.
 """
 import json
+import re
 import shlex
 from datetime import datetime, timezone
 from pathlib import Path
@@ -19,6 +20,14 @@ from app.core.workspace import Workspace, WorkspaceError, WORKSPACES_DIR_NAME
 from app.models import AgentTask, SandboxLog
 
 KNOWN_TASK_TYPES = {"run_command", "quality_gate", "edit_apply"}
+
+# Shells expand env vars / ~ / globs inside a -c payload, so a static path
+# scan cannot see what they would open. Refuse shell code-execution outright.
+_SHELL_NAMES = {"sh", "bash", "dash", "zsh", "ksh", "csh", "tcsh", "fish"}
+
+# Absolute paths anywhere in the raw command string (even nested inside a
+# `-c` payload or function args) must stay inside the workspace.
+_ABS_PATH_RE = re.compile(r"(?:^|[^\w/])(/[^\s'\"]+)")
 
 
 class TaskRunnerError(Exception):
@@ -106,13 +115,9 @@ def run_task(task_id: int) -> dict:
             command = payload.get("command", "")
             if not command:
                 raise TaskRunnerError("No command in payload")
-            if any(seq in command for seq in ("..", ";", "&&", "||", "|", "$(", "`")):
-                raise TaskRunnerError("Shell chaining / traversal is not allowed")
-            parts = shlex.split(command)
-            ws_root = Path(ws.path).resolve()
-            for token in parts:
-                if token.startswith("/") and not _is_inside(token, ws_root):
-                    raise TaskRunnerError("Path escapes the workspace sandbox")
+            parts, error = _validate_command(command, Path(ws.path).resolve())
+            if error:
+                raise TaskRunnerError(error)
     except (TaskRunnerError, WorkspaceError, json.JSONDecodeError) as exc:
         _fail(task_id, str(exc))
         return {"task_id": task_id, "status": "failed", "error": str(exc)}
@@ -147,6 +152,55 @@ def run_task(task_id: int) -> dict:
 def _is_inside(path: str, ws_root: Path) -> bool:
     p = Path(path).resolve()
     return p == ws_root or ws_root in p.parents
+
+
+def _mask_quoted(command: str) -> str:
+    """Blank out quoted sections so shell-level separator checks do not fire
+    on code that merely lives inside an argument string."""
+    out: list[str] = []
+    i, n = 0, len(command)
+    while i < n:
+        c = command[i]
+        if c in "'\"":
+            j = i + 1
+            while j < n and command[j] != c:
+                if command[j] == "\\":
+                    j += 1
+                j += 1
+            out.append(" " * (j - i + 1))
+            i = j + 1
+        else:
+            out.append(c)
+            i += 1
+    return "".join(out)
+
+
+def _validate_command(command: str, ws_root: Path) -> tuple[list[str], str | None]:
+    """Static validation of a sandbox command string.
+
+    Returns ``(parts, error)``; ``error`` is set when the command must be
+    refused. Layers, in order:
+    - shell chaining / command substitution strings (outside quotes);
+    - empty argv (whitespace-only strings);
+    - absolute paths found anywhere in the raw string (even inside a ``-c``
+      payload) that resolve outside the workspace;
+    - argv tokens that are absolute paths outside the workspace;
+    - shell ``-c`` code execution (env/~ expansion cannot be audited).
+    """
+    if any(seq in _mask_quoted(command) for seq in ("..", ";", "&&", "||", "|", "$(", "`")):
+        return [], "Shell chaining / traversal is not allowed"
+    parts = shlex.split(command)
+    if not parts:
+        return [], "Empty command"
+    for match in _ABS_PATH_RE.findall(command):
+        if not _is_inside(match, ws_root):
+            return parts, "Path escapes the workspace sandbox"
+    for token in parts:
+        if token.startswith("/") and not _is_inside(token, ws_root):
+            return parts, "Path escapes the workspace sandbox"
+    if any(token in _SHELL_NAMES for token in parts) and "-c" in parts:
+        return parts, "Shell -c execution is not allowed"
+    return parts, None
 
 
 ALLOWED_EDIT_ACTIONS = {"create", "replace", "append", "insert"}
@@ -224,6 +278,12 @@ def _run_edits(task: "AgentTask", ws: "Workspace", edits: list,
          proposal_uuid=proposal_uuid)
     _finish(task.id, outcome, error)
     return {"task_id": task.id, "status": status, "error": error, **outcome}
+
+
+def fail_task(task_id: int, error: str) -> None:
+    """Public wrapper for _fail — used to settle rows when a background
+    execution path crashes outside the normal run_task flow."""
+    _fail(task_id, error)
 
 
 def _fail(task_id: int, error: str):

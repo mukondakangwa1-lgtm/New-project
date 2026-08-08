@@ -114,6 +114,120 @@ def test_run_task_allows_workspace_local_absolute_path(ws: Workspace, admin_head
     assert "x" in data["output"]
 
 
+@pytest.mark.parametrize("bad_command,reason", [
+    # absolute host paths nested inside interpreter payloads must be caught
+    ("sh -c 'cat /etc/passwd'", "escapes"),
+    ("bash -c 'rm -rf /tmp/evil'", "escapes"),
+    ("python3 -c 'import os; os.remove(\"/etc/hosts\")'", "escapes"),
+    ("env sh -c 'cat /etc/passwd'", "escapes"),
+    # shell -c strings can smuggle host paths via env expansion we cannot
+    # audit statically ($HOME, ~), so shell code execution is refused outright
+    ("sh -c 'cat $HOME/.ssh/id_rsa'", "shell -c"),
+    ("bash -c 'echo $HOME'", "shell -c"),
+])
+def test_run_task_interpreter_escapes_refused(ws, admin_headers, monkeypatch, bad_command, reason):
+    from app.core import task_runner
+
+    monkeypatch.setattr(task_runner, "SessionLocal", TestSessionLocal)
+    r = client.post("/api/v1/kudos/agent/tasks", headers=admin_headers, json={
+        "task_type": "run_command",
+        "workspace": str(ws.path),
+        "command": bad_command,
+        "timeout": 30,
+    })
+    assert r.status_code == 201, r.text
+    data = r.json()
+    assert data["status"] == "failed", data
+    assert reason in data["error"].lower(), data["error"]
+
+
+def test_run_task_allows_git_c_flag_and_script_files(ws: Workspace, admin_headers, monkeypatch):
+    """git -c <key>=<value> and in-workspace shell scripts are legitimate —
+    only code executed via a shell -c flag is refused."""
+    from app.core import task_runner
+
+    monkeypatch.setattr(task_runner, "SessionLocal", TestSessionLocal)
+    r = client.post("/api/v1/kudos/agent/tasks", headers=admin_headers, json={
+        "task_type": "run_command",
+        "workspace": str(ws.path),
+        "command": "git -c user.name=t log --oneline -1",
+        "timeout": 30,
+    })
+    assert r.status_code == 201, r.text
+    assert r.json()["status"] == "done", r.json()
+
+    (ws.path / "s.sh").write_text("echo ok\n")
+    r2 = client.post("/api/v1/kudos/agent/tasks", headers=admin_headers, json={
+        "task_type": "run_command",
+        "workspace": str(ws.path),
+        "command": "sh -e s.sh",
+        "timeout": 30,
+    })
+    assert r2.status_code == 201, r2.text
+    data = r2.json()
+    assert data["status"] == "done", data
+    assert "ok" in data["output"]
+
+
+def test_run_task_whitespace_command_refused(ws: Workspace, admin_headers, monkeypatch):
+    from app.core import task_runner
+
+    monkeypatch.setattr(task_runner, "SessionLocal", TestSessionLocal)
+    r = client.post("/api/v1/kudos/agent/tasks", headers=admin_headers, json={
+        "task_type": "run_command",
+        "workspace": str(ws.path),
+        "command": "   ",
+        "timeout": 30,
+    })
+    assert r.status_code == 201, r.text
+    data = r.json()
+    assert data["status"] == "failed", data
+    assert "empty" in data["error"].lower()
+    d = client.get(f"/api/v1/kudos/agent/tasks/{data['task_id']}", headers=admin_headers)
+    assert d.json()["status"] == "failed", "row must not stay running"
+
+
+def test_sandbox_env_scrubbed(ws: Workspace, admin_headers, monkeypatch):
+    """Task subprocesses must not see backend secrets or the host HOME."""
+    from app.core import task_runner
+
+    monkeypatch.setattr(task_runner, "SessionLocal", TestSessionLocal)
+    monkeypatch.setenv("SECRET_KEY", "sup3r-secret")
+    monkeypatch.setenv("MY_AUTH_TOKEN", "tok-123")
+    monkeypatch.setenv("DATABASE_URL", "postgres://secret")
+    monkeypatch.setenv("FOO_BAR", "hello")
+
+    r = client.post("/api/v1/kudos/agent/tasks", headers=admin_headers, json={
+        "task_type": "run_command",
+        "workspace": str(ws.path),
+        "command": "env",
+        "timeout": 30,
+    })
+    assert r.status_code == 201, r.text
+    data = r.json()
+    assert data["status"] == "done", data
+    for secret in ("SECRET_KEY", "MY_AUTH_TOKEN", "DATABASE_URL", "sup3r-secret", "tok-123"):
+        assert secret not in data["output"], f"{secret} leaked into sandbox env"
+    assert "FOO_BAR=hello" in data["output"], "benign vars must still pass through"
+
+
+def test_sandbox_home_confined(ws: Workspace, admin_headers, monkeypatch):
+    """HOME is redirected to the workspace, so ~ cannot reach host files."""
+    from app.core import task_runner
+
+    monkeypatch.setattr(task_runner, "SessionLocal", TestSessionLocal)
+    r = client.post("/api/v1/kudos/agent/tasks", headers=admin_headers, json={
+        "task_type": "run_command",
+        "workspace": str(ws.path),
+        "command": "python3 -c 'import os; print(os.environ.get(\"HOME\"))'",
+        "timeout": 30,
+    })
+    assert r.status_code == 201, r.text
+    data = r.json()
+    assert data["status"] == "done", data
+    assert str(ws.path) in data["output"]
+
+
 def test_edit_apply_happy_path(ws: Workspace, admin_headers, monkeypatch):
     from app.core import task_runner
 

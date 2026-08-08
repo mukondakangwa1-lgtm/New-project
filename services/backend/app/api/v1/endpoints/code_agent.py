@@ -209,16 +209,28 @@ async def run_new_task(body: TaskCreate, admin: User = Depends(require_admin)):
     try:
         task = task_runner.create_task(body.task_type, payload)
         if not body.wait:
-            asyncio.create_task(to_thread.run_sync(task_runner.run_task, task.id))
+            asyncio.create_task(_background_run(task.id))
             return {
                 "task_id": task.id,
                 "status": "pending",
                 "message": f"Task {task.id} queued — poll GET /tasks/{task.id}",
             }
-        result = task_runner.run_task(task.id)
+        result = await to_thread.run_sync(task_runner.run_task, task.id)
     except TaskRunnerError as exc:
         raise HTTPException(400, str(exc))
     return result
+
+
+async def _background_run(task_id: int) -> None:
+    """Run a task off the event loop; settle the row on any unexpected
+    exception so it never stays pending forever."""
+    from anyio import to_thread
+    from app.core import task_runner
+
+    try:
+        await to_thread.run_sync(task_runner.run_task, task_id)
+    except Exception as exc:  # noqa: BLE001 — row must always be settled
+        task_runner.fail_task(task_id, f"internal error: {exc}")
 
 
 @router.get("/tasks")
