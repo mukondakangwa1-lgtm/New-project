@@ -22,6 +22,20 @@ def upgrade() -> None:
     op.add_column('kudos_memories', sa.Column('device_policy', sa.String(length=20),
                                               nullable=True, server_default='replicated'))
 
+    op.create_table('user_profiles',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('user_id', sa.Integer(), nullable=False),
+    sa.Column('tone', sa.String(length=20), nullable=True),
+    sa.Column('verbosity', sa.String(length=20), nullable=True),
+    sa.Column('emoji_enabled', sa.Boolean(), nullable=True),
+    sa.Column('interests', sa.Text(), nullable=True),
+    sa.Column('greeting', sa.String(length=120), nullable=True),
+    sa.Column('updated_at', sa.DateTime(), nullable=True),
+    sa.ForeignKeyConstraint(['user_id'], ['users.id'], ),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_user_profiles_user_id'), 'user_profiles', ['user_id'], unique=True)
+
     op.create_table('kudos_devices',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('user_id', sa.Integer(), nullable=False),
@@ -60,6 +74,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Revert this migration."""
+    op.drop_table('user_profiles')
     op.drop_index(op.f('ix_kudos_memory_replicas_device_id'), table_name='kudos_memory_replicas')
     op.drop_index(op.f('ix_kudos_memory_replicas_memory_id'), table_name='kudos_memory_replicas')
     op.drop_index(op.f('ix_kudos_memory_replicas_user_id'), table_name='kudos_memory_replicas')

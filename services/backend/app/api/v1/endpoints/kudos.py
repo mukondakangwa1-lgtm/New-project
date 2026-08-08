@@ -361,6 +361,14 @@ async def ask_kudos(body: KudosAskRequest, db: Session = Depends(get_db), curren
         except Exception:
             pass
 
+        # Personal KUDOS: tone/verbosity/interests for this user
+        persona_instructions = ""
+        try:
+            from app.core.persona import build_persona_instructions, profile_dict
+            persona_instructions = build_persona_instructions(profile_dict(db, current_user.id))
+        except Exception:
+            pass
+
         # Try LLM first (human-like response)
         answer = ""
         try:
@@ -380,6 +388,7 @@ async def ask_kudos(body: KudosAskRequest, db: Session = Depends(get_db), curren
                 conversation_history=conv_history,
                 user_name=current_user.full_name.split()[0] if current_user.full_name else "",
                 memory_context=memory_context,
+                persona_instructions=persona_instructions,
             )
             if llm_answer and len(llm_answer) > 10:
                 answer = llm_answer

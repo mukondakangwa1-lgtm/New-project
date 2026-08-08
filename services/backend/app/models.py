@@ -454,3 +454,22 @@ class KudosMemoryReplica(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     device = relationship("KudosDevice", back_populates="replicas")
+
+
+class UserProfile(Base):
+    """
+    Personal KUDOS settings: how the assistant talks to this user.
+    """
+    __tablename__ = "user_profiles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, unique=True, index=True)
+    tone = Column(String(20), default="friendly")  # concise | friendly | detailed | formal
+    verbosity = Column(String(20), default="normal")  # brief | normal | detailed
+    emoji_enabled = Column(Boolean, default=False)
+    interests = Column(Text, default="[]")  # JSON list of interest tags
+    greeting = Column(String(120), default="")  # custom salutation
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc),
+                        onupdate=lambda: datetime.now(timezone.utc))
+
+    user = relationship("User")

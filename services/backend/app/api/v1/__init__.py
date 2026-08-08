@@ -8,7 +8,7 @@ from app.api.v1.endpoints import (
     kudos, connectors, guardian, search_connectors, arena, social_learning, llm_api,
     assignments, study_groups, calendar_goals, exams, analytics, code_agent,
     internet_archive, auto_learner, speaking, kudos_root, superadmin, shield, embed, media,
-    memory, devices,
+    memory, devices, profile,
 )
 
 api_router = APIRouter()
@@ -44,3 +44,4 @@ api_router.include_router(media.router, prefix="/media", tags=["Media Hub"])
 api_router.include_router(memory.router, prefix="/kudos/memory", tags=["KUDOS Memory"])
 api_router.include_router(devices.router, prefix="/kudos/devices", tags=["KUDOS Devices"])
 api_router.include_router(devices.sync_router, prefix="/kudos/sync", tags=["KUDOS Sync"])
+api_router.include_router(profile.router, prefix="/kudos/profile", tags=["KUDOS Profile"])

@@ -483,6 +483,22 @@ class SyncStatusResponse(BaseModel):
     last_check: str
 
 
+class ProfileUpdate(BaseModel):
+    tone: Optional[str] = Field(default=None, max_length=20)
+    verbosity: Optional[str] = Field(default=None, max_length=20)
+    emoji_enabled: Optional[bool] = None
+    interests: Optional[list[str]] = None
+    greeting: Optional[str] = Field(default=None, max_length=120)
+
+
+class ProfileResponse(BaseModel):
+    tone: str
+    verbosity: str
+    emoji_enabled: bool
+    interests: list[str] = []
+    greeting: str = ""
+
+
 class LLMConfigureRequest(BaseModel):
     """Configure a provider for the current process.
 

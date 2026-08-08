@@ -332,6 +332,7 @@ def build_human_prompt(
     conversation_history: list = [],
     user_name: str = "",
     memory_context: str = "",
+    persona_instructions: str = "",
 ) -> tuple[str, str]:
     """
     Build a prompt that makes the LLM respond like a human.
@@ -357,6 +358,9 @@ RULES:
 - Always end with a helpful follow-up question or suggestion
 
 {f"The user's name is {user_name}. Use it occasionally." if user_name else ""}
+
+PERSONALIZATION (always follow when present):
+{persona_instructions if persona_instructions else "- Use the default friendly style."}
 """
 
     user_prompt = ""
@@ -389,6 +393,7 @@ async def get_llm_response(
     conversation_history: list = [],
     user_name: str = "",
     memory_context: str = "",
+    persona_instructions: str = "",
 ) -> Optional[str]:
     """
     Get a human-like response from the best available LLM.
@@ -399,6 +404,7 @@ async def get_llm_response(
         conversation_history=conversation_history,
         user_name=user_name,
         memory_context=memory_context,
+        persona_instructions=persona_instructions,
     )
 
     result = await query_best_llm(user_prompt, system_prompt)
