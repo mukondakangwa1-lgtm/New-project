@@ -149,6 +149,71 @@ def architecture(force: bool = False, admin: User = Depends(require_admin)):
 
 
 # ──────────────────────────────────────────────
+# TASK RUNNER
+# ──────────────────────────────────────────────
+
+class TaskCreate(BaseModel):
+    task_type: str = "run_command"
+    command: str
+    workspace: Optional[str] = None
+    repo_root: Optional[str] = None
+    name: Optional[str] = None
+    timeout: int = 120
+
+
+@router.post("/tasks", status_code=201)
+def run_new_task(body: TaskCreate, admin: User = Depends(require_admin)):
+    """Create and execute a task inside an isolated KUDOS workspace."""
+    from app.core import task_runner
+    from app.core.task_runner import TaskRunnerError
+
+    payload = {
+        "command": body.command,
+        "timeout": max(1, min(body.timeout, 600)),
+    }
+    if body.workspace:
+        payload["workspace"] = body.workspace
+    elif body.repo_root and body.name:
+        payload["repo_root"] = body.repo_root
+        payload["name"] = body.name
+    try:
+        task = task_runner.create_task(body.task_type, payload)
+        result = task_runner.run_task(task.id)
+    except TaskRunnerError as exc:
+        raise HTTPException(400, str(exc))
+    return result
+
+
+@router.get("/tasks")
+def list_tasks(status: Optional[str] = None, limit: int = 50,
+               admin: User = Depends(require_admin)):
+    """List recent agent tasks from the persisted task store."""
+    from app.core import task_runner
+
+    return {"tasks": task_runner.list_tasks(status=status, limit=limit)}
+
+
+@router.get("/tasks/logs")
+def task_logs(limit: int = 50, workspace: Optional[str] = None,
+              admin: User = Depends(require_admin)):
+    """Recent sandbox operation logs (audit trail)."""
+    from app.core import task_runner
+
+    return {"logs": task_runner.list_logs(limit=limit, workspace=workspace)}
+
+
+@router.get("/tasks/{task_id}")
+def task_detail(task_id: int, admin: User = Depends(require_admin)):
+    """Get one agent task with its result."""
+    from app.core import task_runner
+
+    task = task_runner.get_task(task_id)
+    if not task:
+        raise HTTPException(404, "Task not found")
+    return task
+
+
+# ──────────────────────────────────────────────
 # AUTO-IMPROVEMENT
 # ──────────────────────────────────────────────
 

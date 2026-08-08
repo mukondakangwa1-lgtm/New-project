@@ -1,0 +1,201 @@
+"""
+Task runner API tests — create/run tasks, list, detail, logs; admin-only.
+"""
+import subprocess
+from pathlib import Path
+
+import pytest
+from fastapi.testclient import TestClient
+
+from app.core.workspace import Workspace
+from app.main import app
+from tests.conftest import TestSessionLocal, login, promote_to_admin, register_user
+
+client = TestClient(app)
+
+
+@pytest.fixture()
+def repo(tmp_path: Path) -> Path:
+    root = tmp_path / "repo"
+    root.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=root, check=True)
+    subprocess.run(["git", "config", "user.email", "t@t"], cwd=root, check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=root, check=True)
+    (root / "x.txt").write_text("x\n")
+    subprocess.run(["git", "add", "x.txt"], cwd=root, check=True)
+    subprocess.run(["git", "commit", "-qm", "base"], cwd=root, check=True)
+    return root
+
+
+@pytest.fixture()
+def admin_headers():
+    import uuid
+
+    email = f"task_admin_{uuid.uuid4().hex[:8]}@example.com"
+    register_user(client, email)
+    promote_to_admin(email)
+    return login(client, email)
+
+
+@pytest.fixture()
+def ws(repo: Path) -> Workspace:
+    w = Workspace(repo, "api-task").create()
+    yield w
+    w.destroy()
+
+
+def test_run_task_success(ws: Workspace, admin_headers, monkeypatch):
+    from app.core import task_runner
+
+    monkeypatch.setattr(task_runner, "SessionLocal", TestSessionLocal)
+    r = client.post("/api/v1/kudos/agent/tasks", headers=admin_headers, json={
+        "task_type": "run_command",
+        "workspace": str(ws.path),
+        "command": "python3 -c 'print(7)'",
+        "timeout": 30,
+    })
+    assert r.status_code == 201, r.text
+    data = r.json()
+    assert data["status"] == "done"
+    assert data["exit_code"] == 0
+    assert "7" in data["output"]
+
+
+def test_run_task_chaining_refused(ws: Workspace, admin_headers, monkeypatch):
+    from app.core import task_runner
+
+    monkeypatch.setattr(task_runner, "SessionLocal", TestSessionLocal)
+    r = client.post("/api/v1/kudos/agent/tasks", headers=admin_headers, json={
+        "task_type": "run_command",
+        "workspace": str(ws.path),
+        "command": "echo hi; rm -rf /",
+        "timeout": 30,
+    })
+    assert r.status_code == 201, r.text
+    data = r.json()
+    assert data["status"] == "failed"
+    assert "chaining" in data["error"].lower()
+
+
+@pytest.mark.parametrize("bad_command,reason", [
+    ("cat /etc/passwd", "escapes"),
+    ("echo $(id)", "chaining"),
+    ("cat /etc/hostname && echo pwned", "chaining"),
+])
+def test_run_task_sandbox_refusals(ws, admin_headers, monkeypatch, bad_command, reason):
+    from app.core import task_runner
+
+    monkeypatch.setattr(task_runner, "SessionLocal", TestSessionLocal)
+    r = client.post("/api/v1/kudos/agent/tasks", headers=admin_headers, json={
+        "task_type": "run_command",
+        "workspace": str(ws.path),
+        "command": bad_command,
+        "timeout": 30,
+    })
+    assert r.status_code == 201, r.text
+    data = r.json()
+    assert data["status"] == "failed"
+    assert reason in data["error"].lower()
+
+
+def test_run_task_allows_workspace_local_absolute_path(ws: Workspace, admin_headers, monkeypatch):
+    from app.core import task_runner
+
+    monkeypatch.setattr(task_runner, "SessionLocal", TestSessionLocal)
+    r = client.post("/api/v1/kudos/agent/tasks", headers=admin_headers, json={
+        "task_type": "run_command",
+        "workspace": str(ws.path),
+        "command": f"cat {ws.path}/x.txt",
+        "timeout": 30,
+    })
+    assert r.status_code == 201, r.text
+    data = r.json()
+    assert data["status"] == "done", data
+    assert "x" in data["output"]
+
+
+def test_run_task_missing_workspace(admin_headers, monkeypatch):
+    from app.core import task_runner
+
+    monkeypatch.setattr(task_runner, "SessionLocal", TestSessionLocal)
+    r = client.post("/api/v1/kudos/agent/tasks", headers=admin_headers, json={
+        "task_type": "run_command",
+        "command": "ls",
+    })
+    assert r.status_code == 400, r.text
+
+
+def test_run_task_foreign_workspace(admin_headers, monkeypatch):
+    from app.core import task_runner
+
+    monkeypatch.setattr(task_runner, "SessionLocal", TestSessionLocal)
+    r = client.post("/api/v1/kudos/agent/tasks", headers=admin_headers, json={
+        "task_type": "run_command",
+        "workspace": "/etc",
+        "command": "ls",
+    })
+    assert r.status_code == 400, r.text
+    assert "workspace" in r.json()["detail"].lower()
+
+
+def test_list_and_detail(ws: Workspace, admin_headers, monkeypatch):
+    from app.core import task_runner
+
+    monkeypatch.setattr(task_runner, "SessionLocal", TestSessionLocal)
+    client.post("/api/v1/kudos/agent/tasks", headers=admin_headers, json={
+        "task_type": "run_command",
+        "workspace": str(ws.path),
+        "command": "python3 -c 'print(1)'",
+        "timeout": 30,
+    })
+    r = client.get("/api/v1/kudos/agent/tasks", headers=admin_headers)
+    assert r.status_code == 200
+    tasks = r.json()["tasks"]
+    assert tasks, "task should be listed"
+    tid = tasks[0]["id"]
+    r2 = client.get(f"/api/v1/kudos/agent/tasks/{tid}", headers=admin_headers)
+    assert r2.status_code == 200
+    assert r2.json()["status"] == "done"
+
+
+def test_task_logs(ws: Workspace, admin_headers, monkeypatch):
+    from app.core import task_runner
+
+    monkeypatch.setattr(task_runner, "SessionLocal", TestSessionLocal)
+    client.post("/api/v1/kudos/agent/tasks", headers=admin_headers, json={
+        "task_type": "run_command",
+        "workspace": str(ws.path),
+        "command": "python3 -c 'print(2)'",
+        "timeout": 30,
+    })
+    r = client.get("/api/v1/kudos/agent/tasks/logs", headers=admin_headers)
+    assert r.status_code == 200
+    logs = r.json()["logs"]
+    assert any("python3" in l["command"] for l in logs)
+
+
+def test_requires_admin(ws: Workspace):
+    # Clear the persisted HttpOnly session cookie so these requests are
+    # genuinely unauthenticated.
+    client.cookies.clear()
+    r = client.post("/api/v1/kudos/agent/tasks", json={
+        "task_type": "run_command",
+        "workspace": str(ws.path),
+        "command": "ls",
+    })
+    assert r.status_code in (401, 403)
+    r2 = client.get("/api/v1/kudos/agent/tasks")
+    assert r2.status_code in (401, 403)
+
+
+def test_unknown_task_type(ws: Workspace, admin_headers, monkeypatch):
+    from app.core import task_runner
+
+    monkeypatch.setattr(task_runner, "SessionLocal", TestSessionLocal)
+    r = client.post("/api/v1/kudos/agent/tasks", headers=admin_headers, json={
+        "task_type": "evil",
+        "workspace": str(ws.path),
+        "command": "ls",
+    })
+    assert r.status_code == 400
+    assert "task type" in r.json()["detail"].lower()

@@ -102,9 +102,13 @@ def run_task(task_id: int) -> dict:
         command = payload.get("command", "")
         if not command:
             raise TaskRunnerError("No command in payload")
-        if ".." in command or ";" in command or "&&" in command or "|" in command:
+        if any(seq in command for seq in ("..", ";", "&&", "||", "|", "$(", "`")):
             raise TaskRunnerError("Shell chaining / traversal is not allowed")
         parts = shlex.split(command)
+        ws_root = Path(ws.path).resolve()
+        for token in parts:
+            if token.startswith("/") and not _is_inside(token, ws_root):
+                raise TaskRunnerError("Path escapes the workspace sandbox")
     except (TaskRunnerError, WorkspaceError, json.JSONDecodeError) as exc:
         _fail(task_id, str(exc))
         return {"task_id": task_id, "status": "failed", "error": str(exc)}
@@ -131,6 +135,11 @@ def run_task(task_id: int) -> dict:
     _finish(task_id, outcome, error)
     return {"task_id": task_id, "status": "done" if result.returncode == 0 else "failed",
             **outcome}
+
+
+def _is_inside(path: str, ws_root: Path) -> bool:
+    p = Path(path).resolve()
+    return p == ws_root or ws_root in p.parents
 
 
 def _fail(task_id: int, error: str):
@@ -176,6 +185,30 @@ def get_task(task_id: int) -> dict | None:
             "created_at": task.created_at.isoformat() if task.created_at else None,
             "finished_at": task.finished_at.isoformat() if task.finished_at else None,
         }
+    finally:
+        db.close()
+
+
+def list_tasks(status: str | None = None, limit: int = 50) -> list[dict]:
+    """List recent agent tasks, newest first."""
+    db = SessionLocal()
+    try:
+        q = db.query(AgentTask)
+        if status:
+            q = q.filter(AgentTask.status == status)
+        q = q.order_by(AgentTask.id.desc()).limit(min(limit, 200))
+        return [
+            {
+                "id": t.id,
+                "task_type": t.task_type,
+                "status": t.status,
+                "result": json.loads(t.result or "{}"),
+                "error": t.error,
+                "created_at": t.created_at.isoformat() if t.created_at else None,
+                "finished_at": t.finished_at.isoformat() if t.finished_at else None,
+            }
+            for t in q.all()
+        ]
     finally:
         db.close()
 

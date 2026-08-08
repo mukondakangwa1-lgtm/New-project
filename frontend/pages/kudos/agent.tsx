@@ -35,24 +35,51 @@ interface ArchIndex {
   modules: { path: string; kind: string; symbols?: string[] }[];
 }
 
+interface AgentTask {
+  id: number;
+  task_type: string;
+  status: string;
+  error: string;
+  result: { exit_code?: number; output?: string };
+  created_at: string | null;
+  finished_at: string | null;
+}
+
+interface SandboxLog {
+  id: number;
+  workspace: string | null;
+  operation: string;
+  command: string;
+  status: string;
+  exit_code: number | null;
+  output: string;
+  created_at: string | null;
+}
+
 export default function CodeAgent() {
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
   const [arch, setArch] = useState<ArchIndex | null>(null);
+  const [tasks, setTasks] = useState<AgentTask[]>([]);
+  const [logs, setLogs] = useState<SandboxLog[]>([]);
+  const [taskForm, setTaskForm] = useState({ command: "", workspace: "", timeout: 120 });
+  const [runningTask, setRunningTask] = useState(false);
   const [message, setMessage] = useState({ text: "", type: "" });
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"analysis" | "proposals" | "git" | "arch">("analysis");
+  const [activeTab, setActiveTab] = useState<"analysis" | "proposals" | "git" | "arch" | "tasks">("analysis");
 
   const fetchAll = async () => {
     setLoading(true);
     try {
       const headers = getAuthHeader();
-      const [analysisRes, proposalsRes, gitRes, archRes] = await Promise.all([
+      const [analysisRes, proposalsRes, gitRes, archRes, tasksRes, logsRes] = await Promise.all([
         fetch("/api/v1/kudos/agent/analyze", { headers }),
         fetch("/api/v1/kudos/agent/proposals", { headers }),
         fetch("/api/v1/kudos/agent/git/status", { headers }),
         fetch("/api/v1/kudos/agent/architecture", { headers }),
+        fetch("/api/v1/kudos/agent/tasks", { headers }),
+        fetch("/api/v1/kudos/agent/tasks/logs", { headers }),
       ]);
       if (analysisRes.ok) setAnalysis(await analysisRes.json());
       if (proposalsRes.ok) {
@@ -61,6 +88,14 @@ export default function CodeAgent() {
       }
       if (gitRes.ok) setGitStatus(await gitRes.json());
       if (archRes.ok) setArch(await archRes.json());
+      if (tasksRes.ok) {
+        const data = await tasksRes.json();
+        setTasks(data.tasks || []);
+      }
+      if (logsRes.ok) {
+        const data = await logsRes.json();
+        setLogs(data.logs || []);
+      }
     } catch {}
     setLoading(false);
   };
@@ -132,6 +167,35 @@ export default function CodeAgent() {
     }
   };
 
+  const runTask = async () => {
+    if (!taskForm.command.trim()) {
+      setMessage({ text: "❌ Enter a command to run", type: "error" });
+      return;
+    }
+    setRunningTask(true);
+    setMessage({ text: "", type: "" });
+    const res = await fetch("/api/v1/kudos/agent/tasks", {
+      method: "POST",
+      headers: getAuthHeader(),
+      body: JSON.stringify({
+        task_type: "run_command",
+        command: taskForm.command,
+        workspace: taskForm.workspace || undefined,
+        timeout: taskForm.timeout,
+      }),
+    });
+    setRunningTask(false);
+    if (res.ok) {
+      const data = await res.json();
+      const outcome = data.status === "done" ? "succeeded" : `failed: ${data.error || "exit " + data.exit_code}`;
+      setMessage({ text: `⚙️ Task #${data.task_id} ${outcome}`, type: data.status === "done" ? "success" : "error" });
+      fetchAll();
+    } else {
+      const data = await res.json();
+      setMessage({ text: `❌ ${data.detail}`, type: "error" });
+    }
+  };
+
   const STATUS_COLORS: Record<string, string> = {
     pending: "bg-yellow-100 text-yellow-700",
     approved: "bg-green-100 text-green-700",
@@ -182,6 +246,7 @@ export default function CodeAgent() {
           { id: "proposals" as const, label: "📋 Proposals", count: proposals.length },
           { id: "git" as const, label: "🔀 Git", count: 0 },
           { id: "arch" as const, label: "🏗️ Architecture", count: 0 },
+          { id: "tasks" as const, label: "⚙️ Tasks", count: tasks.filter((t) => t.status === "running").length },
         ].map((t) => (
           <button key={t.id} onClick={() => setActiveTab(t.id)}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition ${activeTab === t.id ? "bg-primary text-white" : "bg-white border hover:bg-gray-50"}`}>
@@ -329,6 +394,95 @@ export default function CodeAgent() {
           <button onClick={pushChanges} className="bg-green-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-green-700">
             🚀 Push All Committed Changes to GitHub
           </button>
+        </div>
+      ) : activeTab === "tasks" ? (
+        /* Tasks tab */
+        <div className="space-y-6">
+          <div className="bg-white rounded-xl border shadow p-6">
+            <h3 className="font-semibold text-lg mb-3">⚙️ Run Task</h3>
+            <div className="flex flex-col md:flex-row gap-3 mb-3">
+              <input
+                value={taskForm.command}
+                onChange={(e) => setTaskForm({ ...taskForm, command: e.target.value })}
+                onKeyDown={(e) => e.key === "Enter" && runTask()}
+                placeholder="Command to run in a workspace, e.g. npm test"
+                className="flex-1 px-3 py-2 border rounded-lg text-sm"
+              />
+              <input
+                value={taskForm.workspace}
+                onChange={(e) => setTaskForm({ ...taskForm, workspace: e.target.value })}
+                placeholder="Workspace path (defaults to repo root)"
+                className="flex-1 px-3 py-2 border rounded-lg text-sm"
+              />
+              <input
+                type="number"
+                value={taskForm.timeout}
+                onChange={(e) => setTaskForm({ ...taskForm, timeout: Number(e.target.value) })}
+                placeholder="Timeout (s)"
+                className="w-28 px-3 py-2 border rounded-lg text-sm"
+              />
+            </div>
+            <button
+              onClick={runTask}
+              disabled={runningTask}
+              className="px-4 py-2 rounded-lg text-sm font-medium bg-primary text-white hover:opacity-90 disabled:opacity-50">
+              {runningTask ? "Running..." : "▶️ Run Task"}
+            </button>
+          </div>
+
+          <div className="bg-white rounded-xl border shadow p-6">
+            <h3 className="font-semibold text-lg mb-3">📜 Recent Tasks</h3>
+            <div className="space-y-3 max-h-[28rem] overflow-y-auto">
+              {tasks.length === 0 ? (
+                <p className="text-sm text-gray-400">No tasks yet. Run one above.</p>
+              ) : (
+                tasks.map((t) => (
+                  <div key={t.id} className="border border-gray-100 rounded-lg p-3">
+                    <div className="flex items-center gap-3 text-sm mb-1">
+                      <span className="font-mono text-xs bg-gray-100 px-2 py-0.5 rounded">#{t.id}</span>
+                      <span className="font-medium">{t.task_type}</span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${
+                        t.status === "done" ? "bg-green-50 text-green-700" :
+                        t.status === "failed" ? "bg-red-50 text-red-700" :
+                        "bg-yellow-50 text-yellow-700"
+                      }`}>{t.status}</span>
+                      {t.error && <span className="text-xs text-red-600 truncate">{t.error}</span>}
+                      <span className="ml-auto text-xs text-gray-400">
+                        {t.finished_at ? new Date(t.finished_at).toLocaleString() : t.created_at ? new Date(t.created_at).toLocaleString() : "—"}
+                      </span>
+                    </div>
+                    {t.status === "failed" && t.result?.output && (
+                      <pre className="text-xs bg-red-50 border border-red-100 rounded p-2 overflow-x-auto whitespace-pre-wrap">
+                        {t.result.output.slice(0, 500)}
+                      </pre>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl border shadow p-6">
+            <h3 className="font-semibold text-lg mb-3">🛡️ Sandbox Activity</h3>
+            <div className="space-y-2 max-h-96 overflow-y-auto">
+              {logs.length === 0 ? (
+                <p className="text-sm text-gray-400">No sandbox activity yet.</p>
+              ) : (
+                logs.map((l) => (
+                  <div key={l.id} className="flex items-start gap-3 text-sm border-b border-gray-100 pb-2">
+                    <span className={`text-xs px-2 py-0.5 rounded-full shrink-0 ${
+                      l.status === "success" ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"
+                    }`}>{l.status}</span>
+                    <div className="min-w-0">
+                      <p className="text-xs text-gray-500">{l.operation}{l.workspace ? ` · ${l.workspace}` : ""}</p>
+                      <code className="text-xs font-mono text-gray-700 break-all">{l.command}</code>
+                    </div>
+                    <span className="ml-auto text-xs text-gray-400 shrink-0">{l.created_at ? new Date(l.created_at).toLocaleString() : "—"}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
         </div>
       ) : (
         /* Architecture tab */
