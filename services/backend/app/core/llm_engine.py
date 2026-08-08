@@ -3,6 +3,7 @@ KUDOS LLM Engine — Connect to external AI models (Google Gemini, OpenAI, etc.)
 KUDOS queries multiple LLMs and picks the best response.
 """
 import os
+import time
 from typing import Optional
 
 import httpx
@@ -260,18 +261,60 @@ async def query_ollama(prompt: str, system_prompt: str = "") -> Optional[str]:
 # MULTI-LLM QUERY — BEST RESPONSE SELECTOR
 # ──────────────────────────────────────────────
 
+ROUTER_HEALTH: dict[str, dict] = {}
+CONSECUTIVE_FAILURE_LIMIT = 3
+
+
+def router_record_result(provider: str, ok: bool, latency_ms: int) -> None:
+    """Update the in-memory health registry for one provider call."""
+    entry = ROUTER_HEALTH.setdefault(provider, {
+        "consecutive_failures": 0, "cooldown_until": 0.0,
+        "failures_total": 0, "successes_total": 0, "last_latency_ms": 0,
+    })
+    entry["last_latency_ms"] = latency_ms
+    if ok:
+        entry["successes_total"] += 1
+        entry["consecutive_failures"] = 0
+    else:
+        entry["failures_total"] += 1
+        entry["consecutive_failures"] += 1
+        if entry["consecutive_failures"] >= CONSECUTIVE_FAILURE_LIMIT:
+            entry["cooldown_until"] = time.time() + settings.LLM_COOLDOWN_SECONDS
+
+
+def router_health() -> list[dict]:
+    """Snapshot of every provider's routing health."""
+    return [
+        {"provider": provider, **entry}
+        for provider, entry in sorted(ROUTER_HEALTH.items())
+    ]
+
+
+def _router_failures(provider: str) -> int:
+    return ROUTER_HEALTH.get(provider, {}).get("consecutive_failures", 0)
+
+
+def _router_ready(provider: str) -> bool:
+    entry = ROUTER_HEALTH.get(provider)
+    return entry is None or time.time() >= entry.get("cooldown_until", 0.0)
+
+
 async def query_best_llm(
     prompt: str,
     system_prompt: str = "",
     provider: str | None = None,
 ) -> dict:
     """
-    Query all available LLMs in parallel and return the best response.
-    Falls back to internal knowledge if no LLM is configured.
+    Route a prompt to the best LLM provider.
+
+    Default: sequential fallback — providers are tried in order (healthy
+    providers first when in `auto` mode) until one answers. Providers with
+    repeated failures enter a cooldown and are skipped until it expires.
+    Set LLM_PARALLEL=1 to fire every provider at once and take the first
+    success (legacy behavior).
     """
     import asyncio
 
-    providers = []
     provider_functions = {
         "google_gemini": query_google_gemini,
         "groq": query_groq,
@@ -289,37 +332,71 @@ async def query_best_llm(
             }
         provider_order = [preferred]
     else:
-        # Keep a deterministic order so deployments can predict which model
-        # receives traffic when more than one secret is configured.
+        # Deterministic default order; health-aware shuffle applied below.
         provider_order = ["google_gemini", "openai", "groq", "ollama"]
 
-    for provider in provider_order:
-        if provider_is_configured(provider):
-            providers.append((provider, provider_functions[provider]))
-
-    if not providers:
+    active = [p for p in provider_order if provider_is_configured(p)]
+    if not active:
         return {"response": None, "provider": "none", "message": "No LLM configured. Set an API key in the admin panel."}
 
-    # Query all available LLMs in parallel
-    async def _query(name, func):
+    timeout = max(settings.LLM_TIMEOUT_SECONDS, 1)
+    details: list[dict] = []
+
+    async def _call(name: str) -> None | dict:
+        started = time.monotonic()
         try:
             result = await asyncio.wait_for(
-                func(prompt, system_prompt),
-                timeout=max(settings.LLM_TIMEOUT_SECONDS, 1),
+                provider_functions[name](prompt, system_prompt), timeout=timeout
             )
-            return {"provider": name, "response": result} if result else None
-        except (asyncio.TimeoutError, Exception):
+        except Exception as exc:
+            latency_ms = int((time.monotonic() - started) * 1000)
+            router_record_result(name, ok=False, latency_ms=latency_ms)
+            details.append({"provider": name, "ok": False, "latency_ms": latency_ms,
+                            "error": str(exc)[:200]})
             return None
+        latency_ms = int((time.monotonic() - started) * 1000)
+        if result:
+            router_record_result(name, ok=True, latency_ms=latency_ms)
+            details.append({"provider": name, "ok": True, "latency_ms": latency_ms})
+            return {"provider": name, "response": result}
+        router_record_result(name, ok=False, latency_ms=latency_ms)
+        details.append({"provider": name, "ok": False, "latency_ms": latency_ms,
+                        "error": "empty response"})
+        return None
 
-    tasks = [_query(name, func) for name, func in providers]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+    # Health-aware ordering keeps a degraded provider from blocking healthy ones
+    if preferred == "auto" and len(active) > 1:
+        active.sort(key=lambda p: (_router_failures(p), provider_order.index(p)))
 
-    # Get first successful response
-    for r in results:
-        if isinstance(r, dict) and r.get("response"):
-            return r
+    parallel = (os.getenv("LLM_PARALLEL", "0") or "0").strip() in ("1", "true", "yes")
+    max_attempts = min(len(active), 3)
 
-    return {"response": None, "provider": "none", "message": "All LLMs failed to respond."}
+    if parallel:
+        results = await asyncio.gather(*(_call(name) for name in active))
+        for r in results:
+            if isinstance(r, dict) and r.get("response"):
+                return {"details": details, **r}
+        return {"response": None, "provider": "none", "details": details,
+                "message": "All LLMs failed to respond."}
+
+    attempts = 0
+    for name in active:
+        if attempts >= max_attempts:
+            break
+        # Skip providers cooling down — unless every candidate is cooling down
+        # (then probe the first so a lone degraded provider can recover).
+        if attempts > 0 and not _router_ready(name) and any(
+            _router_ready(other) for other in active
+        ):
+            details.append({"provider": name, "ok": False, "skipped": "cooldown"})
+            continue
+        attempts += 1
+        result = await _call(name)
+        if result and result.get("response"):
+            return {"details": details, **result}
+
+    return {"response": None, "provider": "none", "details": details,
+            "message": "All LLMs failed to respond."}
 
 
 # ──────────────────────────────────────────────

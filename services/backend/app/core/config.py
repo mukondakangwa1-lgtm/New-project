@@ -60,6 +60,7 @@ class Settings(BaseSettings):
     OLLAMA_API_KEY: Optional[str] = None
     OLLAMA_MODEL: str = "llama3.2"
     LLM_TIMEOUT_SECONDS: float = 30.0
+    LLM_COOLDOWN_SECONDS: float = 60.0
 
     # Optional semantic retrieval. Keyword search remains the safe fallback.
     SEMANTIC_SEARCH_ENABLED: bool = False

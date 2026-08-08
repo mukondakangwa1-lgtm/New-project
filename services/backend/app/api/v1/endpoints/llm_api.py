@@ -21,9 +21,12 @@ router = APIRouter()
 @router.get("/status")
 def llm_status(admin: User = Depends(require_admin)):
     """Get status of all LLM providers (superadmin only)."""
+    from app.core.llm_engine import router_health
+
     return {
         "providers": get_llm_status(),
         "total_configured": sum(1 for p in get_llm_status() if p["configured"]),
+        "router": router_health(),
     }
 
 
@@ -66,7 +69,8 @@ async def test_llm(
             raise HTTPException(status_code=400, detail=f"Provider {provider} is not configured")
 
     result = await query_best_llm(prompt, provider=provider or None)
-    return result
+    return {"provider": result.get("provider", "none"), "response": result.get("response"),
+            "message": result.get("message", ""), "details": result.get("details", [])}
 
 
 @router.get("/providers")
