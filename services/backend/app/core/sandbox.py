@@ -87,6 +87,27 @@ def get_proposal(proposal_id: int) -> Optional[dict]:
 # TESTING ENGINE
 # ──────────────────────────────────────────────
 
+def _python_bin() -> str:
+    """Locate a usable Python interpreter for the backend venv.
+
+    Checks the project venv locations first, then falls back to the
+    interpreter running the app. Never assumes ``.venv/bin/python`` exists.
+    """
+    backend = os.path.join(REPO_PATH, "services", "backend")
+    candidates = [
+        os.path.join(backend, ".venv", "bin", "python"),
+        os.path.join(backend, "venv", "bin", "python"),
+        os.path.join(REPO_PATH, ".venv", "bin", "python"),
+        os.path.join(REPO_PATH, "venv", "bin", "python"),
+    ]
+    for candidate in candidates:
+        if os.path.exists(candidate):
+            return candidate
+    import sys
+
+    return sys.executable
+
+
 def test_proposal(proposal_id: int) -> dict:
     """Run tests on a proposal in the sandbox."""
     proposal = get_proposal(proposal_id)
@@ -104,10 +125,12 @@ def test_proposal(proposal_id: int) -> dict:
         "warnings": [],
     }
 
+    python = _python_bin()
+
     # Test 1: Run existing tests
     try:
         result = subprocess.run(
-            [".venv/bin/python", "-m", "pytest", "tests/", "-q", "--tb=no"],
+            [python, "-m", "pytest", "tests/", "-q", "--tb=no"],
             cwd=os.path.join(REPO_PATH, "services", "backend"),
             capture_output=True, text=True, timeout=30,
         )
@@ -129,7 +152,7 @@ def test_proposal(proposal_id: int) -> dict:
             if os.path.exists(full_path):
                 try:
                     subprocess.run(
-                        [".venv/bin/python", "-m", "py_compile", full_path],
+                        [python, "-m", "py_compile", full_path],
                         cwd=REPO_PATH, capture_output=True, timeout=10,
                     )
                     results["tests"].append({"name": f"syntax_{filepath}", "status": "PASS"})
@@ -141,7 +164,7 @@ def test_proposal(proposal_id: int) -> dict:
     # Test 3: Import check
     try:
         result = subprocess.run(
-            [".venv/bin/python", "-c", "from app.main import app; print('OK')"],
+            [python, "-c", "from app.main import app; print('OK')"],
             cwd=os.path.join(REPO_PATH, "services", "backend"),
             capture_output=True, text=True, timeout=10,
         )
@@ -364,12 +387,26 @@ def deploy_proposal(proposal_id: int) -> dict:
     if proposal["status"] != "approved":
         return {"error": f"Cannot deploy: status is {proposal['status']}"}
 
-    # Git add, commit, push
+    # Git add (explicit paths only — never `git add -A`), commit, push
     try:
+        changed_files = [c["file"] for c in proposal.get("changes", []) if c.get("file")]
+        if not changed_files:
+            return {"error": "Proposal lists no changed files to commit"}
+
+        from app.core.pathguard import PathError, resolve_inside
+
+        for filepath in changed_files:
+            try:
+                resolve_inside(REPO_PATH, filepath, allow_missing=True)
+            except PathError as exc:
+                return {"error": f"Proposal references a disallowed path: {exc}"}
+
         result = subprocess.run(
-            ["git", "add", "-A"],
+            ["git", "add", "--", *changed_files],
             cwd=REPO_PATH, capture_output=True, text=True, timeout=10,
         )
+        if result.returncode != 0:
+            return {"error": f"Git add failed: {result.stderr[:200]}"}
 
         commit_msg = f"kudos: {proposal['title']}\n\n{proposal['description']}\n\nProposal #{proposal['id']}"
         result = subprocess.run(
@@ -399,44 +436,82 @@ def deploy_proposal(proposal_id: int) -> dict:
 # SANDBOX FILE OPERATIONS
 # ──────────────────────────────────────────────
 
+# Proposals may only touch files inside a disposable task workspace. The
+# sandbox never writes to the main working tree.
+_default_workspace: Optional["Workspace"] = None
+
+
+def _get_workspace() -> "Workspace":
+    """Lazily create the default sandbox workspace (one per process)."""
+    global _default_workspace
+    if _default_workspace is None or not _default_workspace.path.exists():
+        from app.core.workspace import Workspace
+
+        _default_workspace = Workspace(REPO_PATH, "sandbox").create()
+    return _default_workspace
+
+
 def sandbox_write_file(filepath: str, content: str) -> dict:
-    """Write a file in the sandbox (actual repo)."""
-    full_path = os.path.join(REPO_PATH, filepath)
-    os.makedirs(os.path.dirname(full_path), exist_ok=True)
+    """Write a file inside the sandbox workspace (never the main tree).
 
-    # Backup original
-    backup_path = full_path + ".sandbox_backup"
-    if os.path.exists(full_path):
-        import shutil
-        shutil.copy2(full_path, backup_path)
+    The path is validated by PathGuard: traversal, symlink escapes, and
+    credential/private-key files are rejected. A git snapshot is kept so the
+    file can be rolled back with :func:`rollback_file`.
+    """
+    from app.core.editops import create_file
+    from app.core.pathguard import PathError
 
-    with open(full_path, "w") as f:
-        f.write(content)
-
-    _log("file_written", f"Wrote {filepath} ({len(content)} bytes)")
-    return {"status": "written", "file": filepath, "bytes": len(content)}
+    ws = _get_workspace()
+    try:
+        result = create_file(ws, filepath, content)
+    except Exception as exc:
+        if isinstance(exc, PathError):
+            raise
+        if "already exists" in str(exc):
+            # Overwrite within the workspace (still snapshot-able via git)
+            target = ws.path / filepath
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content, encoding="utf-8")
+            result = {"created": filepath, "bytes": len(content)}
+        else:
+            raise
+    _log("file_written", f"Wrote {filepath} ({len(content)} bytes) in sandbox workspace")
+    return {**result, "sandboxed": True}
 
 
 def sandbox_read_file(filepath: str) -> dict:
-    """Read a file from the repo."""
-    full_path = os.path.join(REPO_PATH, filepath)
-    if not os.path.exists(full_path):
-        return {"error": "File not found"}
-    with open(full_path) as f:
-        return {"file": filepath, "content": f.read()}
+    """Read a file from the sandbox workspace (fallback: repo, read-only)."""
+    from app.core.pathguard import PathError, resolve_inside
+
+    ws = _get_workspace()
+    try:
+        target = resolve_inside(ws.path, filepath)
+    except PathError as exc:
+        return {"error": str(exc)}
+    if target.exists():
+        return {"file": filepath, "content": target.read_text()}
+
+    # Read-only fallback to the repository (never write there)
+    repo_target = os.path.join(REPO_PATH, filepath)
+    if os.path.exists(repo_target):
+        with open(repo_target) as f:
+            return {"file": filepath, "content": f.read()}
+    return {"error": "File not found"}
 
 
 def rollback_file(filepath: str) -> dict:
-    """Rollback a file to its sandbox backup."""
-    full_path = os.path.join(REPO_PATH, filepath)
-    backup_path = full_path + ".sandbox_backup"
-    if not os.path.exists(backup_path):
-        return {"error": "No backup found"}
+    """Roll back a file inside the sandbox workspace to the base snapshot."""
+    from app.core.pathguard import PathError, resolve_inside
 
-    import shutil
-    shutil.copy2(backup_path, full_path)
-    os.remove(backup_path)
-    _log("rollback", f"Rolled back {filepath}")
+    ws = _get_workspace()
+    try:
+        target = resolve_inside(ws.path, filepath)
+    except PathError as exc:
+        return {"error": str(exc)}
+    if not target.exists():
+        return {"error": "No such file in sandbox workspace"}
+    ws.rollback()
+    _log("rollback", f"Rolled back {filepath} in sandbox workspace")
     return {"status": "rolled_back", "file": filepath}
 
 
