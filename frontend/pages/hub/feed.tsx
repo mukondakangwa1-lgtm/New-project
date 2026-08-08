@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { getAuthHeader } from "@/lib/api";
 import Layout from "@/components/Layout";
 
 interface Post {
@@ -29,12 +30,6 @@ const STORAGE_ICONS: Record<string, string> = {
   document: "📄",
   link: "🔗",
 };
-
-function getAuthHeader(): Record<string, string> {
-  if (typeof window === "undefined") return {};
-  const token = localStorage.getItem("token");
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
 
 export default function SocialFeed() {
   const [posts, setPosts] = useState<Post[]>([]);

@@ -1,11 +1,6 @@
 import { useState, useRef, useEffect, FormEvent } from "react";
+import { getAuthHeader } from "@/lib/api";
 import Layout from "@/components/Layout";
-
-function getAuthHeader(): Record<string, string> {
-  if (typeof window === "undefined") return {};
-  const token = localStorage.getItem("token");
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
 
 export default function KudosUpload() {
   const [title, setTitle] = useState("");

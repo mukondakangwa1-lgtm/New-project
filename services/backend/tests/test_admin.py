@@ -26,11 +26,14 @@ def setup_module():
 
 
 def test_analytics_requires_admin():
+    from fastapi.testclient import TestClient as _TestClient
+
     for path in ("/api/v1/admin/analytics/overview", "/api/v1/admin/analytics/attendance-trends",
                  "/api/v1/admin/analytics/top-courses", "/api/v1/admin/analytics/engagement"):
         r = client.get(path, headers=H_STUDENT)
         assert r.status_code == 403, path
-        r = client.get(path)
+        # Fresh client — the shared one carries an admin session cookie
+        r = _TestClient(app).get(path)
         assert r.status_code == 401, path
 
 

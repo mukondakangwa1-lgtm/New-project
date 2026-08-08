@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { getAuthHeader } from "@/lib/api";
 import Layout from "@/components/Layout";
 
 interface IntegrityResult {
@@ -34,12 +35,6 @@ interface AuditEntry {
   action: string;
   details: string;
   timestamp: string;
-}
-
-function getAuthHeader(): Record<string, string> {
-  if (typeof window === "undefined") return {};
-  const token = localStorage.getItem("token");
-  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 export default function KudosGuardian() {

@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { getAuthHeader } from "@/lib/api";
 import Layout from "@/components/Layout";
 
 interface Course {
@@ -15,12 +16,6 @@ interface ReportRow {
   absent: number;
   excused: number;
   attendance_rate: number;
-}
-
-function getAuthHeader(): Record<string, string> {
-  if (typeof window === "undefined") return {};
-  const token = localStorage.getItem("token");
-  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 export default function AttendanceReport() {

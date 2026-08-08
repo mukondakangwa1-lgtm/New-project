@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { getAuthHeader } from "@/lib/api";
 import Layout from "@/components/Layout";
 
 interface Stats {
@@ -20,12 +21,6 @@ interface PendingWeb {
   url: string;
   title: string;
   learned_by: number;
-}
-
-function getAuthHeader(): Record<string, string> {
-  if (typeof window === "undefined") return {};
-  const token = localStorage.getItem("token");
-  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 export default function KudosAdmin() {

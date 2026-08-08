@@ -1,4 +1,5 @@
 import { useState, useEffect, FormEvent } from "react";
+import { getAuthHeader } from "@/lib/api";
 import Layout from "@/components/Layout";
 
 interface Connector {
@@ -53,12 +54,6 @@ const CATEGORIES = [
   { name: "Search & Social", icon: "🔍", filter: (c: Connector) => c.connector_type === "website" && !c.name.includes("Docs") && !c.name.includes("Wikipedia") && !c.name.includes("W3Schools") && !c.name.includes("MDN") && !c.name.includes("Handbook") },
 ];
 
-function getAuthHeader(): Record<string, string> {
-  if (typeof window === "undefined") return {};
-  const token = localStorage.getItem("token");
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
 export default function KudosConnect() {
   const [connectors, setConnectors] = useState<Connector[]>([]);
   const [packs, setPacks] = useState<KnowledgePack[]>([]);
@@ -97,9 +92,7 @@ export default function KudosConnect() {
 
   const fetchAutoSync = async () => {
     try {
-      const token = localStorage.getItem("token");
-      if (!token) return;
-      const res = await fetch("/api/v1/kudos/connectors/auto-sync/status", { headers: { Authorization: `Bearer ${token}` } });
+      const res = await fetch("/api/v1/kudos/connectors/auto-sync/status", { headers: getAuthHeader() });
       if (res.ok) setAutoSyncStatus(await res.json());
     } catch {}
   };
@@ -109,11 +102,9 @@ export default function KudosConnect() {
   const createConnector = async (e: FormEvent) => {
     e.preventDefault();
     setMessage({ text: "", type: "" });
-    const token = localStorage.getItem("token");
-    if (!token) { setMessage({ text: "❌ Please log in to add connectors", type: "error" }); return; }
     const res = await fetch("/api/v1/kudos/connectors/", {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      headers: { "Content-Type": "application/json", ...getAuthHeader() },
       body: JSON.stringify(form),
     });
     if (res.ok) {
@@ -151,8 +142,7 @@ export default function KudosConnect() {
     setMessage({ text: "", type: "" });
     setBulkResults([]);
     try {
-      const token = localStorage.getItem("token");
-      const res = await fetch("/api/v1/kudos/connectors/sync-all", { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+      const res = await fetch("/api/v1/kudos/connectors/sync-all", { method: "POST", headers: getAuthHeader() });
       if (res.ok) {
         const data = await res.json();
         setBulkResults(data.results || []);
@@ -166,9 +156,8 @@ export default function KudosConnect() {
   };
 
   const toggleAutoSync = async (enable: boolean) => {
-    const token = localStorage.getItem("token");
     const url = enable ? "/api/v1/kudos/connectors/auto-sync/start?interval_minutes=60" : "/api/v1/kudos/connectors/auto-sync/stop";
-    const res = await fetch(url, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+    const res = await fetch(url, { method: "POST", headers: getAuthHeader() });
     if (res.ok) {
       const data = await res.json();
       setMessage({ text: `✅ ${data.message}`, type: "success" });
@@ -184,10 +173,9 @@ export default function KudosConnect() {
 
   const createPack = async (e: FormEvent) => {
     e.preventDefault();
-    const token = localStorage.getItem("token");
     const res = await fetch("/api/v1/kudos/connectors/packs", {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      headers: { "Content-Type": "application/json", ...getAuthHeader() },
       body: JSON.stringify(packForm),
     });
     if (res.ok) {

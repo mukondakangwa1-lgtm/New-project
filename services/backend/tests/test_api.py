@@ -83,12 +83,25 @@ def test_users_me():
 
 
 def test_users_me_unauthenticated():
-    response = client.get("/api/v1/users/me")
+    # Fresh client without the session cookie (shared client logs in earlier)
+    from fastapi.testclient import TestClient as _TestClient
+
+    fresh = _TestClient(app)
+    response = fresh.get("/api/v1/users/me")
     assert response.status_code == 401
 
 
 def test_users_list():
-    response = client.get("/api/v1/users/", headers=get_auth_header())
+    # User listing is admin-only — use a dedicated admin account
+    from tests.conftest import login, promote_to_admin
+
+    admin_email = "list-admin@campus.edu"
+    client.post(
+        "/api/v1/auth/register",
+        json={"email": admin_email, "full_name": "List Admin", "password": "pass1234"},
+    )
+    promote_to_admin(admin_email)
+    response = client.get("/api/v1/users/", headers=login(client, admin_email, "pass1234"))
     assert response.status_code == 200
     assert isinstance(response.json(), list)
 
@@ -96,7 +109,7 @@ def test_users_list():
 # === Courses ===
 
 def test_courses_list_empty():
-    response = client.get("/api/v1/courses/")
+    response = client.get("/api/v1/courses/", headers=get_auth_header())
     assert response.status_code == 200
     assert isinstance(response.json(), list)
 
@@ -139,11 +152,11 @@ def test_courses_create_as_admin():
 
 
 def test_courses_get():
-    response = client.get(f"/api/v1/courses/{CREATED_COURSE_ID}")
+    response = client.get(f"/api/v1/courses/{CREATED_COURSE_ID}", headers=get_auth_header())
     assert response.status_code == 200
     assert response.json()["code"] == TEST_COURSE["code"]
 
 
 def test_courses_get_not_found():
-    response = client.get("/api/v1/courses/999")
+    response = client.get("/api/v1/courses/999", headers=get_auth_header())
     assert response.status_code == 404

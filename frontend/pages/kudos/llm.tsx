@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { getAuthHeader } from "@/lib/api";
 import Layout from "@/components/Layout";
 
 interface LLMProvider {
@@ -7,12 +8,6 @@ interface LLMProvider {
   icon: string;
   enabled: boolean;
   configured: boolean;
-}
-
-function getAuthHeader(): Record<string, string> {
-  if (typeof window === "undefined") return {};
-  const token = localStorage.getItem("token");
-  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 export default function LLMConfig() {

@@ -106,10 +106,53 @@ def test_production_strong_secret_ok():
     assert s.SECRET_KEY
 
 
-def test_development_defaults_are_allowed():
+def test_development_defaults_are_allowed_but_never_known():
     s = Settings(_env_file=None)
     assert s.APP_ENV == "development"
-    assert s.SECRET_KEY == "changeme-in-production"
+    assert s.SECRET_KEY != "changeme-in-production"
+    assert len(s.SECRET_KEY) >= 32
+
+
+def test_development_cors_is_explicit():
+    s = Settings(_env_file=None)
+    assert "*" not in [o.strip() for o in s.CORS_ORIGINS.split(",")]
+
+
+def test_production_rejects_short_secret():
+    with pytest.raises(ValueError, match="at least 32"):
+        Settings(
+            _env_file=None,
+            APP_ENV="production",
+            SECRET_KEY="short-secret",
+            DEBUG=False,
+        )
+
+
+def test_production_accepts_strong_secret():
+    s = Settings(
+        _env_file=None,
+        APP_ENV="production",
+        SECRET_KEY="x" * 40,
+        DEBUG=False,
+    )
+    assert len(s.SECRET_KEY) >= 32
+
+
+def test_env_file_resolves_next_to_package():
+    """The .env the user edits (services/backend/.env) must be the file
+    pydantic loads, regardless of the process working directory."""
+    from app.core.config import _ENV_FILE
+
+    assert _ENV_FILE.endswith("services/backend/.env")
+    assert os.path.isfile(_ENV_FILE), f"env file not found at {_ENV_FILE}"
+
+
+def test_loaded_secret_is_not_the_known_default():
+    """The real SECRET_KEY the user put in .env must be active, not the
+    built-in placeholder or a random substitute."""
+    from app.core.config import settings as live_settings
+
+    assert live_settings.SECRET_KEY != "changeme-in-production"
 
 
 # --- Readiness + metrics ---

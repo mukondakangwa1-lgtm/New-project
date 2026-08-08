@@ -1,15 +1,14 @@
 // Shared WebRTC helpers for Studio video calls & broadcasts.
 // Signaling uses the database-backed queue endpoints on the backend.
 
-export function getAuthHeader(): Record<string, string> {
-  if (typeof window === "undefined") return {};
-  const token = localStorage.getItem("token");
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
+export { getAuthHeader } from "@/lib/api";
 
 export function wsBase(): string {
-  const proto = typeof window !== "undefined" && window.location.protocol === "https:" ? "wss" : "ws";
-  return `${proto}://${typeof window !== "undefined" ? window.location.host : "localhost"}`;
+  // Only meaningful in the browser: the WebSocket must target the host the
+  // page was served from. Server-side (SSR) callers get "" and must not use it.
+  if (typeof window === "undefined") return "";
+  const proto = window.location.protocol === "https:" ? "wss" : "ws";
+  return `${proto}://${window.location.host}`;
 }
 
 export const rtcConfig: RTCConfiguration = {

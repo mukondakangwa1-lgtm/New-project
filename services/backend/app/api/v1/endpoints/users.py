@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, require_admin
 from app.models import User
 from app.schemas import UserResponse
 
@@ -23,9 +23,9 @@ def list_users(
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    admin: User = Depends(require_admin),
 ):
-    """List all users (requires authentication)."""
+    """List all users (admin only — prevents account enumeration)."""
     users = db.query(User).offset(skip).limit(limit).all()
     return users
 
@@ -36,8 +36,10 @@ def get_user(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Get a specific user by ID."""
+    """Get a specific user — yourself, or anyone if admin."""
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    if user.id != current_user.id and not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="You can only view your own profile")
     return user

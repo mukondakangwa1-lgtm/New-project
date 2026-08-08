@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { getAuthHeader, signOut } from "@/lib/api";
 import { useRouter } from "next/router";
 import Layout from "@/components/Layout";
 
@@ -15,14 +16,9 @@ export default function Dashboard() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (!token) {
-      router.push("/login");
-      return;
-    }
-
+    // Session is in the HttpOnly cookie; /users/me is the auth check.
     fetch("/api/v1/users/me", {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: getAuthHeader(),
     })
       .then((r) => {
         if (!r.ok) throw new Error("Not authenticated");
@@ -30,7 +26,7 @@ export default function Dashboard() {
       })
       .then(setUser)
       .catch(() => {
-        localStorage.removeItem("token");
+        signOut();
         router.push("/login");
       });
   }, [router]);
@@ -68,7 +64,7 @@ export default function Dashboard() {
 
       <button
         onClick={() => {
-          localStorage.removeItem("token");
+          signOut();
           router.push("/");
         }}
         className="text-sm text-red-600 underline hover:text-red-800"

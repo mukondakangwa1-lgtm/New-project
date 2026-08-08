@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { getAuthHeader } from "@/lib/api";
 import Layout from "@/components/Layout";
 
 interface Message {
@@ -18,12 +19,6 @@ interface Source {
   web_id: number | null;
   title: string;
   preview: string;
-}
-
-function getAuthHeader(): Record<string, string> {
-  if (typeof window === "undefined") return {};
-  const token = localStorage.getItem("token");
-  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 export default function KudosChat() {
@@ -296,10 +291,9 @@ export default function KudosChat() {
                     onClick={async () => {
                       const q = prompt("What do you want me to search Google for?");
                       if (q) {
-                        const token = localStorage.getItem("token");
-                        const res = await fetch(`/api/v1/kudos/social/google?query=${encodeURIComponent(q)}&max_results=3`, {
+                                          const res = await fetch(`/api/v1/kudos/social/google?query=${encodeURIComponent(q)}&max_results=3`, {
                           method: "POST",
-                          headers: { Authorization: `Bearer ${token}` },
+                          headers: getAuthHeader(),
                         });
                         if (res.ok) {
                           const data = await res.json();
@@ -315,10 +309,9 @@ export default function KudosChat() {
                     onClick={async () => {
                       const q = prompt("What topic should I learn from Wikipedia?");
                       if (q) {
-                        const token = localStorage.getItem("token");
-                        const res = await fetch(`/api/v1/kudos/social/learn-wikipedia-batch?topics=${encodeURIComponent(q)}`, {
+                                          const res = await fetch(`/api/v1/kudos/social/learn-wikipedia-batch?topics=${encodeURIComponent(q)}`, {
                           method: "POST",
-                          headers: { Authorization: `Bearer ${token}` },
+                          headers: getAuthHeader(),
                         });
                         if (res.ok) {
                           const data = await res.json();
@@ -332,10 +325,9 @@ export default function KudosChat() {
                   </button>
                   <button
                     onClick={async () => {
-                      const token = localStorage.getItem("token");
-                      const res = await fetch("/api/v1/kudos/social/learn-social?platform=general", {
+                                      const res = await fetch("/api/v1/kudos/social/learn-social?platform=general", {
                         method: "POST",
-                        headers: { Authorization: `Bearer ${token}` },
+                        headers: getAuthHeader(),
                       });
                       if (res.ok) {
                         const data = await res.json();
@@ -348,10 +340,9 @@ export default function KudosChat() {
                   </button>
                   <button
                     onClick={async () => {
-                      const token = localStorage.getItem("token");
-                      const res = await fetch("/api/v1/kudos/social/learn-emotions", {
+                                      const res = await fetch("/api/v1/kudos/social/learn-emotions", {
                         method: "POST",
-                        headers: { Authorization: `Bearer ${token}` },
+                        headers: getAuthHeader(),
                       });
                       if (res.ok) {
                         const data = await res.json();
@@ -366,10 +357,9 @@ export default function KudosChat() {
                     onClick={async () => {
                       const sub = prompt("Which subreddit? (e.g. LifeProTips, AskReddit, advice)");
                       if (sub) {
-                        const token = localStorage.getItem("token");
-                        const res = await fetch(`/api/v1/kudos/social/learn-reddit?subreddit=${encodeURIComponent(sub)}&limit=5`, {
+                                          const res = await fetch(`/api/v1/kudos/social/learn-reddit?subreddit=${encodeURIComponent(sub)}&limit=5`, {
                           method: "POST",
-                          headers: { Authorization: `Bearer ${token}` },
+                          headers: getAuthHeader(),
                         });
                         if (res.ok) {
                           const data = await res.json();
@@ -383,10 +373,9 @@ export default function KudosChat() {
                   </button>
                   <button
                     onClick={async () => {
-                      const token = localStorage.getItem("token");
-                      const res = await fetch("/api/v1/kudos/social/learn-social?platform=discord", {
+                                      const res = await fetch("/api/v1/kudos/social/learn-social?platform=discord", {
                         method: "POST",
-                        headers: { Authorization: `Bearer ${token}` },
+                        headers: getAuthHeader(),
                       });
                       if (res.ok) {
                         const data = await res.json();

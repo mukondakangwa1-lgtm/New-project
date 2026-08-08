@@ -9,10 +9,19 @@ from typing import Optional
 
 from app.core.database import get_db
 from app.core.deps import get_current_user, require_admin
-from app.models import User
+from app.models import Enrollment, User
 from app.models_extended import Assignment, Submission, Grade, Notification
 
 router = APIRouter()
+
+
+def _enrolled_in_course(db: Session, user: User, course_id: int) -> bool:
+    return (
+        db.query(Enrollment)
+        .filter(Enrollment.course_id == course_id, Enrollment.student_id == user.id)
+        .first()
+        is not None
+    )
 
 
 class AssignmentCreate(BaseModel):
@@ -39,7 +48,13 @@ class GradeSubmission(BaseModel):
 def list_assignments(course_id: Optional[int] = None, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     q = db.query(Assignment)
     if course_id:
+        if not (user.is_admin or _enrolled_in_course(db, user, course_id)):
+            raise HTTPException(403, "You are not enrolled in this course")
         q = q.filter(Assignment.course_id == course_id)
+    elif not user.is_admin:
+        # Non-admins only see assignments for courses they are enrolled in
+        enrolled_ids = db.query(Enrollment.course_id).filter(Enrollment.student_id == user.id).subquery()
+        q = q.filter(Assignment.course_id.in_(enrolled_ids))
     return q.order_by(Assignment.created_at.desc()).all()
 
 
@@ -59,6 +74,8 @@ def submit_assignment(assignment_id: int, body: SubmissionCreate, db: Session = 
     a = db.query(Assignment).filter(Assignment.id == assignment_id).first()
     if not a:
         raise HTTPException(404, "Assignment not found")
+    if not (user.is_admin or _enrolled_in_course(db, user, a.course_id)):
+        raise HTTPException(403, "Only enrolled students can submit")
     existing = db.query(Submission).filter(Submission.assignment_id == assignment_id, Submission.student_id == user.id).first()
     if existing:
         existing.content = body.content

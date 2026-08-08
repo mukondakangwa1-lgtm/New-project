@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { getAuthHeader } from "@/lib/api";
 import Layout from "@/components/Layout";
 
 interface Room {
@@ -23,29 +24,6 @@ interface User {
   id: number;
   full_name: string;
   email: string;
-}
-
-function getAuthHeader(): Record<string, string> {
-  if (typeof window === "undefined") return {};
-  const token = localStorage.getItem("token");
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
-function getToken(): string {
-  if (typeof window === "undefined") return "";
-  return localStorage.getItem("token") || "";
-}
-
-function getCurrentUserId(): number {
-  if (typeof window === "undefined") return 0;
-  try {
-    const token = localStorage.getItem("token");
-    if (!token) return 0;
-    const payload = JSON.parse(atob(token.split(".")[1]));
-    return payload.user_id || 0;
-  } catch {
-    return 0;
-  }
 }
 
 // Offline message queue (persisted in localStorage)
@@ -81,7 +59,17 @@ export default function ChatPage() {
   const [showNewRoom, setShowNewRoom] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const currentUserId = getCurrentUserId();
+  const [currentUserId, setCurrentUserId] = useState<number>(0);
+
+  // Resolve the current user id for offline messages / "me" rendering
+  useEffect(() => {
+    fetch("/api/v1/users/me", { headers: getAuthHeader() })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((u) => {
+        if (u) setCurrentUserId(u.id);
+      })
+      .catch(() => {});
+  }, []);
 
   // Load rooms
   useEffect(() => {
@@ -111,11 +99,10 @@ export default function ChatPage() {
       .catch(() => setMessages([]));
 
     // Connect WebSocket
-    const token = getToken();
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const host = window.location.host;
     const ws = new WebSocket(
-      `${protocol}//${host}/api/v1/chat/ws/${selectedRoom.id}?token=${token}`
+      `${protocol}//${host}/api/v1/chat/ws/${selectedRoom.id}`
     );
 
     ws.onopen = () => {

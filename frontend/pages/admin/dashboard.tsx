@@ -1,11 +1,6 @@
 import { useState, useEffect, useRef } from "react";
+import { getAuthHeader } from "@/lib/api";
 import Layout from "@/components/Layout";
-
-function getAuthHeader(): Record<string, string> {
-  if (typeof window === "undefined") return {};
-  const token = localStorage.getItem("token");
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
 
 export default function SuperadminDashboard() {
   const [dashboard, setDashboard] = useState<any>(null);

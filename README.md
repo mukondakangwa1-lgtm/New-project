@@ -216,11 +216,15 @@ Open **http://localhost:3000**
 
 ### 3. Login
 
-| Email | Password |
-|-------|----------|
-| `admin@campus.edu` | `superadmin123` |
+Run the seed script to create the superadmin (credentials come from
+`SUPERADMIN_EMAIL` / `SUPERADMIN_PASSWORD`, or are generated randomly and
+printed once):
 
-⚠️ **Change password immediately** via Superadmin Dashboard → Chat → `change password YOUR_NEW_PASSWORD`
+```bash
+cd services/backend && .venv/bin/python seed.py
+```
+
+⚠️ Change the password after first login via Superadmin Dashboard → Chat.
 
 ---
 
@@ -411,7 +415,11 @@ After starting the backend, visit:
 - **Auto-Backup** — Hourly knowledge backups (Shield)
 - **Self-Healing** — Auto-recovery from errors
 - **Fail-fast configuration** — `APP_ENV=production` refuses to start with a
-  default `SECRET_KEY` or with `DEBUG=true`
+  default or short `SECRET_KEY` or with `DEBUG=true`
+- **Secrets via env** — `SECRET_KEY` is read from `services/backend/.env`
+  (resolved relative to the code, not the working directory; override with
+  `KUDOS_ENV_FILE`). In development an unset key is replaced with a random
+  per-process key so nothing ever runs on a known secret.
 - **Correlation IDs** — every response and error carries an `X-Request-ID`;
   all logs include it for end-to-end tracing
 

@@ -1,11 +1,23 @@
-"""Application configuration loaded from environment variables and ``.env``."""
+"""Application configuration loaded from environment variables and ``.env``.
+
+The env file is resolved relative to this file (``services/backend/.env``)
+rather than the current working directory, so the SECRET_KEY and other
+secrets load no matter where the process is launched from. Override with the
+``KUDOS_ENV_FILE`` environment variable when needed.
+"""
 
 import json
+import os
 import re
 from typing import Annotated, Any, List, Optional
 
 from pydantic import ConfigDict, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode
+
+_ENV_FILE = os.environ.get("KUDOS_ENV_FILE") or os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "..", ".env"
+)
+_ENV_FILE = os.path.normpath(_ENV_FILE)
 
 
 class Settings(BaseSettings):
@@ -17,7 +29,7 @@ class Settings(BaseSettings):
     """
 
     model_config = ConfigDict(
-        env_file=".env",
+        env_file=_ENV_FILE,
         env_file_encoding="utf-8",
         extra="allow",
     )
@@ -31,9 +43,14 @@ class Settings(BaseSettings):
     # Server
     HOST: str = "0.0.0.0"
     PORT: int = 8000
-    CORS_ORIGINS: str = "*"
+    # Explicit origins only — the wildcard is no longer a default. Add your
+    # frontend origin(s), comma-separated, via CORS_ORIGINS.
+    CORS_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"
 
     # Security
+    # In production SECRET_KEY MUST be set to a strong random value
+    # (enforced below). In development the default is replaced with a
+    # random per-process key so nothing runs on a known secret.
     SECRET_KEY: str = "changeme-in-production"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
@@ -128,14 +145,29 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _harden(self) -> "Settings":
-        """Fail fast on insecure defaults when running in production."""
+        """Fail fast on insecure defaults when running in production; in
+        development, replace the known default secret with a random key."""
         if self.APP_ENV == "production":
             if not self.SECRET_KEY or self.SECRET_KEY == "changeme-in-production":
                 raise ValueError(
                     "SECRET_KEY must be a strong random value when APP_ENV=production"
                 )
+            if len(self.SECRET_KEY) < 32:
+                raise ValueError(
+                    "SECRET_KEY must be at least 32 characters when APP_ENV=production"
+                )
             if self.DEBUG:
                 raise ValueError("DEBUG must be false when APP_ENV=production")
+        else:
+            if not self.SECRET_KEY or self.SECRET_KEY == "changeme-in-production":
+                import logging
+                import secrets
+
+                logging.getLogger("config").warning(
+                    "SECRET_KEY is not set (development) — generating a random "
+                    "per-process key. Set SECRET_KEY in production."
+                )
+                object.__setattr__(self, "SECRET_KEY", secrets.token_urlsafe(32))
         return self
 
 

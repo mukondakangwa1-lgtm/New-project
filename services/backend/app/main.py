@@ -101,17 +101,17 @@ app.add_middleware(RequestLogMiddleware)
 # Shield middleware — intrusion detection, rate limiting, performance
 app.add_middleware(ShieldMiddleware)
 
-# CORS — configure explicit origins in production. The wildcard is useful
-# only for local development and intentionally disables credentials there.
+# CORS — explicit origins only (no wildcard default). The frontend runs
+# same-origin through the Next.js proxy; add other origins to CORS_ORIGINS.
 _cors_origins = [
     origin.strip()
     for origin in settings.CORS_ORIGINS.split(",")
     if origin.strip()
-] or ["*"]
+] or ["http://localhost:3000"]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
-    allow_credentials=_cors_origins != ["*"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )

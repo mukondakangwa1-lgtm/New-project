@@ -26,13 +26,14 @@ def list_courses(
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    """List all courses (public)."""
+    """List all courses (authenticated users only)."""
     return db.query(Course).offset(skip).limit(limit).all()
 
 
 @router.get("/{course_id}", response_model=CourseResponse)
-def get_course(course_id: int, db: Session = Depends(get_db)):
+def get_course(course_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Get a specific course by ID."""
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
@@ -103,7 +104,14 @@ def enroll_student(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Enroll a student in a course."""
+    """Enroll a student in a course. Students enroll themselves; admins may
+    enroll any student."""
+    student_id = enrollment_in.student_id
+    if student_id != current_user.id and not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only enroll yourself",
+        )
     # Verify student exists
     student = db.query(User).filter(User.id == enrollment_in.student_id).first()
     if not student:
@@ -142,7 +150,24 @@ def list_enrollments(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """List all enrollments for a course."""
+    """List enrollments for a course — enrolled students or admins only."""
+    course = db.query(Course).filter(Course.id == course_id).first()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+    if not current_user.is_admin:
+        enrolled = (
+            db.query(Enrollment)
+            .filter(
+                Enrollment.course_id == course_id,
+                Enrollment.student_id == current_user.id,
+            )
+            .first()
+        )
+        if not enrolled:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You are not enrolled in this course",
+            )
     return (
         db.query(Enrollment).filter(Enrollment.course_id == course_id).all()
     )

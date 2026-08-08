@@ -1,12 +1,7 @@
 import { useState, FormEvent } from "react";
+import { getAuthHeader } from "@/lib/api";
 import { useRouter } from "next/router";
 import Layout from "@/components/Layout";
-
-function getAuthHeader(): Record<string, string> {
-  if (typeof window === "undefined") return {};
-  const token = localStorage.getItem("token");
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
 
 export default function NewPost() {
   const router = useRouter();

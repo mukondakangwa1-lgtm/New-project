@@ -406,6 +406,22 @@ def _is_denied(command: str, language: str) -> Optional[str]:
     return None
 
 
+def _limit_resources() -> None:
+    """Resource caps for the online executor child (inherited by its children).
+
+    CPU seconds, address space, and max file size are bounded so a runaway
+    command cannot starve the host. Unix-only; no-op elsewhere.
+    """
+    try:
+        import resource
+
+        resource.setrlimit(resource.RLIMIT_CPU, (20, 25))
+        resource.setrlimit(resource.RLIMIT_AS, (512 * 1024 * 1024, 512 * 1024 * 1024))
+        resource.setrlimit(resource.RLIMIT_FSIZE, (64 * 1024 * 1024, 64 * 1024 * 1024))
+    except (ImportError, ValueError, OSError):
+        pass
+
+
 def execute_online(db: Session, cmd: KudosTerminalCommand) -> dict:
     """Run a queued command server-side in the session's jailed workspace."""
     session = db.get(KudosTerminalSession, cmd.session_id)
@@ -445,6 +461,7 @@ def execute_online(db: Session, cmd: KudosTerminalCommand) -> dict:
             capture_output=True,
             text=True,
             timeout=ONLINE_TIMEOUT_SECONDS,
+            preexec_fn=_limit_resources,
         )
         output = (result.stdout or "") + (result.stderr or "")
         return _finish(db, cmd, exit_code=result.returncode, output=output)

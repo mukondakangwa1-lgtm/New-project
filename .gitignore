@@ -19,3 +19,6 @@ services/backend/app/uploads/
 # Runtime backups
 services/backups/
 
+# Agent task workspaces (git worktrees managed by KUDOS)
+.kudos_workspaces/
+

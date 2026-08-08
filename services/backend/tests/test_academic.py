@@ -32,6 +32,13 @@ def setup_module():
     )
     assert r.status_code == 201, r.text
     COURSE_ID = r.json()["id"]
+    # Student must be enrolled to see/submit assignments (authz gate)
+    r = client.post(
+        "/api/v1/courses/enroll",
+        json={"course_id": COURSE_ID, "student_id": client.get("/api/v1/users/me", headers=H_STUDENT).json()["id"]},
+        headers=H_STUDENT,
+    )
+    assert r.status_code == 201, r.text
 
 
 # === Assignments ===

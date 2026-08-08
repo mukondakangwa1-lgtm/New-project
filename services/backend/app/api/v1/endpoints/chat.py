@@ -66,12 +66,21 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
-def _authenticate_ws_token(token: str) -> Optional[User]:
-    """Validate JWT from WebSocket query param and return user."""
+def _authenticate_ws_token(token: str, cookie: str = "") -> Optional[User]:
+    """Validate JWT from WebSocket query param or session cookie."""
     db = SessionLocal()
     try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-        email = payload.get("sub")
+        email = None
+        if token:
+            try:
+                payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+                email = payload.get("sub")
+            except JWTError:
+                email = None
+        if not email and cookie:
+            from app.core.deps import _decode_token
+
+            email = _decode_token(cookie)
         if not email:
             return None
         return db.query(User).filter(User.email == email).first()
@@ -284,7 +293,8 @@ def sync_offline_messages(
 async def websocket_chat(websocket: WebSocket, room_id: int, token: str = ""):
     """
     WebSocket endpoint for real-time chat.
-    Connect: ws://host:port/api/v1/chat/ws/{room_id}?token=JWT
+    Connect: ws://host:port/api/v1/chat/ws/{room_id} (session cookie) or
+    ws://host:port/api/v1/chat/ws/{room_id}?token=JWT
 
     Messages sent by client:
       {"content": "hello", "message_type": "text"}
@@ -295,8 +305,11 @@ async def websocket_chat(websocket: WebSocket, room_id: int, token: str = ""):
       {"type": "leave", "user_id": 2, "user_name": "Jane"}
       {"type": "online", "user_ids": [1, 2, 3]}
     """
-    # Authenticate
-    user = _authenticate_ws_token(token)
+    # Authenticate: session cookie first, then ?token= (native clients)
+    user = _authenticate_ws_token(
+        token,
+        cookie=websocket.cookies.get("dc_access_token", ""),
+    )
     if not user:
         await websocket.close(code=4001, reason="Invalid token")
         return

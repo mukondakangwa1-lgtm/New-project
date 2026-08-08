@@ -29,7 +29,7 @@ export default function Login() {
         throw new Error(data.detail || "Login failed");
       }
 
-      localStorage.setItem("token", data.access_token);
+      // Session is held in the HttpOnly cookie set by the backend.
       router.push("/dashboard");
     } catch (err: any) {
       setError(err?.message || "Unable to sign in. Please try again.");
@@ -81,13 +81,6 @@ export default function Login() {
               {loading ? "Signing in..." : "Sign In"}
             </button>
           </form>
-
-          <div className="mt-4 p-3 bg-gray-50 rounded text-xs text-gray-500">
-            <p className="font-medium mb-1">Superadmin account:</p>
-            <p>Email: admin@campus.edu</p>
-            <p>Password: superadmin123</p>
-            <p className="mt-1 text-gray-400">Change password via Superadmin Dashboard chat</p>
-          </div>
 
           <p className="text-center text-sm text-gray-500 mt-4">
             Don&apos;t have an account?{" "}
