@@ -21,3 +21,4 @@ openai
 pgvector
 celery[redis]
 redis
+boto3

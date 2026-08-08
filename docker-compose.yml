@@ -1,6 +1,6 @@
 # =============================================
 # Digital Campus - Docker Compose (enhanced)
-# Adds Postgres (with pgvector), Redis, and a Celery worker
+# Adds Postgres (with pgvector), Redis, MinIO (S3), and Celery worker
 # =============================================
 version: "3.9"
 
@@ -14,12 +14,18 @@ services:
     environment:
       - HOST=0.0.0.0
       - PORT=8000
+      # S3/MinIO - backend auto-connects via .env
+      - S3_ENDPOINT=http://minio:9000
+      - S3_BUCKET=campus-media
+      - S3_ACCESS_KEY=dc_minio
+      - S3_SECRET_KEY=dc_minio_pass_32chars_change_me
     volumes:
       - ./services/backend:/app
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     depends_on:
       - db
       - redis
+      - minio
 
   db:
     image: postgres:15
@@ -38,6 +44,41 @@ services:
     ports:
       - "6379:6379"
 
+  # --- MinIO = Free Secure S3 (your private bucket) ---
+  # API: http://localhost:9000  |  Console: http://localhost:9001
+  # Login: dc_minio / dc_minio_pass_32chars_change_me
+  minio:
+    image: minio/minio
+    command: server /data --console-address ":9001"
+    environment:
+      - MINIO_ROOT_USER=dc_minio
+      - MINIO_ROOT_PASSWORD=dc_minio_pass_32chars_change_me
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # Create bucket on startup (private, AES256)
+  minio-setup:
+    image: minio/mc
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      sleep 3;
+      /usr/bin/mc alias set local http://minio:9000 dc_minio dc_minio_pass_32chars_change_me;
+      /usr/bin/mc mb local/campus-media --ignore-existing;
+      /usr/bin/mc anonymous set none local/campus-media;
+      echo 'MinIO bucket campus-media ready (private, encrypted)';
+      exit 0;
+      "
+
   worker:
     build: ./services/backend
     env_file:
@@ -51,3 +92,4 @@ services:
 
 volumes:
   db_data:
+  minio_data:
