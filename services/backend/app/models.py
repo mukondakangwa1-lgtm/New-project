@@ -406,8 +406,51 @@ class KudosMemory(Base):
     access_count = Column(Integer, default=0)
     last_access_at = Column(DateTime, nullable=True)
     expires_at = Column(DateTime, nullable=True)  # TTL for short-term memories
+    device_policy = Column(String(20), default="replicated")  # local | replicated | critical
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc),
                         onupdate=lambda: datetime.now(timezone.utc))
 
     user = relationship("User")
+
+
+class KudosDevice(Base):
+    """
+    A device registered by a user — phone, laptop, desktop. Devices lend
+    their storage space to host replicas of the user's KUDOS memories.
+    """
+    __tablename__ = "kudos_devices"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    name = Column(String(120), nullable=False)
+    platform = Column(String(30), default="generic")  # android | ios | desktop | web | linux
+    api_token = Column(String(64), default="", index=True)
+    status = Column(String(20), default="online")  # online | offline | retired
+    storage_bytes = Column(Integer, default=536870912)  # 512 MB default capacity
+    used_storage_bytes = Column(Integer, default=0)
+    last_seen_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    user = relationship("User")
+    replicas = relationship("KudosMemoryReplica", back_populates="device",
+                            cascade="all, delete-orphan")
+
+
+class KudosMemoryReplica(Base):
+    """
+    One copy of a memory stored on a device replica set.
+    status: pending (awaiting pull) | current (acknowledged) | stale (needs resync)
+    """
+    __tablename__ = "kudos_memory_replicas"
+
+    id = Column(Integer, primary_key=True, index=True)
+    memory_id = Column(Integer, ForeignKey("kudos_memories.id"), nullable=False, index=True)
+    device_id = Column(Integer, ForeignKey("kudos_devices.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    role = Column(String(20), default="replica")  # primary | replica
+    status = Column(String(20), default="pending")  # pending | current | stale | purged
+    synced_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    device = relationship("KudosDevice", back_populates="replicas")

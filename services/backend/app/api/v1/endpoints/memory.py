@@ -30,6 +30,7 @@ def retrieve_memory_endpoint(
     query: str = "",
     layers: str = "",
     limit: int = 8,
+    include_replicas: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -42,10 +43,14 @@ def retrieve_memory_endpoint(
     memories = retrieve_memories(
         db, current_user.id, query=query, layers=requested, limit=min(max(limit, 1), 50)
     )
-    return MemoryRetrieveResponse(
-        query=query,
-        memories=[MemoryResponse(**m) for m in map(_memory_to_dict, memories)],
-    )
+    items = [dict(_memory_to_dict(m)) for m in memories]
+    if include_replicas:
+        from app.core.device_storage import memory_replica_map
+
+        replica_map = memory_replica_map(db, current_user.id, [m["id"] for m in items])
+        for item in items:
+            item["replicas"] = replica_map.get(item["id"], [])
+    return MemoryRetrieveResponse(query=query, memories=[MemoryResponse(**m) for m in items])
 
 
 @router.post("", response_model=MemoryResponse, status_code=201)
@@ -95,6 +100,12 @@ def delete_memory_endpoint(
     record = get_memory(db, memory_id, current_user.id)
     if not record:
         raise HTTPException(status_code=404, detail="Memory not found")
+    try:
+        from app.core.device_storage import purge_memory_replicas
+
+        purge_memory_replicas(db, record.id)
+    except Exception:
+        db.rollback()
     db.delete(record)
     db.commit()
     return MemoryClearResponse(deleted=1)

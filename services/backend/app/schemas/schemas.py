@@ -413,6 +413,7 @@ class MemoryResponse(BaseModel):
     access_count: int = 0
     expires_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
+    replicas: list[dict] = []
 
 
 class MemoryRetrieveResponse(BaseModel):
@@ -422,6 +423,64 @@ class MemoryRetrieveResponse(BaseModel):
 
 class MemoryClearResponse(BaseModel):
     deleted: int
+
+
+class DeviceCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    platform: str = Field(default="generic", max_length=30)
+    storage_bytes: int = Field(default=512 * 1024 * 1024, ge=1)
+
+
+class DeviceResponse(BaseModel):
+    id: int
+    name: str
+    platform: str
+    status: str
+    storage_bytes: int
+    used_storage_bytes: int
+    last_seen_at: Optional[datetime] = None
+    api_token: str = ""
+
+
+class DeviceUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, max_length=120)
+    status: Optional[str] = Field(default=None, max_length=20)  # online | offline
+    used_storage_bytes: Optional[int] = Field(default=None, ge=0)
+
+
+class SyncAckRequest(BaseModel):
+    memory_ids: list[int]
+
+
+class SyncAckResponse(BaseModel):
+    acknowledged: int
+
+
+class SyncEntry(BaseModel):
+    memory_id: int
+    content: str
+    layer: str
+    kind: str
+    importance: float
+    tags: str = "[]"
+    source: str = ""
+    summary: str = ""
+    expires_at: Optional[datetime] = None
+    device_role: str = "replica"
+    device_status: str = "pending"
+    embedding: Optional[list] = None
+
+
+class SyncManifestResponse(BaseModel):
+    device_id: int
+    entries: list[SyncEntry]
+
+
+class SyncStatusResponse(BaseModel):
+    devices: list[dict]
+    total_memories: int
+    healthy_replicated: int
+    last_check: str
 
 
 class LLMConfigureRequest(BaseModel):

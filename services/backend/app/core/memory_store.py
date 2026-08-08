@@ -85,14 +85,21 @@ def write_memory(
     tags: Optional[List[str]] = None,
     source: str = "",
     expires_at: Optional[datetime] = None,
+    device_policy: str = "replicated",
 ) -> KudosMemory:
-    """Create a memory entry. Embedding failures degrade gracefully."""
+    """Create a memory entry. Embedding failures degrade gracefully.
+
+    When devices are registered, the entry is replicated to the ring;
+    otherwise Postgres alone holds it until devices appear.
+    """
     if layer not in STORAGE_LAYERS:
         raise ValueError(f"Invalid layer: {layer}")
     if kind not in MEMORY_KINDS:
         raise ValueError(f"Invalid kind: {kind}")
     if not content or not content.strip():
         raise ValueError("Memory content cannot be empty")
+    if device_policy not in ("local", "replicated", "critical"):
+        raise ValueError(f"Invalid device_policy: {device_policy}")
 
     embedding = _try_embed(content)
 
@@ -111,10 +118,17 @@ def write_memory(
         tags=json.dumps(tags or []),
         source=source or "",
         expires_at=expires_at,
+        device_policy=device_policy,
     )
     db.add(record)
     db.commit()
     db.refresh(record)
+    try:
+        from app.core.device_storage import assign_replicas
+
+        assign_replicas(db, record)
+    except Exception:
+        db.rollback()
     return record
 
 
@@ -270,7 +284,13 @@ def clear_memories(db, user_id: int, layer: Optional[str] = None) -> int:
     if layer:
         statement = statement.where(KudosMemory.layer == layer)
     records = db.execute(statement).scalars().all()
+    from app.core.device_storage import purge_memory_replicas
+
     for r in records:
+        try:
+            purge_memory_replicas(db, r.id)
+        except Exception:
+            db.rollback()
         db.delete(r)
     db.commit()
     return len(records)
