@@ -93,3 +93,44 @@ jobs:
           assert not missing, f'Missing tables: {missing}'
           print(f'Migrations OK — {len(tables)} tables')
           "
+
+  e2e:
+    name: E2E (docker stack + Playwright)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+
+      - name: Install Playwright
+        working-directory: e2e
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Boot the E2E stack
+        run: |
+          docker compose -f e2e/docker-compose.e2e.yml up -d --build
+          for i in $(seq 1 60); do
+            curl -sf http://localhost:8100/api/v1/health >/dev/null && \
+              curl -sf http://localhost:3100/login >/dev/null && break
+            sleep 2
+          done
+          curl -sf http://localhost:8100/api/v1/health >/dev/null
+          curl -sf http://localhost:3100/login >/dev/null
+
+      - name: Run agent flow tests
+        working-directory: e2e
+        run: E2E_BASE_URL=http://localhost:3100 npx playwright test
+
+      - name: Collect logs on failure
+        if: failure()
+        run: docker compose -f e2e/docker-compose.e2e.yml logs --tail 100
+
+      - name: Tear down
+        if: always()
+        run: docker compose -f e2e/docker-compose.e2e.yml down -v
