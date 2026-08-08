@@ -412,6 +412,7 @@ def build_human_prompt(
     persona_instructions: str = "",
     soul_context: str = "",
     self_knowledge: str = "",
+    terminal_context: str = "",
 ) -> tuple[str, str]:
     """
     Build a prompt that makes the LLM respond like a human.
@@ -449,6 +450,9 @@ WHAT YOU KNOW (built-in knowledge you can rely on):
 {self_knowledge if self_knowledge else "- You rely on the user's knowledge sources and your own experience."}
 """
 
+    if terminal_context:
+        system_prompt += f"\n\nTERMINAL (available to you now):\n{terminal_context}"
+
     user_prompt = ""
 
     # Add knowledge context
@@ -482,6 +486,7 @@ async def get_llm_response(
     persona_instructions: str = "",
     soul_context: str = "",
     self_knowledge: str = "",
+    terminal_context: str = "",
 ) -> Optional[str]:
     """
     Get a human-like response from the best available LLM.
@@ -495,6 +500,7 @@ async def get_llm_response(
         persona_instructions=persona_instructions,
         soul_context=soul_context,
         self_knowledge=self_knowledge,
+        terminal_context=terminal_context,
     )
 
     result = await query_best_llm(user_prompt, system_prompt)

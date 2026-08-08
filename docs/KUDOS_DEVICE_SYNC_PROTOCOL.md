@@ -141,3 +141,63 @@ memory write.
   (even with A's token leaked — ownership is re-verified per row).
 - Replicas never contain secrets: secret values should use `local` policy or
   stay outside memory entirely.
+## 7. Terminal channel (device agents)
+
+KUDOS opens a terminal on any device — or online when none is available —
+and uses it to write, run, and test code like an AI agent. Device clients
+opt in by implementing three endpoints; online sessions run server-side in
+a jailed workspace (superadmin-only).
+
+### Command lifecycle
+
+```
+status flow:
+  queued ──(device claims)──▶ claimed ──(device posts result)──▶ done | failed
+     │
+     └─(agent shell)──▶ pending_approval ──(superadmin approves)──▶ queued
+```
+
+- `source=user` commands run immediately.
+- `source=agent` shell commands wait for superadmin approval
+  (`GET /kudos/terminal/approvals`, `POST /kudos/terminal/commands/{id}/approve`).
+- Agent **code runs** (`language` set) execute immediately — they are
+  syntax-bounded and never touch the shell.
+
+### Device-facing endpoints (poll-based, `X-Device-Token`)
+
+```
+GET  /api/v1/kudos/terminal/commands
+→ { "commands": [
+    { "id": 41, "session_id": 3, "command": "ls -la",
+      "language": "", "source": "user", "status": "claimed" } ] }
+
+POST /api/v1/kudos/terminal/commands/{id}/result
+{ "exit_code": 0, "output": "total 0\n" }
+```
+
+- Poll when idle, like memory sync; empty array when nothing is queued.
+- Claims are sticky for 90 s: if the client never posts a result, the command
+  is re-offered, so crashed clients don't lose work.
+- When `language` is `python3|node|bash`, the `command` field holds **code**:
+  the client writes it to `code.<ext>` in the session directory and runs it
+  with the matching interpreter.
+- Ownership is re-verified per row: a device can only claim commands queued
+  for its own user's sessions.
+
+### Client behavior (recommended)
+
+1. On app start: `GET /kudos/terminal/commands` once; if non-empty, execute
+   each (shell or code) and `POST .../result` with the captured output.
+2. Repeat with backoff (2 s → 60 s). Show a subtle "KUDOS is working"
+   indicator while a command is executing.
+3. Never run `sudo`, `rm -rf /`, or destructive commands returned by the
+   agent — KUDOS already blocks these server-side; clients should enforce
+   the same denylist locally.
+
+### Online sessions
+
+`POST /kudos/terminal/sessions` with no `device_id` creates an online
+session (superadmin only). Commands run server-side via `bash -lc` inside
+`{workspace}/session-{id}`: 30 s timeout, 64 KB output cap, denylist
+(sudo, mkfs, fork bombs, device writes, poweroff …). Code runs write
+`code.<ext>` into the same workspace.

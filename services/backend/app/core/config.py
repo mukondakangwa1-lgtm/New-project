@@ -82,6 +82,12 @@ class Settings(BaseSettings):
     GOOGLE_GEMINI_API_KEY: Optional[str] = None
     GROQ_API_KEY: Optional[str] = None
 
+    # KUDOS Terminal: auto-open a session during ask when the question looks
+    # like code KUDOS should test. Agent shell commands always require
+    # superadmin approval regardless of this flag.
+    KUDOS_TERMINAL_AUTO_OPEN: bool = True
+    KUDOS_TERMINAL_WORKSPACE_ROOT: str = ""
+
     # Additional application API keys. Both comma- and newline-separated
     # values are accepted in environment variables and .env files.
     API_KEYS: Annotated[List[str], NoDecode] = []

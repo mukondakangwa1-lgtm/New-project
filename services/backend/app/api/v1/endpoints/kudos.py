@@ -309,6 +309,33 @@ def update_web_knowledge(item_id: int, body: KudosDocumentUpdate, db: Session = 
 # CHAT WITH KUDOS — ROBUST ERROR HANDLING
 # ──────────────────────────────────────────────
 
+_TERMINAL_TRIGGER_RE = re.compile(
+    r"\b(code|script|function|terminal|shell|bash|python|bug|test|debug|"
+    r"refactor|implement|build|deploy|run this|try this)\b",
+    re.IGNORECASE,
+)
+
+
+def _open_terminal_for_question(db: Session, current_user: User, question: str) -> str:
+    """Auto-open a terminal session when the question asks KUDOS to work with
+    code. Returns a prompt block telling KUDOS its terminal is open, or "".
+    """
+    if not _TERMINAL_TRIGGER_RE.search(question or ""):
+        return ""
+    from app.core.terminal import pick_session_for_user
+
+    session, created = pick_session_for_user(db, current_user.id, admin=current_user.is_admin)
+    where = "on your device" if session.kind == "device" else "online (server workspace)"
+    return (
+        f"- You have an open terminal session #{session.id} ({session.name}) {where}.\n"
+        "- To run a shell command, call POST /api/v1/kudos/terminal/sessions/{id}/command "
+        "(source=user runs it; source=agent requires superadmin approval).\n"
+        "- To write and run a code file, call POST /api/v1/kudos/terminal/sessions/{id}/code "
+        "with {language: python3|node|bash, code: ...} — it runs immediately.\n"
+        "- Device sessions execute on the user's hardware; online sessions run in a "
+        "jailed workspace. Use the terminal to test anything you write."
+    )
+
 
 @router.post("/ask", response_model=KudosAskResponse)
 async def ask_kudos(body: KudosAskRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -389,6 +416,16 @@ async def ask_kudos(body: KudosAskRequest, db: Session = Depends(get_db), curren
         except Exception:
             pass
 
+        # KUDOS Terminal: when the question looks like code to write or test,
+        # auto-open a session so KUDOS can act like an agent. The session id
+        # is added to the prompt so the LLM knows its terminal is available.
+        terminal_context = ""
+        if settings.KUDOS_TERMINAL_AUTO_OPEN and current_user.is_admin:
+            try:
+                terminal_context = _open_terminal_for_question(db, current_user, body.question)
+            except Exception:
+                pass
+
         # Try LLM first (human-like response)
         answer = ""
         try:
@@ -411,6 +448,7 @@ async def ask_kudos(body: KudosAskRequest, db: Session = Depends(get_db), curren
                 persona_instructions=persona_instructions,
                 soul_context=soul_context,
                 self_knowledge=self_knowledge,
+                terminal_context=terminal_context,
             )
             if llm_answer and len(llm_answer) > 10:
                 answer = llm_answer

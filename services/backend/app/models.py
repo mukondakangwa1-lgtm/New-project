@@ -491,3 +491,51 @@ class KudosSoul(Base):
     goals = Column(Text, default="[]")  # JSON list of {goal, status}
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc),
                         onupdate=lambda: datetime.now(timezone.utc))
+
+
+class KudosTerminalSession(Base):
+    """
+    A terminal session KUDOS opens on a connected device or online.
+    kind: device | online. Device sessions run on the user's own device via
+    the device agent; online sessions run on the server in a jailed workspace.
+    """
+    __tablename__ = "kudos_terminal_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    device_id = Column(Integer, ForeignKey("kudos_devices.id"), nullable=True, index=True)
+    kind = Column(String(20), default="online")  # device | online
+    name = Column(String(120), default="kudos-terminal")
+    status = Column(String(20), default="open")  # open | closed
+    workspace = Column(String(300), nullable=True)  # jailed cwd for online sessions
+    opened_by = Column(String(20), default="user")  # user | agent | ask
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    closed_at = Column(DateTime, nullable=True)
+
+    user = relationship("User")
+
+
+class KudosTerminalCommand(Base):
+    """
+    One command issued in a terminal session.
+    status: queued | pending_approval | claimed | done | failed
+    source: user (runs directly) | agent (needs superadmin approval for shell)
+    """
+    __tablename__ = "kudos_terminal_commands"
+
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(Integer, ForeignKey("kudos_terminal_sessions.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    device_id = Column(Integer, ForeignKey("kudos_devices.id"), nullable=True)
+    command = Column(Text, nullable=False)
+    language = Column(String(20), default="")  # set for code runs: python3|node|bash
+    source = Column(String(20), default="user")  # user | agent | ask
+    status = Column(String(30), default="queued")  # queued | pending_approval | claimed | done | failed
+    exit_code = Column(Integer, nullable=True)
+    output = Column(Text, default="")
+    approved_by = Column(Integer, nullable=True)  # superadmin user id
+    claimed_at = Column(DateTime, nullable=True)
+    requested_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    executed_at = Column(DateTime, nullable=True)
+
+    session = relationship("KudosTerminalSession")
