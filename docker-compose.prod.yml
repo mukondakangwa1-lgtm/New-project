@@ -213,6 +213,8 @@ services:
       - NET_RAW
     volumes:
       - tailscale_state:/var/lib/tailscale
+      - ./deploy/tailscale/boot.sh:/boot.sh:ro
+    entrypoint: ["/bin/sh", "/boot.sh"]
     environment:
       TS_AUTH_TOKEN: ${TS_AUTHKEY:?Set TS_AUTHKEY in .env (tailscale auth key)}
     restart: unless-stopped
