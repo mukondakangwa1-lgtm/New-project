@@ -453,7 +453,7 @@ function VideoCalls() {
   const [userId, setUserId] = useState<number | null>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [muted, setMuted] = useState(false);
-  const [videoOff, setVideoOff] = useState(false);
+  const [videoOff, setVideoOff] = useState(true);
   const [sharing, setSharing] = useState(false);
   const [callError, setCallError] = useState("");
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -542,9 +542,9 @@ function VideoCalls() {
 
     let stream: MediaStream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch {
-      setCallError("❌ Camera/mic denied (HTTPS required on LAN).");
+      setCallError("❌ Mic access denied (HTTPS required on LAN). Camera starts when you enable it.");
       return;
     }
     setLocalStream(stream);
@@ -613,7 +613,7 @@ function VideoCalls() {
     const res = await fetch("/api/v1/studio/calls/create", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...getAuthHeader() },
-      body: JSON.stringify({ title: title || "Video Call", is_group: isGroup, max_participants: 10, enable_whiteboard: true, enable_screen_share: true }),
+      body: JSON.stringify({ title: title || "Video Call", is_group: isGroup, max_participants: 0, enable_whiteboard: true, enable_screen_share: true }),
     });
     if (res.ok) await enterCall(await res.json());
   };
@@ -643,7 +643,7 @@ function VideoCalls() {
     setActiveCall(null);
     setParticipants([]);
     setMuted(false);
-    setVideoOff(false);
+    setVideoOff(true);
     setSharing(false);
     setShowWhiteboard(false);
     setCallError("");
@@ -656,10 +656,42 @@ function VideoCalls() {
     setMuted(!muted);
   };
 
-  const toggleVideo = () => {
-    const videoTracks = localStream?.getVideoTracks() || [];
-    videoTracks.forEach((t) => (t.enabled = videoOff));
-    setVideoOff(!videoOff);
+  const toggleVideo = async () => {
+    if (videoOff) {
+      try {
+        if (!localStream) {
+          setCallError("❌ Not in a call yet.");
+          return;
+        }
+        let videoTrack: MediaStreamTrack | undefined = localStream.getVideoTracks()[0];
+        if (!videoTrack) {
+          const cam = await navigator.mediaDevices.getUserMedia({ video: true });
+          videoTrack = cam.getVideoTracks()[0];
+          cam.getAudioTracks().forEach((t) => t.stop());
+          localStream.addTrack(videoTrack);
+        }
+        videoTrack.enabled = true;
+        for (const [, pc] of Array.from(peersRef.current.entries())) {
+          if (pc.signalingState !== "closed") pc.addTrack(videoTrack, localStream);
+        }
+      } catch {
+        setCallError("❌ Could not start camera — check permissions.");
+        return;
+      }
+      try {
+        for (const [remoteId, pc] of Array.from(peersRef.current.entries())) {
+          if (pc.signalingState === "stable") {
+            await createOffer(pc, (t, p) => sendSignal(activeCall.id, remoteId, t, p));
+          }
+        }
+      } catch {}
+      if (localVideoRef.current) localVideoRef.current.srcObject = localStream;
+      setVideoOff(false);
+    } else {
+      const videoTracks = localStream?.getVideoTracks() || [];
+      videoTracks.forEach((t) => (t.enabled = false));
+      setVideoOff(true);
+    }
   };
 
   const toggleShare = async () => {
@@ -811,7 +843,7 @@ function VideoCalls() {
                 className="w-full rounded border px-3 py-2 text-sm" placeholder="Call title" />
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={isGroup} onChange={(e) => setIsGroup(e.target.checked)} />
-                Group call (up to 10 participants)
+                Group call — unlimited participants
               </label>
               <button onClick={createCall} className="w-full bg-green-600 text-white py-2 rounded-lg font-medium hover:bg-green-700">
                 📹 Create Call Room
@@ -905,7 +937,7 @@ function VideoCalls() {
             </button>
             <button onClick={toggleVideo}
               className={`px-4 py-2 rounded-lg text-sm ${videoOff ? "bg-red-600" : "bg-gray-700"} text-white hover:bg-gray-600`}>
-              {videoOff ? "🙈 Show Video" : "📹 Video"}
+              {videoOff ? "📷 Turn camera on" : "🙈 Turn camera off"}
             </button>
             <button onClick={toggleShare}
               className={`px-4 py-2 rounded-lg text-sm ${sharing ? "bg-blue-600" : "bg-gray-700"} text-white hover:bg-gray-600`}>

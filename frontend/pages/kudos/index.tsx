@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from "react";
-import { getAuthHeader } from "@/lib/api";
+import { getAuthHeader, signOut } from "@/lib/api";
 import Layout from "@/components/Layout";
 import { ProgressBar, useLongProcess } from "@/components/ProgressBar";
+import KudosGuestChat from "@/components/KudosGuestChat";
 
 interface Message {
   id: number;
@@ -33,6 +34,29 @@ export default function KudosChat() {
   const [arenaResult, setArenaResult] = useState<any>(null);
   const askProgress = useLongProcess();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Anonymous visitors get the guest chat (no login required)
+  const [guestMode, setGuestMode] = useState<boolean | null>(null);
+  const [userName, setUserName] = useState<string>("");
+  useEffect(() => {
+    fetch("/api/v1/users/me")
+      .then(async (r) => {
+        setGuestMode(r.status !== 200);
+        if (r.status === 200) {
+          const me = await r.json().catch(() => null);
+          if (me?.full_name) {
+            setUserName(me.full_name.split(" ")[0] || me.full_name);
+          }
+        }
+      })
+      .catch(() => setGuestMode(true));
+  }, []);
+
+  const handleLogout = () => {
+    if (!window.confirm("Logging out?")) return;
+    signOut();
+    window.location.assign("/kudos");
+  };
 
   useEffect(() => {
     fetch("/api/v1/kudos/conversations", { headers: getAuthHeader() })
@@ -148,6 +172,17 @@ export default function KudosChat() {
     if (currentConvId === id) newConversation();
   };
 
+  if (guestMode === null) {
+    return (
+      <Layout>
+        <div className="flex items-center justify-center min-h-[50vh] text-gray-400">
+          Checking session…
+        </div>
+      </Layout>
+    );
+  }
+  if (guestMode) return <KudosGuestChat />;
+
   return (
     <Layout>
       <div className="flex justify-between items-center mb-4">
@@ -157,9 +192,15 @@ export default function KudosChat() {
             Your AI knowledge assistant — ask questions, upload documents, teach it web pages
           </p>
         </div>
-        <div className="flex gap-2">
-          <a
-            href="/kudos/upload"
+        <div className="flex gap-2 items-center">
+          <button
+            onClick={handleLogout}
+            className="bg-white border px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 hover:border-red-300 hover:text-red-600 transition"
+            title="Logging out?"
+          >
+            🚪 Log out
+          </button>
+          <a href="/kudos/upload"
             className="bg-white border px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition"
           >
             📄 Upload Doc
@@ -262,12 +303,20 @@ export default function KudosChat() {
               <div className="text-center py-16">
                 <p className="text-6xl mb-4">🧠</p>
                 <h3 className="text-2xl font-bold text-gray-700 mb-2">
-                  Hi! I&apos;m KUDOS
+                  {userName ? `Welcome back, ${userName}!` : "Hi! I'm KUDOS"}
                 </h3>
                 <p className="text-gray-500 max-w-md mx-auto mb-6">
                   Your AI knowledge assistant. I learn from documents you upload and
                   web pages you teach me. Ask me anything!
                 </p>
+                {userName && (
+                  <button
+                    onClick={handleLogout}
+                    className="mb-6 px-4 py-2 rounded-lg border border-gray-200 text-sm font-medium text-gray-700 hover:border-red-300 hover:text-red-600 transition"
+                  >
+                    Log out
+                  </button>
+                )}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3 max-w-lg mx-auto text-left">
                   <button
                     onClick={() => setInput("What documents do you have?")}

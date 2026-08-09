@@ -96,6 +96,14 @@ async def lifespan(app: FastAPI):
         start_shield()
     except Exception:
         pass
+    # Resume KUDOS continuous learning if it was enabled before a restart
+    if settings.KUDOS_LEARN_ON_VISIT:
+        try:
+            from app.core.auto_learner import resume_kudos_learner
+
+            resume_kudos_learner()
+        except Exception:
+            pass
     yield
 
 

@@ -3,12 +3,20 @@ import { getAuthHeader } from "@/lib/api";
 import Layout from "@/components/Layout";
 import { ProgressBar, useLongProcess } from "@/components/ProgressBar";
 
+function fmtBytes(bytes: number): string {
+  if (!bytes || bytes <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  return `${(bytes / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+}
+
 export default function SuperadminDashboard() {
   const [dashboard, setDashboard] = useState<any>(null);
   const [brainLog, setBrainLog] = useState<any[]>([]);
   const [brainThoughts, setBrainThoughts] = useState<any[]>([]);
   const [chatMessages, setChatMessages] = useState<{from: string; message: string; action?: string}[]>([]);
   const [chatInput, setChatInput] = useState("");
+  const [pendingUsers, setPendingUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [chatSending, setChatSending] = useState(false);
   const chatRef = useRef<HTMLDivElement>(null);
@@ -26,17 +34,15 @@ export default function SuperadminDashboard() {
 
   const fetchAll = async () => {
     try {
-      const headers = getAuthHeader();
-      if (!headers.Authorization) {
-        setLoading(false);
-        return;
-      }
-      const [dashRes, logRes, thoughtsRes] = await Promise.all([
-        fetch("/api/v1/superadmin/dashboard", { headers }),
-        fetch("/api/v1/superadmin/brain/log?limit=20", { headers }),
-        fetch("/api/v1/superadmin/brain/thoughts?limit=15", { headers }),
+      const [dashRes, logRes, thoughtsRes, pendingRes] = await Promise.all([
+        fetch("/api/v1/superadmin/dashboard", { headers: getAuthHeader() }),
+        fetch("/api/v1/superadmin/brain/log?limit=20", { headers: getAuthHeader() }),
+        fetch("/api/v1/superadmin/brain/thoughts?limit=15", { headers: getAuthHeader() }),
+        fetch("/api/v1/superadmin/users/pending", { headers: getAuthHeader() }),
       ]);
       if (dashRes.ok) setDashboard(await dashRes.json());
+      else setDashboard(null);
+      if (pendingRes.ok) setPendingUsers(await pendingRes.json());
       if (logRes.ok) {
         const d = await logRes.json();
         setBrainLog(d.log || []);
@@ -47,6 +53,15 @@ export default function SuperadminDashboard() {
       }
     } catch {}
     setLoading(false);
+  };
+
+  const approveUser = async (userId: number) => {
+    const headers = getAuthHeader();
+    const res = await fetch(`/api/v1/superadmin/users/${userId}/approve`, {
+      method: "POST",
+      headers,
+    });
+    if (res.ok) fetchAll();
   };
 
   const sendChat = async () => {
@@ -114,6 +129,7 @@ export default function SuperadminDashboard() {
   const identity = dashboard?.identity;
   const brain = dashboard?.brain;
   const platform = dashboard?.platform;
+  const storage = dashboard?.storage;
   const autoLearn = dashboard?.auto_learner;
 
   return (
@@ -124,6 +140,34 @@ export default function SuperadminDashboard() {
       </div>
 
       <div className="space-y-6">
+        {/* Pending registrations */}
+        {pendingUsers.length > 0 && (
+          <div className="bg-white rounded-xl border p-4 md:p-5">
+            <h3 className="font-semibold mb-3">
+              🕐 Pending approvals ({pendingUsers.length})
+            </h3>
+            <div className="space-y-2">
+              {pendingUsers.map((u) => (
+                <div
+                  key={u.id}
+                  className="flex items-center justify-between gap-4 text-sm border-b last:border-0 pb-2"
+                >
+                  <div>
+                    <p className="font-medium">{u.full_name}</p>
+                    <p className="text-gray-500">{u.email}</p>
+                  </div>
+                  <button
+                    onClick={() => approveUser(u.id)}
+                    className="bg-primary text-white px-3 py-1.5 rounded text-xs font-medium hover:bg-blue-800 transition"
+                  >
+                    Approve
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* KUDOS Identity Banner */}
         {identity && (
           <div className="bg-gradient-to-r from-purple-900 to-indigo-900 rounded-xl p-4 md:p-6 text-white">
@@ -190,6 +234,65 @@ export default function SuperadminDashboard() {
                 <p className="text-xs text-gray-500">{s.label}</p>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Storage Usage */}
+        {storage && (
+          <div className="bg-white rounded-xl border p-4 md:p-5">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+              <h3 className="font-semibold">💾 Storage Usage</h3>
+              <span className="text-xs px-2 py-1 rounded bg-gray-100 text-gray-500">
+                backend: {storage.usage?.backend || "unknown"}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+              <div className="rounded-lg border p-3 text-center">
+                <p className="text-xl mb-1">🗄️</p>
+                <p className="text-lg font-bold text-primary">{fmtBytes(storage.usage?.total_bytes || 0)}</p>
+                <p className="text-xs text-gray-500">Objects used</p>
+              </div>
+              <div className="rounded-lg border p-3 text-center">
+                <p className="text-xl mb-1">🗂️</p>
+                <p className="text-lg font-bold text-primary">{storage.usage?.total_objects || 0}</p>
+                <p className="text-xs text-gray-500">Total objects</p>
+              </div>
+              <div className="rounded-lg border p-3 text-center">
+                <p className="text-xl mb-1">📦</p>
+                <p className="text-lg font-bold text-primary">{fmtBytes(storage.db_size_bytes || 0)}</p>
+                <p className="text-xs text-gray-500">Database size</p>
+              </div>
+              <div className="rounded-lg border p-3 text-center">
+                <p className="text-xl mb-1">📄</p>
+                <p className="text-lg font-bold text-primary">{storage.usage?.by_prefix?.["docs/"]?.objects || 0}</p>
+                <p className="text-xs text-gray-500">Documents</p>
+              </div>
+              <div className="rounded-lg border p-3 text-center">
+                <p className="text-xl mb-1">🎙️</p>
+                <p className="text-lg font-bold text-primary">{storage.usage?.by_prefix?.["audio/"]?.objects || 0}</p>
+                <p className="text-xs text-gray-500">Audio files</p>
+              </div>
+              <div className="rounded-lg border p-3 text-center">
+                <p className="text-xl mb-1">👤</p>
+                <p className="text-lg font-bold text-primary">{storage.usage?.by_prefix?.["avatars/"]?.objects || 0}</p>
+                <p className="text-xs text-gray-500">Avatars</p>
+              </div>
+              <div className="rounded-lg border p-3 text-center">
+                <p className="text-xl mb-1">🛟</p>
+                <p className="text-lg font-bold text-primary">{storage.usage?.by_prefix?.["backups/"]?.objects || 0}</p>
+                <p className="text-xs text-gray-500">Backups</p>
+              </div>
+              <div className="rounded-lg border p-3 text-center">
+                <p className="text-xl mb-1">💽</p>
+                <p className="text-lg font-bold text-primary">{fmtBytes(storage.usage?.by_prefix?.["docs/"]?.bytes || 0)}</p>
+                <p className="text-xs text-gray-500">Docs storage</p>
+              </div>
+              <div className="rounded-lg border p-3 text-center">
+                <p className="text-xl mb-1">🎧</p>
+                <p className="text-lg font-bold text-primary">{fmtBytes(storage.usage?.by_prefix?.["audio/"]?.bytes || 0)}</p>
+                <p className="text-xs text-gray-500">Audio storage</p>
+              </div>
+            </div>
           </div>
         )}
 
@@ -291,7 +394,6 @@ export default function SuperadminDashboard() {
             { href: "/kudos/llm", icon: "✨", label: "LLM Config" },
             { href: "/kudos/connect", icon: "🔌", label: "Connectors" },
             { href: "/kudos/archive", icon: "🕰️", label: "Archive" },
-            { href: "/admin/analytics/overview", icon: "📊", label: "Analytics" },
             { href: "/root", icon: "👑", label: "Root Terminal" },
           ].map((link) => (
             <a key={link.href} href={link.href}

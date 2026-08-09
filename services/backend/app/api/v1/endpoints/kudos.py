@@ -5,6 +5,7 @@ Document learning, web learning, retrieval-based chat, superadmin controls.
 import io
 import json
 import re
+import time
 
 import httpx
 from bs4 import BeautifulSoup
@@ -21,7 +22,7 @@ from app.models import (
     KudosChunk, KudosConversation, KudosDocument, KudosMessage, KudosWebKnowledge, User,
 )
 from app.schemas import (
-    KudosAskRequest, KudosAskResponse, KudosConversationResponse, KudosDocumentResponse,
+    GuestAskRequest, KudosAskRequest, KudosAskResponse, KudosConversationResponse, KudosDocumentResponse,
     KudosDocumentUpdate, KudosMessageResponse, KudosStats, KudosWebKnowledgeResponse, KudosWebLearn,
 )
 
@@ -645,3 +646,168 @@ def list_pending(db: Session = Depends(get_db), admin: User = Depends(require_ad
         "pending_documents": [{"id": d.id, "title": d.title, "uploaded_by": d.uploaded_by, "chunks": d.chunk_count} for d in docs],
         "pending_web": [{"id": w.id, "url": w.url, "title": w.title, "learned_by": w.learned_by} for w in web],
     }
+# ──────────────────────────────────────────────────────────────
+# PUBLIC GUEST CHAT — anonymous visitors, no login required
+# ──────────────────────────────────────────────────────────────
+_GUEST_EMAIL = "guest@campus.local"
+_GUEST_WELCOME = (
+    "Hi 👋 Welcome to Digital Campus — I'm KUDOS, your AI assistant. "
+    "Ask me anything about courses, assignments, campus life or your studies. "
+    "No account needed to chat; sign in (top right) to keep your history forever. \n\n"
+    "What can I help you with?"
+)
+_GUEST_RATE_LIMIT = 15          # asks per guest per minute
+_GUEST_RATE_WINDOW = 60         # seconds
+_guest_ask_times: dict[str, list[float]] = {}
+
+
+def _guest_rate_ok(guest_id: str) -> bool:
+    """Simple in-memory rate limit per anonymous guest browser id."""
+    now = time.time()
+    recent = [t for t in _guest_ask_times.get(guest_id, []) if now - t < _GUEST_RATE_WINDOW]
+    if len(recent) >= _GUEST_RATE_LIMIT:
+        _guest_ask_times[guest_id] = recent
+        return False
+    recent.append(now)
+    _guest_ask_times[guest_id] = recent
+    return True
+
+
+def _get_or_create_guest_user(db: Session) -> User:
+    """Shared internal guest user so anonymous chats have a valid owner."""
+    user = db.query(User).filter(User.email == _GUEST_EMAIL).first()
+    if not user:
+        user = User(email=_GUEST_EMAIL, full_name="Guest", hashed_password="!", is_approved=True)
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    return user
+
+
+def _get_guest_conversation(db: Session, guest_id: str):
+    conv = db.query(KudosConversation).filter(KudosConversation.guest_key == guest_id).first()
+    if conv:
+        return conv, False
+    guest = _get_or_create_guest_user(db)
+    conv = KudosConversation(user_id=guest.id, title="Guest Chat", guest_key=guest_id)
+    db.add(conv)
+    db.commit()
+    db.refresh(conv)
+    return conv, True
+
+
+@router.post("/guest/ask", response_model=KudosAskResponse)
+async def guest_ask_kudos(body: GuestAskRequest, db: Session = Depends(get_db)):
+    """Anonymous chat with KUDOS. The browser sends a persistent guest_id
+    (a UUID stored in localStorage) so conversations survive refreshes.
+    Guests get the same knowledge pipeline but no personal memory, persona
+    or terminal access."""
+    if not body.guest_id or len(body.guest_id) < 8:
+        raise HTTPException(status_code=422, detail="guest_id must be at least 8 characters")
+    if not _guest_rate_ok(body.guest_id):
+        raise HTTPException(status_code=429, detail="You're asking a lot — please wait a minute")
+
+    guest = _get_or_create_guest_user(db)
+    conv, first_chat = _get_guest_conversation(db, body.guest_id)
+    if first_chat:
+        db.add(KudosMessage(conversation_id=conv.id, role="kudos", content=_GUEST_WELCOME))
+        db.commit()
+
+    db.add(KudosMessage(conversation_id=conv.id, role="user", content=body.question))
+    db.flush()
+
+    sources = []
+    try:
+        sources = search_chunks(db, body.question)
+    except Exception:
+        pass
+
+    knowledge_context = ""
+    if sources:
+        knowledge_context = "\n".join(
+            f"[{i}] {s.get('content', '')[:300]}" for i, s in enumerate(sources[:3], start=1)
+        )
+
+    soul_context = ""
+    self_knowledge = ""
+    try:
+        from app.core.soul import build_soul_context
+        soul_context = build_soul_context(db)
+    except Exception:
+        pass
+    try:
+        from app.core.sandbox import build_sandbox_knowledge_context
+        self_knowledge = build_sandbox_knowledge_context(db)
+    except Exception:
+        pass
+
+    answer = ""
+    try:
+        from app.core.llm_engine import get_llm_response
+        conv_history = []
+        try:
+            conv_history = db.query(KudosMessage).filter(
+                KudosMessage.conversation_id == conv.id
+            ).order_by(KudosMessage.created_at.desc()).limit(5).all()
+            conv_history = [{"role": m.role, "content": m.content} for m in conv_history]
+        except Exception:
+            pass
+        llm_answer = await get_llm_response(
+            question=body.question,
+            knowledge_context=knowledge_context,
+            conversation_history=conv_history,
+            user_name="Guest",
+            memory_context="",
+            persona_instructions="",
+            soul_context=soul_context,
+            self_knowledge=self_knowledge,
+            terminal_context="",
+        )
+        if isinstance(llm_answer, dict):
+            llm_answer = llm_answer.get("response") or llm_answer.get("answer") or ""
+        answer = str(llm_answer or "").strip()
+        if len(answer) <= 10:
+            raise ValueError("empty llm answer")
+    except Exception:
+        answer = generate_answer(body.question, sources)
+
+    if not answer or len(answer) < 10:
+        answer = generate_answer(body.question, sources)
+
+    from app.core.llm_engine import extract_citations
+    cited = []
+    try:
+        cited = extract_citations(answer, sources[:3])
+    except Exception:
+        cited = []
+
+    try:
+        db.add(KudosMessage(
+            conversation_id=conv.id, role="kudos", content=answer,
+            sources=json.dumps(sources[:3]) if sources else "[]",
+        ))
+        db.commit()
+    except Exception:
+        db.rollback()
+
+    return KudosAskResponse(
+        answer=answer,
+        sources=cited if cited else [
+            {"document_id": s.get("document_id"), "web_id": s.get("web_id"),
+             "title": s.get("title", ""), "preview": s.get("content", "")[:200]}
+            for s in (sources[:3] if sources else [])
+        ],
+        conversation_id=conv.id,
+    )
+
+
+@router.get("/guest/messages", response_model=list[KudosMessageResponse])
+def guest_messages(guest_id: str, db: Session = Depends(get_db)):
+    """Anonymous visitor's chat history."""
+    conv = db.query(KudosConversation).filter(KudosConversation.guest_key == guest_id).first()
+    if not conv:
+        return []
+    return db.query(KudosMessage).filter(
+        KudosMessage.conversation_id == conv.id
+    ).order_by(KudosMessage.created_at).all()
+

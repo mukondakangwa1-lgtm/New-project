@@ -5,8 +5,9 @@ Everything secured — admin-only access.
 """
 import os
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import text as sa_text
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -30,12 +31,43 @@ REPO_PATH = str(project_root(__file__))
 
 
 # ──────────────────────────────────────────────
+# REGISTRATION APPROVALS (invite-only mode)
+# ──────────────────────────────────────────────
+
+@router.get("/users/pending")
+def pending_users(db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+    """List non-admin users waiting for approval (REQUIRE_APPROVAL mode)."""
+    users = (
+        db.query(User)
+        .filter(User.is_admin.is_(False), User.is_approved.is_(False))
+        .order_by(User.created_at.asc())
+        .all()
+    )
+    return [
+        {"id": u.id, "email": u.email, "full_name": u.full_name, "created_at": u.created_at}
+        for u in users
+    ]
+
+
+@router.post("/users/{user_id}/approve")
+def approve_user(user_id: int, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+    """Approve a pending registration so the user can log in."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.is_approved = True
+    db.commit()
+    return {"status": "approved", "user_id": user.id, "email": user.email}
+
+
+# ──────────────────────────────────────────────
 # UNIFIED DASHBOARD
 # ──────────────────────────────────────────────
 
 @router.get("/dashboard")
 def superadmin_dashboard(db: Session = Depends(get_db), admin: User = Depends(require_admin)):
     """Get complete superadmin dashboard data."""
+    storage_info = _db_snapshot(db)
     return {
         "identity": get_identity(),
         "brain": get_brain_status(),
@@ -58,6 +90,40 @@ def superadmin_dashboard(db: Session = Depends(get_db), admin: User = Depends(re
             "exam_attempts": db.query(ExamAttempt).count(),
             "notifications": db.query(Notification).count(),
         },
+        "storage": storage_info,
+    }
+
+
+def _db_size_bytes(db: Session) -> int:
+    """Size of the live database, dialect-aware. Never raises."""
+    dialect = db.get_bind().dialect.name
+    try:
+        if dialect == "postgresql":
+            row = db.execute(
+                sa_text("SELECT pg_database_size(current_database())")
+            ).scalar()
+            return int(row or 0)
+        if dialect == "sqlite":
+            row = db.execute(
+                sa_text("PRAGMA page_count")
+            ).scalar()
+            page_size = db.execute(sa_text("PRAGMA page_size")).scalar()
+            return int(row or 0) * int(page_size or 4096)
+    except Exception:
+        return 0
+    return 0
+
+
+def _db_snapshot(db: Session) -> dict:
+    """Storage-usage overview: object counts + bytes + database size."""
+    try:
+        from app.core import storage
+        usage = storage.usage()
+    except Exception:
+        usage = {"backend": "unknown", "total_bytes": 0, "total_objects": 0, "by_prefix": {}}
+    return {
+        "usage": usage,
+        "db_size_bytes": _db_size_bytes(db),
     }
 
 

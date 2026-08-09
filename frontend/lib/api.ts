@@ -13,8 +13,14 @@
 
 export function getAuthHeader(): Record<string, string> {
   if (typeof window === "undefined") return {};
+  const headers: Record<string, string> = {
+    // CSRF guard: the backend requires X-Requested-With for state-changing
+    // requests authenticated via the session cookie (get_current_user).
+    "X-Requested-With": "XMLHttpRequest",
+  };
   const token = localStorage.getItem("token");
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  return headers;
 }
 
 export function getLegacyToken(): string {

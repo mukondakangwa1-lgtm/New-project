@@ -95,6 +95,8 @@ services:
       - "127.0.0.1:8000:8000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    volumes:
+      - kudos_state:/app/kudos_state
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     depends_on:
       - db
@@ -200,6 +202,21 @@ services:
       - frontend
     restart: unless-stopped
 
+  # Permanent public HTTPS URL — Tailscale Funnel (free personal plan).
+  # URL: https://<tailscale-hostname>.<tailnet-name>.ts.net  (stable)
+  tailscale:
+    image: tailscale/tailscale:latest
+    hostname: digital-campus
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    volumes:
+      - tailscale_state:/var/lib/tailscale
+    environment:
+      TS_AUTH_TOKEN: ${TS_AUTHKEY:?Set TS_AUTHKEY in .env (tailscale auth key)}
+    restart: unless-stopped
+
 volumes:
   db_data:
   redis_data:
@@ -207,3 +224,5 @@ volumes:
   backup_data:
   caddy_data:
   caddy_config:
+  tailscale_state:
+  kudos_state:

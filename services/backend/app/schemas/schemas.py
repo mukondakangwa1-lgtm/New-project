@@ -22,6 +22,7 @@ class UserResponse(UserBase):
     id: int
     is_active: bool
     is_admin: bool
+    is_approved: bool
     created_at: datetime
 
 
@@ -382,6 +383,12 @@ class KudosWebKnowledgeResponse(BaseModel):
 class KudosAskRequest(BaseModel):
     question: str
     conversation_id: Optional[int] = None
+
+
+class GuestAskRequest(BaseModel):
+    """Public ask from an anonymous visitor (no login required)."""
+    question: str
+    guest_id: str = Field(min_length=8, max_length=64, description="Browser-generated anonymous id (UUID)")
 
 
 class KudosAskResponse(BaseModel):

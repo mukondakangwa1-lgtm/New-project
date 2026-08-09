@@ -111,6 +111,62 @@ def test_video_call_signaling_and_whiteboard():
     assert "ended" in r.json()["status"]
 
 
+def test_group_call_unlimited_participants():
+    """Classroom-scale calls: max_participants=0 means no join limit."""
+    H = auth_alice["H"]
+    r = client.post("/api/v1/studio/calls/create", headers=H,
+                    json={"title": "Class", "is_group": True, "max_participants": 0})
+    assert r.status_code == 201, r.text
+    cid = r.json()["id"]
+
+    extra_headers = []
+    for i in range(12):
+        email = f"class{i}@studio.c"
+        r = client.post("/api/v1/auth/register", json={"email": email, "password": "pass1234", "full_name": f"S{i}"})
+        assert r.status_code == 201, r.text
+        r = client.post("/api/v1/auth/login", json={"email": email, "password": "pass1234"})
+        extra_headers.append({"Authorization": f"Bearer {r.json()['access_token']}"})
+
+    for Hx in extra_headers:
+        r = client.post(f"/api/v1/studio/calls/{cid}/join", headers=Hx)
+        assert r.status_code == 200, r.text
+
+    r = client.get(f"/api/v1/studio/calls/{cid}/participants", headers=H)
+    assert len(r.json()["participants"]) == 13  # host + 12 students
+
+    # cleanup: everyone leaves so the call ends
+    for Hx in extra_headers:
+        client.post(f"/api/v1/studio/calls/{cid}/leave", headers=Hx)
+    client.post(f"/api/v1/studio/calls/{cid}/leave", headers=H)
+
+
+def test_call_hard_cap_still_respected():
+    """A call created with an explicit cap still rejects overflow."""
+    H = auth_alice["H"]
+    r = client.post("/api/v1/studio/calls/create", headers=H,
+                    json={"title": "Tiny", "is_group": True, "max_participants": 2})
+    assert r.status_code == 201, r.text
+    cid = r.json()["id"]
+
+    cap_headers = []
+    for i in range(1):
+        email = f"cap{i}@studio.c"
+        r = client.post("/api/v1/auth/register", json={"email": email, "password": "pass1234", "full_name": f"C{i}"})
+        assert r.status_code == 201, r.text
+        r = client.post("/api/v1/auth/login", json={"email": email, "password": "pass1234"})
+        hx = {"Authorization": f"Bearer {r.json()['access_token']}"}
+        cap_headers.append(hx)
+        r = client.post(f"/api/v1/studio/calls/{cid}/join", headers=hx)
+        assert r.status_code == 200, r.text
+
+    r = client.post(f"/api/v1/studio/calls/{cid}/join", headers=auth_bob["H"])
+    assert r.status_code == 400 and "full" in r.json()["detail"].lower()
+
+    for hx in cap_headers:
+        client.post(f"/api/v1/studio/calls/{cid}/leave", headers=hx)
+    client.post(f"/api/v1/studio/calls/{cid}/leave", headers=H)
+
+
 def test_journal_blocks():
     H = auth_alice["H"]
     r = client.post("/api/v1/studio/journal/blocks", headers=H,

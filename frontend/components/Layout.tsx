@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+import { signOut } from "@/lib/api";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -6,6 +7,19 @@ interface LayoutProps {
 
 export default function Layout({ children }: LayoutProps) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [signedIn, setSignedIn] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    fetch("/api/v1/users/me")
+      .then((r) => setSignedIn(r.status === 200))
+      .catch(() => setSignedIn(false));
+  }, []);
+
+  const handleLogout = () => {
+    if (!window.confirm("Logging out?")) return;
+    signOut();
+    window.location.assign("/kudos");
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -27,8 +41,27 @@ export default function Layout({ children }: LayoutProps) {
             <li><a href="/kudos" className="hover:text-purple-600 transition font-bold text-purple-700">🧠 KUDOS</a></li>
             <li><a href="/admin/dashboard" className="hover:text-yellow-600 transition text-yellow-600">👑</a></li>
             <li><a href="/dashboard" className="hover:text-primary transition">Dashboard</a></li>
-            <li><a href="/login" className="hover:text-primary transition">Login</a></li>
           </ul>
+
+          {/* Session controls — top-right, always visible on desktop */}
+          <div className="hidden md:flex items-center gap-2">
+            {signedIn === false && (
+              <a
+                href="/login"
+                className="px-4 py-2 rounded-lg bg-primary text-white text-sm font-semibold hover:bg-blue-800 transition"
+              >
+                Log in
+              </a>
+            )}
+            {signedIn === true && (
+              <button
+                onClick={handleLogout}
+                className="px-3 py-2 rounded-lg border border-gray-200 text-sm font-medium text-gray-700 hover:border-red-300 hover:text-red-600 transition"
+              >
+                Log out
+              </button>
+            )}
+          </div>
 
           {/* Mobile hamburger */}
           <button
@@ -63,7 +96,6 @@ export default function Layout({ children }: LayoutProps) {
                 { href: "/kudos/autolearn", label: "🚀 Auto-Learn" },
                 { href: "/admin/dashboard", label: "👑 Superadmin" },
                 { href: "/dashboard", label: "📊 Dashboard" },
-                { href: "/login", label: "🔑 Login" },
               ].map((item) => (
                 <li key={item.href}>
                   <a
@@ -75,6 +107,27 @@ export default function Layout({ children }: LayoutProps) {
                   </a>
                 </li>
               ))}
+              <li>
+                {signedIn === true ? (
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      handleLogout();
+                    }}
+                    className="w-full text-left py-2 px-3 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-100 hover:text-red-600 transition"
+                  >
+                    🚪 Log out
+                  </button>
+                ) : (
+                  <a
+                    href="/login"
+                    className="block py-2 px-3 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-100 hover:text-primary transition"
+                    onClick={() => setMenuOpen(false)}
+                  >
+                    🔑 Login
+                  </a>
+                )}
+              </li>
             </ul>
           </div>
         )}

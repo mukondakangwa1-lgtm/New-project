@@ -55,6 +55,11 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
 
+    # When True, new registrations are marked pending and can only log in
+    # after a superadmin approves them (admin accounts and existing users
+    # are unaffected).
+    REQUIRE_APPROVAL: bool = False
+
     # Redis (broker / cache); only used when configured.
     REDIS_URL: str = "redis://redis:6379/0"
 
@@ -116,6 +121,12 @@ class Settings(BaseSettings):
     # superadmin approval regardless of this flag.
     KUDOS_TERMINAL_AUTO_OPEN: bool = True
     KUDOS_TERMINAL_WORKSPACE_ROOT: str = ""
+
+    # KUDOS continuous learning: the first site visit starts the never-ending
+    # learning loop (persisted on disk, resumes after restarts). Admins can
+    # still stop it; the next visit re-arms it.
+    KUDOS_LEARN_ON_VISIT: bool = True
+    KUDOS_LEARN_INTERVAL_MINUTES: int = 120
 
     # Additional application API keys. Both comma- and newline-separated
     # values are accepted in environment variables and .env files.

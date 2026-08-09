@@ -54,18 +54,65 @@ def _local_storage():
         settings.STORAGE_BACKEND = previous
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _open_registration():
+    """Default the suite to open registration (no admin approval gate).
+    tests/test_approval_gate.py enables REQUIRE_APPROVAL explicitly."""
+    from app.core.config import settings
+
+    previous = settings.REQUIRE_APPROVAL
+    settings.REQUIRE_APPROVAL = False
+    yield
+    settings.REQUIRE_APPROVAL = previous
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _test_app_env():
+    """The provisioned .env sets APP_ENV=production, which makes session
+    cookies `Secure`; httpx test clients then drop them over plain http.
+    Pin the app to a non-production env for the whole test session."""
+    from app.core.config import settings
+
+    previous = settings.APP_ENV
+    if previous != "production":
+        yield
+        return
+    settings.APP_ENV = "testing"
+    yield
+    settings.APP_ENV = previous
+
+
 # ──────────────────────────────────────────────
 # Shared helpers (import from tests.conftest)
 # ──────────────────────────────────────────────
 
-def register_user(client, email: str, password: str = "pass1234", full_name: str = "Test User"):
-    """Register a user and assert success; returns the response JSON."""
+def register_user(client, email: str, password: str = "pass1234", full_name: str = "Test User",
+                  auto_approve: bool = True):
+    """Register a user and assert success; returns the response JSON.
+    Auto-approves the account so subsequent logins pass the approval gate
+    (approval-gate tests pass auto_approve=False to keep accounts pending)."""
     r = client.post(
         "/api/v1/auth/register",
         json={"email": email, "full_name": full_name, "password": password},
     )
     assert r.status_code == 201, r.text
+    if auto_approve:
+        _approve_user(email)
     return r.json()
+
+
+def _approve_user(email: str):
+    """Flip is_approved=True for an existing user, directly in the test DB."""
+    from app.models import User
+
+    db = TestSessionLocal()
+    try:
+        user = db.query(User).filter(User.email == email).first()
+        if user is not None:
+            user.is_approved = True
+            db.commit()
+    finally:
+        db.close()
 
 
 def login(client, email: str, password: str = "pass1234"):

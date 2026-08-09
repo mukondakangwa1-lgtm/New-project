@@ -21,7 +21,7 @@ from app.schemas.schemas import (
     ChatSyncPayload,
     KudosDocumentResponse, KudosDocumentUpdate,
     KudosWebLearn, KudosWebKnowledgeResponse,
-    KudosAskRequest, KudosAskResponse, LLMConfigureRequest,
+    KudosAskRequest, KudosAskResponse, GuestAskRequest, LLMConfigureRequest,
     KudosConversationResponse, KudosMessageResponse,
     KudosStats,
     KudosConnectorCreate, KudosConnectorResponse, KudosSyncLogResponse,

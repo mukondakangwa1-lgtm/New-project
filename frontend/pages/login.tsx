@@ -8,6 +8,7 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const registered = router.query.registered === "true";
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -43,6 +44,12 @@ export default function Login() {
       <div className="max-w-md mx-auto mt-16">
         <div className="rounded-xl bg-white p-8 shadow-lg border">
           <h2 className="text-2xl font-bold mb-6 text-center">Sign In</h2>
+
+          {registered && (
+            <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded text-green-700 text-sm">
+              Account created — you can sign in once an admin approves your registration.
+            </div>
+          )}
 
           {error && (
             <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm">

@@ -4,6 +4,8 @@ Automatically learns from all sources: connectors, web, archive, social, search 
 Runs as a background process, self-improves continuously.
 """
 import asyncio
+import json
+import os
 import threading
 import time
 from datetime import datetime, timezone
@@ -20,6 +22,7 @@ _auto_learner_running = False
 _auto_learner_interval = 1800  # 30 minutes default
 _last_auto_learner_run: Optional[datetime] = None
 _auto_learner_log: list[dict] = []
+_cycle_active = False
 _auto_learner_stats = {
     "total_runs": 0,
     "total_items_learned": 0,
@@ -29,6 +32,32 @@ _auto_learner_stats = {
     "social_items": 0,
     "search_queries_learned": 0,
 }
+
+# ──────────────────────────────────────────────
+# PERSISTENT STATE (survives backend restarts)
+# ──────────────────────────────────────────────
+_KUDOS_STATE_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "kudos_state",
+)
+_LEARNER_STATE_FILE = os.path.join(_KUDOS_STATE_DIR, "auto_learner.json")
+
+
+def _load_state() -> dict:
+    try:
+        with open(_LEARNER_STATE_FILE, "r") as fh:
+            return json.load(fh)
+    except Exception:
+        return {}
+
+
+def _save_state(data: dict) -> None:
+    try:
+        os.makedirs(_KUDOS_STATE_DIR, exist_ok=True)
+        with open(_LEARNER_STATE_FILE, "w") as fh:
+            json.dump(data, fh)
+    except Exception:
+        pass
 
 # Topics to auto-learn from various sources
 AUTO_LEARN_TOPICS = [
@@ -95,9 +124,12 @@ def _log(action: str, details: str, items: int = 0):
 
 def _run_auto_learner():
     """Main auto-learner loop — runs continuously in background."""
-    global _auto_learner_running, _last_auto_learner_run, _auto_learner_stats
+    global _auto_learner_running, _last_auto_learner_run, _auto_learner_stats, _cycle_active
 
     while _auto_learner_running:
+        if _cycle_active:
+            time.sleep(30)
+            continue
         try:
             db_session = _get_db_session()
             admin = _get_admin_user(db_session)
@@ -106,6 +138,7 @@ def _run_auto_learner():
                 time.sleep(60)
                 continue
 
+            _cycle_active = True
             _log("cycle_start", "Auto-learner cycle starting")
             _auto_learner_stats["total_runs"] += 1
 
@@ -134,8 +167,10 @@ def _run_auto_learner():
             _log("cycle_complete", f"Cycle complete. Total items learned: {_auto_learner_stats['total_items_learned']}")
 
             db_session.close()
+            _cycle_active = False
 
         except Exception as e:
+            _cycle_active = False
             _log("error", f"Auto-learner error: {str(e)[:200]}")
 
         # Wait for next cycle
@@ -608,7 +643,7 @@ def get_auto_learner_status() -> dict:
 
 
 def start_auto_learner(interval_minutes: int = 30) -> dict:
-    """Start the auto-learner background process."""
+    """Start the auto-learner background process (persists across restarts)."""
     global _auto_learner_thread, _auto_learner_running, _auto_learner_interval
 
     if _auto_learner_running:
@@ -616,6 +651,7 @@ def start_auto_learner(interval_minutes: int = 30) -> dict:
 
     _auto_learner_interval = max(interval_minutes * 60, 300)  # min 5 minutes
     _auto_learner_running = True
+    _save_state({"enabled": True, "interval_minutes": _auto_learner_interval // 60})
     _auto_learner_thread = threading.Thread(target=_run_auto_learner, daemon=True)
     _auto_learner_thread.start()
 
@@ -627,20 +663,59 @@ def start_auto_learner(interval_minutes: int = 30) -> dict:
 
 
 def stop_auto_learner() -> dict:
-    """Stop the auto-learner."""
+    """Stop the auto-learner (clears the persistent flag)."""
     global _auto_learner_running
     _auto_learner_running = False
+    _save_state({"enabled": False})
     return {"status": "stopped", "message": "Auto-learner stopped"}
 
 
-def trigger_learning_cycle() -> dict:
-    """Manually trigger a single learning cycle."""
-    global _auto_learner_stats
+def resume_kudos_learner() -> dict:
+    """Restore the learner after a backend restart when it was enabled."""
+    state = _load_state()
+    if not state.get("enabled"):
+        return {"status": "disabled"}
+    from app.core.config import settings
 
+    interval = state.get("interval_minutes") or settings.KUDOS_LEARN_INTERVAL_MINUTES
+    if _auto_learner_running:
+        return {"status": "already_running"}
+    return start_auto_learner(interval)
+
+
+def start_learning_on_visit() -> dict:
+    """First site visit: switch on continuous learning for good and run an
+    immediate learning cycle (the loop's first iteration runs right away)."""
+    from app.core.config import settings
+
+    if not settings.KUDOS_LEARN_ON_VISIT:
+        return {"status": "disabled", "message": "Learning on visit is disabled"}
+
+    if _auto_learner_running:
+        return {"status": "already_learning", "message": "KUDOS is already learning continuously"}
+
+    interval = settings.KUDOS_LEARN_INTERVAL_MINUTES
+    result = start_auto_learner(interval)
+    result["message"] = (
+        f"KUDOS has started continuous learning — improving every {interval} "
+        "minutes, forever (until an admin stops it)"
+    )
+    return result
+
+
+def trigger_learning_cycle() -> dict:
+    """Manually trigger a single learning cycle (single-flight)."""
+    global _auto_learner_stats, _cycle_active
+
+    if _cycle_active:
+        return {"status": "busy", "message": "A learning cycle is already running"}
+
+    _cycle_active = True
     db = _get_db_session()
     admin = _get_admin_user(db)
 
     if not admin:
+        _cycle_active = False
         return {"error": "No admin user found"}
 
     _log("manual_trigger", "Manual learning cycle triggered")
@@ -685,6 +760,7 @@ def trigger_learning_cycle() -> dict:
         results.append(f"social error: {str(e)[:50]}")
 
     db.close()
+    _cycle_active = False
 
     return {
         "status": "completed",

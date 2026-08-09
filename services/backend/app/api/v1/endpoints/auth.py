@@ -36,7 +36,7 @@ def _issue_token(user: User, response: Response) -> dict:
 
 @router.post("/register", response_model=UserResponse, status_code=201)
 def register(user_in: UserCreate, db: Session = Depends(get_db)):
-    """Register a new user."""
+    """Register a new user (pending approval when REQUIRE_APPROVAL is set)."""
     existing = db.query(User).filter(User.email == user_in.email).first()
     if existing:
         raise HTTPException(
@@ -48,6 +48,7 @@ def register(user_in: UserCreate, db: Session = Depends(get_db)):
         email=user_in.email,
         full_name=user_in.full_name,
         hashed_password=get_password_hash(user_in.password),
+        is_approved=not settings.REQUIRE_APPROVAL,
     )
     db.add(user)
     db.commit()
@@ -65,6 +66,11 @@ def login(credentials: UserLogin, response: Response, db: Session = Depends(get_
             detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    if settings.REQUIRE_APPROVAL and not user.is_admin and not user.is_approved:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account awaits admin approval",
+        )
     return _issue_token(user, response)
 
 
@@ -81,6 +87,11 @@ def login_for_swagger(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
+        )
+    if settings.REQUIRE_APPROVAL and not user.is_admin and not user.is_approved:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account awaits admin approval",
         )
     return _issue_token(user, response)
 

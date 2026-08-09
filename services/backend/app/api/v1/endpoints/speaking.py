@@ -332,7 +332,7 @@ def _broadcast_dict(broadcast: Broadcast, host: User | None = None) -> dict:
 class CallCreate(BaseModel):
     title: str = "Video Call"
     is_group: bool = False
-    max_participants: int = 10
+    max_participants: int = 0  # 0 = unlimited (classroom-scale group calls)
     enable_whiteboard: bool = True
     enable_screen_share: bool = True
 
@@ -391,7 +391,7 @@ def join_call(call_id: int, user: User = Depends(get_current_user), db: Session 
     if not call:
         raise HTTPException(404, "Call not found")
     count = db.query(CallParticipant).filter(CallParticipant.call_id == call_id).count()
-    if count >= call.max_participants:
+    if call.max_participants > 0 and count >= call.max_participants:
         raise HTTPException(400, "Call is full")
 
     existing = (

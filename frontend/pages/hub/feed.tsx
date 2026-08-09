@@ -20,10 +20,6 @@ interface Post {
 }
 
 const STORAGE_ICONS: Record<string, string> = {
-  gdrive: "📁",
-  dropbox: "📦",
-  onedrive: "☁️",
-  s3: "🪣",
   youtube: "▶️",
   image: "🖼️",
   video: "🎬",
@@ -87,7 +83,7 @@ export default function SocialFeed() {
 
       {/* Filters */}
       <div className="flex gap-2 mb-6 flex-wrap">
-        {["", "link", "gdrive", "dropbox", "youtube", "image", "video", "document"].map(
+        {["", "link", "youtube", "image", "video", "document"].map(
           (t) => (
             <button
               key={t}

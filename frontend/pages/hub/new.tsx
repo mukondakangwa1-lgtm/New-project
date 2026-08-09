@@ -44,11 +44,7 @@ export default function NewPost() {
   };
 
   const detectType = (url: string) => {
-    if (url.includes("drive.google.com")) return "gdrive";
-    if (url.includes("dropbox.com")) return "dropbox";
-    if (url.includes("onedrive.live.com") || url.includes("sharepoint.com")) return "onedrive";
     if (url.includes("youtube.com") || url.includes("youtu.be")) return "youtube";
-    if (url.includes("amazonaws.com") || url.includes("s3.")) return "s3";
     if (url.match(/\.(jpg|jpeg|png|gif|webp|svg)$/i)) return "image";
     if (url.match(/\.(mp4|mov|avi|mkv|webm)$/i)) return "video";
     if (url.match(/\.(pdf|doc|docx|ppt|pptx)$/i)) return "document";
@@ -97,11 +93,11 @@ export default function NewPost() {
                   });
                 }}
                 className="w-full rounded border px-3 py-2 text-sm focus:ring-2 focus:ring-primary focus:outline-none"
-                placeholder="https://drive.google.com/file/d/..."
+                placeholder="https://example.com/notes.pdf"
                 required
               />
               <p className="text-xs text-gray-400 mt-1">
-                Supports Google Drive, Dropbox, OneDrive, S3, YouTube, or any public URL
+                Supports any public URL — or direct files like PDFs, images, and videos
               </p>
             </div>
 
@@ -114,10 +110,6 @@ export default function NewPost() {
                   className="w-full rounded border px-3 py-2 text-sm"
                 >
                   <option value="link">🔗 Generic Link</option>
-                  <option value="gdrive">📁 Google Drive</option>
-                  <option value="dropbox">📦 Dropbox</option>
-                  <option value="onedrive">☁️ OneDrive</option>
-                  <option value="s3">🪣 Amazon S3</option>
                   <option value="youtube">▶️ YouTube</option>
                   <option value="image">🖼️ Image</option>
                   <option value="video">🎬 Video</option>

@@ -34,6 +34,7 @@ class User(Base):
     hashed_password = Column(String(255), nullable=False)
     is_active = Column(Boolean, default=True)
     is_admin = Column(Boolean, default=False)
+    is_approved = Column(Boolean, default=True)  # False when registration is gated (REQUIRE_APPROVAL)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     # Relationships
@@ -146,7 +147,7 @@ class Post(Base):
     title = Column(String(255), nullable=False)
     description = Column(Text, default="")
     storage_url = Column(Text, nullable=False)  # external URL (Drive, Dropbox, S3, etc.)
-    storage_type = Column(String(50), default="link")  # link, gdrive, dropbox, onedrive, s3, youtube, image
+    storage_type = Column(String(50), default="link")  # link, youtube, image, video, document
     content_type = Column(String(100), default="")  # mime type hint: image, video, document, audio
     thumbnail_url = Column(Text, default="")
     is_public = Column(Boolean, default=True)
@@ -298,6 +299,7 @@ class KudosConversation(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    guest_key = Column(String(64), nullable=True, index=True)  # anonymous visitor chats
     title = Column(String(255), default="New Conversation")
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 

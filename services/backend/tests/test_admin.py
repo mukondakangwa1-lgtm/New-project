@@ -66,3 +66,38 @@ def test_analytics_engagement():
     data = r.json()
     assert data["active_users"] >= 2
     assert "engagement_rate" in data
+
+
+def test_superadmin_dashboard_includes_storage():
+    """The superadmin dashboard reports storage usage + DB size."""
+    r = client.get("/api/v1/superadmin/dashboard", headers=H_ADMIN)
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert "platform" in data and "users" in data["platform"]
+    storage = data.get("storage", {})
+    assert "usage" in storage and "db_size_bytes" in storage
+    usage = storage["usage"]
+    assert "total_bytes" in usage and "total_objects" in usage
+    assert "by_prefix" in usage
+    assert set(usage["by_prefix"].keys()) == {"audio/", "docs/", "avatars/", "backups/"}
+    assert storage["db_size_bytes"] >= 0
+
+
+def test_storage_usage_local_backend_roundtrip():
+    """storage.usage() measures objects written through the storage layer."""
+    from app.core import storage as s
+
+    key = s.new_key("docs/")
+    s.upload_bytes(key, b"x" * 2048)
+    try:
+        usage = s.usage()
+        assert usage["backend"] in ("minio", "local")
+        assert usage["total_objects"] >= 1
+        assert usage["total_bytes"] >= 2048
+        assert usage["by_prefix"]["docs/"]["objects"] >= 1
+        assert usage["by_prefix"]["docs/"]["bytes"] >= 2048
+    finally:
+        try:
+            s.delete(key)
+        except Exception:
+            pass

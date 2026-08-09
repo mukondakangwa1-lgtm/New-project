@@ -293,3 +293,57 @@ def status() -> dict:
         "bucket": settings.MINIO_BUCKET if mode == "minio" else "local",
         "latency_ms": latency_ms,
     }
+
+
+def usage() -> dict:
+    """Object counts and bytes per object-type prefix, plus totals.
+
+    Works for both backends (MinIO and local-disk) and never raises —
+    callers render whatever is measurable.
+    """
+    mode = backend_name()
+    by_prefix: dict = {}
+    total_bytes = 0
+    total_objects = 0
+    if mode == "minio":
+        try:
+            client = _get_client()
+            bucket = settings.MINIO_BUCKET
+            client.bucket_exists(bucket)
+            for prefix in BUCKET_PREFIXES:
+                objects = 0
+                bytes_ = 0
+                try:
+                    for obj in client.list_objects(bucket, prefix=prefix, recursive=True):
+                        objects += 1
+                        bytes_ += obj.size or 0
+                except Exception:
+                    pass
+                by_prefix[prefix] = {"objects": objects, "bytes": bytes_}
+                total_objects += objects
+                total_bytes += bytes_
+        except Exception:
+            pass
+    else:
+        root = _local_dir()
+        for prefix in BUCKET_PREFIXES:
+            pdir = root / prefix
+            objects = 0
+            bytes_ = 0
+            if pdir.is_dir():
+                for fp in pdir.rglob("*"):
+                    if fp.is_file():
+                        objects += 1
+                        try:
+                            bytes_ += fp.stat().st_size
+                        except OSError:
+                            pass
+            by_prefix[prefix] = {"objects": objects, "bytes": bytes_}
+            total_objects += objects
+            total_bytes += bytes_
+    return {
+        "backend": mode,
+        "total_bytes": total_bytes,
+        "total_objects": total_objects,
+        "by_prefix": by_prefix,
+    }
