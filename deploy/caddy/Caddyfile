@@ -1,0 +1,15 @@
+# Digital Campus — public entry point (single URL, HTTP on :80).
+# Proxies the Next.js frontend; the frontend internally rewrites /api/* to the
+# backend container, so users only ever need this one URL.
+# Upgrade to a domain + `:80`/`:443` snapshot pair for automatic TLS.
+:80 {
+	encode gzip
+
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options SAMEORIGIN
+		Referrer-Policy strict-origin-when-cross-origin
+	}
+
+	reverse_proxy frontend:3000
+}

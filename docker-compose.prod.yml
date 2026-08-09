@@ -178,8 +178,32 @@ services:
       - minio
     restart: unless-stopped
 
+# Public entry point — single URL users share (default http://<server-ip>).
+  caddy:
+    image: caddy:2
+    ports:
+      - "80:80"
+    volumes:
+      - ./deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - frontend
+    restart: unless-stopped
+
+  # Instant public HTTPS URL through NAT — `tunnel --url` quick tunnel the
+  # hostname printed in the logs (random subdomain, changes on restart).
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --url http://frontend:3000 --no-autoupdate
+    depends_on:
+      - frontend
+    restart: unless-stopped
+
 volumes:
   db_data:
   redis_data:
   minio_data:
   backup_data:
+  caddy_data:
+  caddy_config:
