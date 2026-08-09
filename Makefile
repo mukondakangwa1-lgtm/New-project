@@ -33,7 +33,7 @@ docker-prod-build: ## Build the LAN/VPS production images
 	docker-compose -f docker-compose.prod.yml build
 
 docker-prod-up: ## Start the LAN/VPS production stack
-	docker-compose -f docker-compose.prod.yml up -d db redis minio minio-init backend worker frontend backup-scheduler
+	docker-compose -f docker-compose.prod.yml up -d db redis minio minio-init backend worker frontend backup-scheduler tailscale
 
 docker-prod-migrate: ## Apply Alembic migrations to the production database
 	docker-compose -f docker-compose.prod.yml run --rm backend python -m alembic upgrade head

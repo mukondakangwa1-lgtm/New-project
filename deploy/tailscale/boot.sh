@@ -10,7 +10,7 @@ for i in $(seq 1 60); do
   sleep 2
 done
 
-if [ -n "$TS_AUTH_TOKEN" ]; then
+if [ -n "$TS_AUTH_TOKEN" ] && tailscale status 2>&1 | grep -qi "logged out"; then
   tailscale login --authkey="$TS_AUTH_TOKEN" || true
 fi
 
