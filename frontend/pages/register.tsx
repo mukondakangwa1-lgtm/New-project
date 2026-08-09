@@ -1,6 +1,7 @@
 import { useState, FormEvent } from "react";
 import { useRouter } from "next/router";
 import Layout from "@/components/Layout";
+import PasswordInput from "@/components/PasswordInput";
 
 export default function Register() {
   const router = useRouter();
@@ -76,14 +77,11 @@ export default function Register() {
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">Password</label>
-              <input
-                type="password"
+              <PasswordInput
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full rounded border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                placeholder="••••••••"
-                required
                 minLength={6}
+                autoComplete="new-password"
               />
             </div>
             <button
