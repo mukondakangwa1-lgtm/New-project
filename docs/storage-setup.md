@@ -62,7 +62,7 @@ sudo -u postgres createdb -O dc_user digital_campus
   MinIO `backups/` automatically and prunes to `BACKUP_KEEP` (default 14):
 
 ```bash
-docker compose -f docker-compose.prod.yml exec backup-scheduler cat /var/log/cron.log
+docker compose -f docker-compose.prod.yml logs -f backup-scheduler
 make backup          # manual dump (Postgres)
 make backup-restore FILE=backups/digital_campus_....dump
 ```

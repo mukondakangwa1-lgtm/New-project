@@ -13,7 +13,8 @@
 #     application user that can only touch the kudos bucket.
 #   - Backups sail into the same MinIO server every night (see
 #     backup-scheduler).
-version: "3.9"
+# compose v2
+
 
 services:
   db:
@@ -157,12 +158,9 @@ services:
   # Daily pg_dump -> MinIO (backups/ prefix), pruned to BACKUP_KEEP (14).
   backup-scheduler:
     build: ./services/backend
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        echo "0 2 * * * cd /app && /usr/local/bin/python -m app.core.backup dump && /usr/local/bin/python -m app.core.backup prune" > /etc/cron.d/kudos-backup
-        chmod 0644 /etc/cron.d/kudos-backup
-        crond -f
+    env_file:
+      - ./services/backend/.env
+    command: ["python", "-m", "app.core.backup_scheduler"]
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-dc_user}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD via make env-provision}@db:5432/${POSTGRES_DB:-digital_campus}
       STORAGE_BACKEND: minio

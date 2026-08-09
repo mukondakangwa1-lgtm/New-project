@@ -10,7 +10,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     git \
     postgresql-client \
-    cron \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python deps

@@ -49,16 +49,8 @@ deploy: env-provision docker-prod-build docker-prod-up docker-prod-migrate ## Fu
 storage-status: ## Show storage backend health (MinIO/SQLite/Postgres via API)
 	@curl -s http://127.0.0.1:8000/api/v1/health/ready || echo "backend not reachable on :8000 (starting?)"
 
-storage-verify: ## Direct MinIO round-trip check from the backend container
-	cd services/backend && .venv/bin/python - <<'EOF'
-from app.core import storage
-assert storage.backend_name() == "minio", "backend is not minio"
-key = storage.new_key("audio/", "verify.bin")
-storage.upload_bytes(key, b"storage-verify")
-assert storage.download(key) == b"storage-verify", "round-trip failed"
-storage.delete(key)
-print("MinIO round-trip OK (", storage.status(), ")")
-EOF
+storage-verify: ## Direct MinIO round-trip check through the backend container
+	docker compose -f docker-compose.prod.yml run --rm backend python -c "from app.core import storage; k = storage.new_key('audio/', 'verify.bin'); storage.upload_bytes(k, b'storage-verify'); assert storage.download(k) == b'storage-verify'; storage.delete(k); print('MinIO round-trip OK', storage.status())"
 
 # --------------- Backups ---------------
 backup: ## Create a PostgreSQL dump in BACKUP_DIR (default: backups/)
