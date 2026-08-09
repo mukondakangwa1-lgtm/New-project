@@ -74,10 +74,13 @@ def _system_stats() -> dict:
 
 @router.get("/health/ready")
 def readiness_check():
-    """Readiness probe — DB is required, Redis degrades the status."""
+    """Readiness probe — DB is required, Redis/storage degrade the status."""
     db_ms = _db_latency_ms()
     db_ready = db_ms >= 0
     redis_ready = _redis_ready()
+    from app.core import storage
+
+    storage_status = storage.status()
 
     return JSONResponse(
         status_code=200 if db_ready else 503,
@@ -89,6 +92,7 @@ def readiness_check():
                     "ready": redis_ready,
                     "mode": "ready" if redis_ready else "degraded",
                 },
+                "storage": storage_status,
             },
         },
     )
@@ -97,7 +101,7 @@ def readiness_check():
 @router.get("/admin/metrics", dependencies=[Depends(require_admin)])
 def metrics():
     """Superadmin-only system and request metrics (no external tooling)."""
-    from app.core import kudos_shield
+    from app.core import kudos_shield, storage
 
     return {
         "app": settings.APP_NAME,
@@ -106,6 +110,7 @@ def metrics():
         "system": _system_stats(),
         "database": {"latency_ms": round(_db_latency_ms(), 2)},
         "redis": {"ready": _redis_ready()},
+        "storage": storage.status(),
         "requests": REQUEST_COUNTER,
         "shield": {
             "blocked_ips": len(kudos_shield.get_blocked_ips()),

@@ -6,7 +6,6 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from sqlalchemy import inspect
 
 from app.core import task_runner
 from app.core.task_runner import TaskRunnerError, create_task, get_task, list_logs, run_task
@@ -42,7 +41,6 @@ def ws(repo: Path) -> Workspace:
 
 def _drop_tables():
     from app.core.database import Base
-    from sqlalchemy import create_engine
     from tests.conftest import engine as test_engine
 
     Base.metadata.drop_all(bind=test_engine)

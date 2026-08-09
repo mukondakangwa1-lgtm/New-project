@@ -149,7 +149,6 @@ def cleanup(all_chunks: bool = False):
 
 
 def test_fallback_answer_appends_sources(monkeypatch):
-    from app.core import conversation_engine
 
     headers = _setup()
     monkeypatch.setattr("app.core.llm_engine.get_llm_response", lambda *k: None)

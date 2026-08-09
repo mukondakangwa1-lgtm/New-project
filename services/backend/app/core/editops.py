@@ -17,7 +17,6 @@ and every path goes through :mod:`app.core.pathguard`. Supported operations:
 import ast
 import re
 import shutil
-from pathlib import Path
 from typing import Iterable, Optional
 
 from app.core.pathguard import PathError, resolve_inside

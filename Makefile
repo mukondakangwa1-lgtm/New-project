@@ -1,7 +1,7 @@
 # =============================================
 # Digital Campus - Makefile
 # =============================================
-.PHONY: help backend frontend dev install lint test clean docker-dev docker-prod-build docker-prod-up docker-prod-migrate
+.PHONY: help backend frontend dev install lint test clean env-provision deploy storage-status storage-verify docker-dev docker-prod-build docker-prod-up docker-prod-migrate backup backup-restore backup-prune
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -26,17 +26,39 @@ dev: ## Start both backend + frontend (foreground: backend, background: frontend
 	@echo "Starting backend on :8000 (foreground)..."
 	cd services/backend && .venv/bin/uvicorn app.main:app --reload --port 8000
 
-docker-dev: ## Start the development Compose stack
+docker-dev: ## Start the development Compose stack (needs make env-provision)
 	docker-compose up -d --build
 
 docker-prod-build: ## Build the LAN/VPS production images
 	docker-compose -f docker-compose.prod.yml build
 
 docker-prod-up: ## Start the LAN/VPS production stack
-	docker-compose -f docker-compose.prod.yml up -d db redis backend worker frontend
+	docker-compose -f docker-compose.prod.yml up -d db redis minio minio-init backend worker frontend backup-scheduler
 
 docker-prod-migrate: ## Apply Alembic migrations to the production database
 	docker-compose -f docker-compose.prod.yml run --rm backend python -m alembic upgrade head
+
+# --------------- Storage provisioning ---------------
+env-provision: ## Generate missing secrets into .env files (idempotent, safe to re-run)
+	cd services/backend && .venv/bin/python scripts/provision_env.py --replace-placeholders
+	@echo "Secrets provisioned in services/backend/.env and .env"
+
+deploy: env-provision docker-prod-build docker-prod-up docker-prod-migrate ## Full zero-input deployment: secrets -> build -> up -> migrate
+	@echo "Deployment complete. Verify with: make storage-status"
+
+storage-status: ## Show storage backend health (MinIO/SQLite/Postgres via API)
+	@curl -s http://127.0.0.1:8000/api/v1/health/ready || echo "backend not reachable on :8000 (starting?)"
+
+storage-verify: ## Direct MinIO round-trip check from the backend container
+	cd services/backend && .venv/bin/python - <<'EOF'
+from app.core import storage
+assert storage.backend_name() == "minio", "backend is not minio"
+key = storage.new_key("audio/", "verify.bin")
+storage.upload_bytes(key, b"storage-verify")
+assert storage.download(key) == b"storage-verify", "round-trip failed"
+storage.delete(key)
+print("MinIO round-trip OK (", storage.status(), ")")
+EOF
 
 # --------------- Backups ---------------
 backup: ## Create a PostgreSQL dump in BACKUP_DIR (default: backups/)

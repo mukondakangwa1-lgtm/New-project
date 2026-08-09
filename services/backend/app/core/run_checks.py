@@ -14,10 +14,9 @@ Distinguishes failure categories so the agent can react correctly:
 - infrastructure    — Docker/service/port failures
 - success           — gate passed
 """
-import json
 import os
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 

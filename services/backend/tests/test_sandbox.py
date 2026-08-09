@@ -65,7 +65,6 @@ def test_recommend_never_recommends_failing_tests():
 
 
 def test_recommend_parses_llm_json_verdict():
-    headers = _setup()
     prop = sandbox.create_proposal(title="P", description="D", category="feature")
     prop["test_result"] = {"passed": 2, "failed": 0, "tests": []}
     decision, confidence, rationale = sandbox._parse_recommendation(

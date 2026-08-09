@@ -9,8 +9,10 @@ import re
 import httpx
 from bs4 import BeautifulSoup
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
+from app.core import storage
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import get_current_user, require_admin
@@ -198,10 +200,22 @@ async def upload_document(
     text = extract_text_from_file(content_bytes, file.filename or "unknown.txt")
     if not text.strip():
         raise HTTPException(status_code=400, detail="Could not extract text from file")
+
+    # Keep the original binary in object storage (docs/ prefix); the extracted
+    # text below remains the retrieval source of truth in the database.
+    storage_key = ""
+    try:
+        key = storage.new_key("docs/", file.filename or "document.bin")
+        storage.upload_bytes(key, content_bytes, content_type="application/octet-stream")
+        storage_key = key
+    except Exception:
+        storage_key = ""
+
     doc = KudosDocument(
         uploaded_by=current_user.id, title=title, filename=file.filename or "unknown",
         file_type=file.filename.rsplit(".", 1)[-1].lower() if "." in (file.filename or "") else "",
-        content=text, summary=simple_summarize(text), tags=tags, is_approved=current_user.is_admin,
+        storage_key=storage_key, content=text, summary=simple_summarize(text), tags=tags,
+        is_approved=current_user.is_admin,
     )
     db.add(doc)
     db.flush()
@@ -251,8 +265,37 @@ def delete_document(doc_id: int, db: Session = Depends(get_db), admin: User = De
     doc = db.query(KudosDocument).filter(KudosDocument.id == doc_id).first()
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
+    if doc.storage_key:
+        try:
+            storage.delete(doc.storage_key)
+        except Exception:
+            pass
     db.delete(doc)
     db.commit()
+
+
+@router.get("/documents/{doc_id}/original")
+def download_original(doc_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Download the original file uploaded for a document (if stored)."""
+    doc = db.query(KudosDocument).filter(KudosDocument.id == doc_id).first()
+    if not doc or not doc.is_active:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if not doc.storage_key:
+        raise HTTPException(status_code=404, detail="Original file is not stored (text-only upload)")
+    try:
+        content = storage.download(doc.storage_key)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Original file missing")
+    media_type = {
+        "pdf": "application/pdf",
+        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "txt": "text/plain", "md": "text/markdown", "json": "application/json",
+        "py": "text/x-python", "js": "text/javascript", "html": "text/html", "css": "text/css",
+    }.get(doc.file_type, "application/octet-stream")
+    return Response(
+        content=content, media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{doc.filename}"'},
+    )
 
 
 # ──────────────────────────────────────────────

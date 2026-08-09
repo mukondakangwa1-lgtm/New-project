@@ -35,7 +35,8 @@ def test_default_profile_and_update():
     r = client.get("/api/v1/kudos/profile", headers=headers)
     assert r.status_code == 200
     assert r.json() == {"tone": "friendly", "verbosity": "normal",
-                        "emoji_enabled": False, "interests": [], "greeting": ""}
+                        "emoji_enabled": False, "interests": [], "greeting": "",
+                        "avatar_url": ""}
     # no row persisted for pure defaults
     assert _profile_row() is None
 

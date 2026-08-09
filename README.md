@@ -394,7 +394,10 @@ After starting the backend, visit:
 
 - **Database** — PostgreSQL 15 with the `vector` extension (pgvector) for
   semantic embeddings; SQLite remains a supported dev fallback via
-  `DATABASE_URL`.
+  `DATABASE_URL` (WAL mode + busy timeout applied automatically).
+- **Object storage** — MinIO (S3-compatible) for speaking audio, knowledge
+  document originals, avatars and database backups; local-disk fallback when
+  MinIO is absent. See [Storage setup](docs/storage-setup.md).
 - **Migrations** — Alembic versioned schema (`services/backend/alembic`);
   applied with `python -m alembic upgrade head`.
 - **Async jobs** — Celery with Redis broker: connector syncs, knowledge
@@ -452,11 +455,28 @@ make backup-restore FILE=backups/digital_campus_20260101_120000.dump
 make backup-prune               # keep newest BACKUP_KEEP (default 14)
 ```
 
-In Docker:
+In Docker (the prod stack also runs a daily `backup-scheduler` that dumps
+into MinIO `backups/` and prunes itself):
 
 ```bash
 docker compose exec backend python -m app.core.backup dump
 ```
+
+Standalone SQLite boxes:
+
+```bash
+cd services/backend && .venv/bin/python -m app.core.backup sqlite-dump
+```
+
+### Storage deployment (one command)
+
+```bash
+make deploy                     # provision secrets -> build -> migrate -> up
+make storage-verify             # round-trip probe through MinIO
+make storage-status             # storage incl. storage state
+```
+
+Full install/configure/hardening guide: [`docs/storage-setup.md`](docs/storage-setup.md).
 
 ---
 

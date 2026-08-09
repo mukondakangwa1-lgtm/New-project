@@ -8,7 +8,6 @@ from pathlib import Path
 import pytest
 
 from app.core.tooling import (
-    ToolingError,
     detect_environment,
     discover_commands,
     ensure_venv,

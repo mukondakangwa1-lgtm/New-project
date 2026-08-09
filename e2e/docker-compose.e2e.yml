@@ -1,4 +1,4 @@
-# KUDOS E2E stack — boots backend (SQLite) + frontend for Playwright.
+# KUDOS E2E stack — boots backend (SQLite) + MinIO + frontend for Playwright.
 # Admin + workspace are seeded by scripts/bootstrap_admin.py.
 services:
   backend:
@@ -12,6 +12,11 @@ services:
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-E2e-pass-1234}
       - E2E_REPO_ROOT=${E2E_REPO_ROOT:-/e2e-repo}
       - SECRET_KEY=e2e-secret-key-not-for-production
+      - STORAGE_BACKEND=minio
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=e2e-app-key
+      - MINIO_SECRET_KEY=e2e-app-secret
+      - MINIO_BUCKET=kudos
     volumes:
       - e2e-data:/data
     command: >
@@ -22,6 +27,39 @@ services:
       interval: 2s
       timeout: 3s
       retries: 30
+    depends_on:
+      minio:
+        condition: service_healthy
+
+  minio:
+    image: minio/minio:latest
+    command: server /data
+    environment:
+      - MINIO_ROOT_USER=e2e-root
+      - MINIO_ROOT_PASSWORD=e2e-root-password
+    volumes:
+      - minio-e2e-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  minio-init:
+    image: minio/mc:latest
+    entrypoint: ["/bin/sh", "/init.sh"]
+    volumes:
+      - ../deploy/minio/init.sh:/init.sh:ro
+      - ../deploy/minio/app-policy.json:/policies/app-policy.json:ro
+    environment:
+      - MINIO_ROOT_USER=e2e-root
+      - MINIO_ROOT_PASSWORD=e2e-root-password
+      - MINIO_ACCESS_KEY=e2e-app-key
+      - MINIO_SECRET_KEY=e2e-app-secret
+      - MINIO_BUCKET=kudos
+    depends_on:
+      minio:
+        condition: service_healthy
 
   frontend:
     build:
@@ -43,3 +81,4 @@ services:
 
 volumes:
   e2e-data:
+  minio-e2e-data:

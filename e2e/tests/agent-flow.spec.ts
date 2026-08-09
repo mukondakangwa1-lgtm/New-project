@@ -61,4 +61,38 @@ test.describe("KUDOS agent flow (docker E2E)", () => {
     const body = await logs.json();
     expect(body.logs.length).toBeGreaterThan(0);
   });
+
+  test("avatar upload round-trips through MinIO object storage", async ({ request }) => {
+    const res = await request.post("/api/v1/auth/login", {
+      data: { email: ADMIN_EMAIL, password: ADMIN_PASSWORD },
+    });
+    expect(res.ok()).toBeTruthy();
+    const login = await res.json();
+    const headers = {
+      Authorization: `Bearer ${login.access_token}`,
+      "X-Requested-With": "playwright-e2e",
+    };
+
+    const png = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+      "base64",
+    );
+    const upload = await request.post("/api/v1/kudos/profile/avatar", {
+      headers,
+      multipart: {
+        file: { name: "avatar.png", mimeType: "image/png", buffer: png },
+      },
+    });
+    expect(upload.ok()).toBeTruthy();
+    expect(await upload.json()).toBeTruthy();
+
+    const profile = await request.get("/api/v1/kudos/profile", { headers });
+    expect(profile.ok()).toBeTruthy();
+    expect((await profile.json()).avatar_url).toMatch(/^avatars\//);
+
+    const avatar = await request.get("/api/v1/kudos/profile/avatar", { headers });
+    expect(avatar.ok()).toBeTruthy();
+    const bytes = await avatar.body();
+    expect(bytes.length).toBeGreaterThan(0);
+  });
 });

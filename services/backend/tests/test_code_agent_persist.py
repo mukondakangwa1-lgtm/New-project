@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-from app.core import code_agent
 from app.core.code_agent import (
     approve_proposal,
     commit_approved_changes,

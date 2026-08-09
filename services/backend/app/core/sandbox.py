@@ -3,10 +3,15 @@ KUDOS Sandbox — Safe testing environment
 KUDOS tests features before offering them for superadmin approval.
 Isolated execution, rollback capability, proposal workflow.
 """
+from __future__ import annotations
+
 import os
 import subprocess
 from datetime import datetime, timezone
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from app.core.workspace import Workspace
 
 from app.core.paths import project_root
 from app.models import KudosMemory

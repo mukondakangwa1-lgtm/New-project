@@ -7,10 +7,11 @@ import os
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.core import storage
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models import User
@@ -26,8 +27,7 @@ from app.models_extended import (
 
 router = APIRouter()
 
-UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "..", "uploads")
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+AUDIO_PREFIX = "audio/"
 
 
 # ──────────────────────────────────────────────
@@ -148,13 +148,11 @@ async def upload_practice_audio(
         raise HTTPException(404, "Session not found")
 
     ext = os.path.splitext(file.filename or "recording.webm")[1] or ".webm"
-    filename = f"speaking_{session.id}_{user.id}{ext}"
-    path = os.path.join(UPLOAD_DIR, filename)
-    with open(path, "wb") as fh:
-        content = await file.read()
-        fh.write(content)
+    key = storage.new_key(AUDIO_PREFIX, f"speaking_{session.id}_{user.id}{ext}")
+    content = await file.read()
+    storage.upload_bytes(key, content, content_type="audio/webm")
 
-    session.audio_url = filename
+    session.audio_url = key
     db.commit()
     return {
         "status": "saved",
@@ -173,10 +171,18 @@ def get_practice_audio(session_id: int, user: User = Depends(get_current_user), 
     )
     if not session or not session.audio_url:
         raise HTTPException(404, "No recording for this session")
-    path = os.path.join(UPLOAD_DIR, session.audio_url)
-    if not os.path.exists(path):
+    key = session.audio_url if session.audio_url.startswith(AUDIO_PREFIX) else f"{AUDIO_PREFIX}{session.audio_url}"
+    path = storage.local_path(key)
+    if path is not None:
+        if not path.is_file():
+            raise HTTPException(404, "Recording file missing")
+        return FileResponse(path, media_type="audio/webm", filename=key.rsplit("/", 1)[-1])
+    try:
+        return StreamingResponse(
+            storage.stream(key), media_type="audio/webm", filename=key.rsplit("/", 1)[-1],
+        )
+    except FileNotFoundError:
         raise HTTPException(404, "Recording file missing")
-    return FileResponse(path, media_type="audio/webm", filename=session.audio_url)
 
 
 @router.get("/speaking/history")

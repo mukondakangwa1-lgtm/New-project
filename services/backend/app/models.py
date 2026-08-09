@@ -247,6 +247,7 @@ class KudosDocument(Base):
     title = Column(String(255), nullable=False)
     filename = Column(String(255), nullable=False)
     file_type = Column(String(50), default="")  # txt, md, pdf, docx
+    storage_key = Column(String(255), default="")  # object key in the docs/ bucket prefix
     content = Column(Text, default="")  # extracted text content
     summary = Column(Text, default="")  # auto-generated summary
     tags = Column(String(500), default="")
@@ -469,6 +470,7 @@ class UserProfile(Base):
     emoji_enabled = Column(Boolean, default=False)
     interests = Column(Text, default="[]")  # JSON list of interest tags
     greeting = Column(String(120), default="")  # custom salutation
+    avatar_url = Column(String(255), default="")  # object key in the avatars/ bucket prefix
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc),
                         onupdate=lambda: datetime.now(timezone.utc))
 

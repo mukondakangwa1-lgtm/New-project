@@ -151,7 +151,7 @@ def test_retired_device_loses_replicas_and_memory_survives():
     db = TestSessionLocal()
     try:
         mem = write_memory(db, _uid(EMAIL_A), content="important cross-device memory")
-        mem_id = mem.id
+        _mem_id = mem.id
     finally:
         db.close()
 
@@ -233,7 +233,7 @@ def test_reconcile_after_device_loss():
     db = TestSessionLocal()
     try:
         mem = write_memory(db, _uid(EMAIL_A), content="memory needing re-balance")
-        mem_id = mem.id
+        _mem_id = mem.id
     finally:
         db.close()
 

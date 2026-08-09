@@ -2,7 +2,7 @@
 Database connection with multi-db support (SQLite for dev, Postgres for prod).
 Adjusted connect_args depending on the URL so engine works with Postgres (no check_same_thread) and with SQLite.
 """
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 
 from app.core.config import settings
@@ -17,6 +17,18 @@ engine = create_engine(
     connect_args=connect_args,
     echo=settings.DEBUG,
 )
+
+if settings.DATABASE_URL.startswith("sqlite"):
+    # Production-grade SQLite pragmas: WAL for concurrent readers, busy
+    # timeout so writers queue instead of erroring, FK enforcement on.
+    @event.listens_for(engine, "connect")
+    def _tune_sqlite(dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.execute("PRAGMA busy_timeout=5000")
+        cursor.close()
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

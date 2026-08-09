@@ -77,6 +77,19 @@ async def lifespan(app: FastAPI):
     """Start runtime services without mutating production schemas."""
     if settings.AUTO_CREATE_TABLES:
         init_db()
+    # Ensure storage buckets/prefixes exist (MinIO or local). Never fatal:
+    # storage falls back to local disk when MinIO is unreachable.
+    try:
+        import logging
+
+        from app.core import storage
+        if not storage.ensure_buckets():
+            logging.getLogger("storage").warning(
+                "object storage on local disk (MinIO not configured/unreachable) — "
+                "set STORAGE_BACKEND=minio for managed buckets"
+            )
+    except Exception:
+        pass
     # Auto-activate shield
     try:
         from app.core.kudos_shield import start_shield

@@ -1,6 +1,6 @@
 """KUDOS Soul API — read the soul, shape it as superadmin."""
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db

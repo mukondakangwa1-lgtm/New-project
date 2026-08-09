@@ -295,7 +295,6 @@ def generate_improvements() -> list[dict]:
 def create_proposal(title: str, description: str, category: str, file_changes: list[dict] = None) -> ChangeProposal:
     """Create a new change proposal and mirror it to SQLite (Phase 4)."""
     import json
-    import uuid as uuid_mod
 
     from app.core.database import SessionLocal
     from app.models import SandboxProposal

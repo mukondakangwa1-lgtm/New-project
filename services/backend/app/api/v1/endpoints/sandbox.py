@@ -9,7 +9,6 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.deps import get_current_user, require_admin
 from app.core.sandbox import (
-    list_proposals,
     recommend_proposal,
     seed_sandbox_knowledge,
 )

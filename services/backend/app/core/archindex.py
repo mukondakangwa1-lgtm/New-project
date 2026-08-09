@@ -6,11 +6,9 @@ Used by the admin endpoint to inspect where things live before approving
 agent changes (Req 8: architecture index).
 """
 import ast
-import json
 import re
 from collections import Counter
 from pathlib import Path
-from typing import Any
 
 SKIP_DIRS = {
     ".git", ".venv", "venv", "node_modules", "__pycache__",

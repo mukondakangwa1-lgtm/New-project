@@ -16,8 +16,21 @@ frontend/.next/
 # User uploads
 services/backend/app/uploads/
 
+# Object-storage local fallback (STORAGE_BACKEND=local)
+storage-local/
+services/backend/storage-local/
+
+# SQLite runtime artifacts
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
 # Runtime backups
 services/backups/
+services/backend/backups/
+backups/
 
 # Agent task workspaces (git worktrees managed by KUDOS)
 .kudos_workspaces/

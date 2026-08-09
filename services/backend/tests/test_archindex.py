@@ -2,7 +2,6 @@
 Architecture index tests — scanning, module extraction, tree, stats, cache,
 and the admin endpoint.
 """
-import subprocess
 from pathlib import Path
 
 import pytest

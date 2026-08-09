@@ -489,6 +489,7 @@ class ProfileUpdate(BaseModel):
     emoji_enabled: Optional[bool] = None
     interests: Optional[list[str]] = None
     greeting: Optional[str] = Field(default=None, max_length=120)
+    avatar_url: Optional[str] = Field(default=None, max_length=255)
 
 
 class ProfileResponse(BaseModel):
@@ -497,6 +498,7 @@ class ProfileResponse(BaseModel):
     emoji_enabled: bool
     interests: list[str] = []
     greeting: str = ""
+    avatar_url: str = ""
 
 
 class SoulUpdate(BaseModel):

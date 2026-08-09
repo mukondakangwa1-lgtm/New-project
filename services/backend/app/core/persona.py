@@ -8,7 +8,7 @@ it and keeps KUDOS's memory in sync (system-layer preference memories).
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from app.models import UserProfile
 
@@ -55,6 +55,7 @@ def profile_to_dict(profile: UserProfile) -> Dict[str, Any]:
         "emoji_enabled": bool(profile.emoji_enabled),
         "interests": interests,
         "greeting": profile.greeting or "",
+        "avatar_url": profile.avatar_url or "",
     }
 
 
@@ -86,6 +87,8 @@ def save_profile(db, user_id: int, updates: Dict[str, Any]) -> UserProfile:
     if "greeting" in updates:
         greeting = str(updates["greeting"] or "")[:120]
         profile.greeting = greeting
+    if "avatar_url" in updates:
+        profile.avatar_url = str(updates["avatar_url"] or "")[:255]
 
     db.commit()
     db.refresh(profile)

@@ -12,7 +12,6 @@ Rules enforced here:
 - Never force-push by default.
 - Push and pull-request creation require separate approval.
 """
-import json
 import os
 import re
 import subprocess

@@ -66,6 +66,18 @@ class Settings(BaseSettings):
     BACKUP_DIR: str = "backups"
     BACKUP_KEEP: int = 14
 
+    # Object storage (MinIO with local-disk fallback)
+    # STORAGE_BACKEND: auto -> MinIO when configured, else local disk;
+    #                  minio -> require MinIO; local -> always local disk.
+    STORAGE_BACKEND: str = "auto"
+    STORAGE_LOCAL_DIR: str = "uploads"  # relative to storage-local/ when not absolute
+    MINIO_ENDPOINT: str = ""  # host:port, e.g. minio:9000
+    MINIO_ACCESS_KEY: Optional[str] = None  # scoped app user (not root)
+    MINIO_SECRET_KEY: Optional[str] = None
+    MINIO_BUCKET: str = "kudos"
+    MINIO_SECURE: bool = False  # True for TLS against MinIO
+    MINIO_REGION: str = "us-east-1"
+
     # LLM runtime configuration. Set LLM_PROVIDER to a provider ID or
     # ``auto`` to use the first configured provider.
     LLM_PROVIDER: str = "auto"

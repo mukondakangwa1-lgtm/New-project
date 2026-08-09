@@ -1,10 +1,8 @@
 """
 RunChecks tests — gate running and failure classification.
 """
-import subprocess
 from pathlib import Path
 
-import pytest
 
 from app.core.run_checks import classify, run_gate, run_quality_gates, summarize
 from app.core.tooling import QualityCommand

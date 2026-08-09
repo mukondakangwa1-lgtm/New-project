@@ -38,6 +38,22 @@ def _test_db():
         os.remove("./test.db")
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _local_storage():
+    """Pin object storage to the local-disk backend for the whole session.
+
+    The provisioned .env configures STORAGE_BACKEND=minio for deployment; the
+    test session must never depend on a running MinIO server.
+    """
+    from app.core.config import settings
+
+    previous = getattr(settings, "STORAGE_BACKEND", None)
+    settings.STORAGE_BACKEND = "local"
+    yield
+    if previous is not None:
+        settings.STORAGE_BACKEND = previous
+
+
 # ──────────────────────────────────────────────
 # Shared helpers (import from tests.conftest)
 # ──────────────────────────────────────────────

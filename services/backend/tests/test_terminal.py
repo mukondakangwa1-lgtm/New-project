@@ -7,7 +7,6 @@ from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 
-from app.core.config import settings
 from app.main import app
 from tests.conftest import TestSessionLocal, login, promote_to_admin, register_user
 

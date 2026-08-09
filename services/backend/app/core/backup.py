@@ -1,10 +1,11 @@
 """PostgreSQL backup/restore helpers for the Digital Campus backend.
 
-Uses ``pg_dump`` / ``pg_restore`` from the system PATH. Works on the
-``DATABASE_URL`` from settings; refuses SQLite databases. Provides a small CLI:
+Uses ``pg_dump`` / ``pg_restore`` from the system PATH for PostgreSQL, and the
+``sqlite3`` stdlib for standalone SQLite boxes. Provides a small CLI:
 
     python -m app.core.backup dump
     python -m app.core.backup restore backups/digital_campus_20260101_120000.dump
+    python -m app.core.backup sqlite-dump
     python -m app.core.backup prune
 """
 
@@ -12,12 +13,16 @@ from __future__ import annotations
 
 import argparse
 import os
+import sqlite3
 import subprocess
 import sys
 from datetime import datetime
 from typing import List
 
+from app.core import storage
 from app.core.config import settings
+
+BACKUPS_PREFIX = "backups/"
 
 
 def backup_dir() -> str:
@@ -43,11 +48,26 @@ def _pg_cmd(url: str, which: str) -> List[str]:
 
 
 def dump(database_url: str | None = None) -> str:
-    """Create a compressed custom-format dump and return its path."""
+    """Create a compressed custom-format dump and return its path.
+
+    The dump is uploaded to object storage (``backups/`` prefix) whenever the
+    MinIO backend is active; the local file is kept so the CLI remains useful
+    on plain-disk deployments. A MinIO failure never fails the backup itself —
+    the local dump is the source of truth.
+    """
     url = database_url or settings.DATABASE_URL
     dest = os.path.join(ensure_backup_dir(), dump_filename())
     cmd = _pg_cmd(url, "pg_dump") + ["-F", "c", "-f", dest]
     subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=600)
+    if storage.backend_name() == "minio":
+        try:
+            storage.upload_bytes(
+                BACKUPS_PREFIX + os.path.basename(dest),
+                open(dest, "rb").read(),
+                content_type="application/octet-stream",
+            )
+        except Exception:
+            print("warning: dump written locally but MinIO upload failed", file=sys.stderr)
     return dest
 
 
@@ -78,14 +98,71 @@ def prune_backups(keep: int | None = None) -> List[str]:
     for old in backups[keep:]:
         os.remove(old)
         removed.append(old)
+    _prune_remote(keep)
     return removed
 
 
+def _prune_remote(keep: int) -> None:
+    """Remove stale dumps from MinIO when the object backend is active."""
+    if storage.backend_name() != "minio":
+        return
+    try:
+        from minio import Minio
+
+        client = Minio(
+            settings.MINIO_ENDPOINT, access_key=settings.MINIO_ACCESS_KEY,
+            secret_key=settings.MINIO_SECRET_KEY, secure=settings.MINIO_SECURE,
+        )
+        names = sorted(
+            (obj.object_name for obj in client.list_objects(
+                settings.MINIO_BUCKET, prefix=BACKUPS_PREFIX, recursive=True))
+        )
+        for old in names[:-keep] if keep else []:
+            client.remove_object(settings.MINIO_BUCKET, old)
+    except Exception:
+        return
+
+
+def sqlite_dump(database_url: str | None = None) -> str:
+    """Online backup of a SQLite database via the stdlib ``backup`` API.
+
+    Used on standalone/dev boxes that run SQLite instead of Postgres. The
+    resulting ``.sqlite3`` snapshot is pushed to object storage (``backups/``
+    prefix) when MinIO is active, mirroring the PostgreSQL flow.
+    """
+    url = database_url or settings.DATABASE_URL
+    if not url.startswith("sqlite"):
+        raise ValueError("sqlite-dump requires a sqlite:/// DATABASE_URL")
+
+    path = url.replace("sqlite:///", "")
+    dest = os.path.join(ensure_backup_dir(), dump_filename().replace(".dump", ".sqlite3"))
+
+    source = sqlite3.connect(path)
+    target = sqlite3.connect(dest)
+    try:
+        source.backup(target)
+    finally:
+        target.close()
+        source.close()
+
+    if storage.backend_name() == "minio":
+        try:
+            storage.upload_bytes(
+                BACKUPS_PREFIX + os.path.basename(dest),
+                open(dest, "rb").read(),
+                content_type="application/octet-stream",
+            )
+        except Exception:
+            print("warning: sqlite dump written locally but MinIO upload failed", file=sys.stderr)
+    return dest
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Digital Campus PostgreSQL backup tooling")
+    parser = argparse.ArgumentParser(description="Digital Campus backup tooling")
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("dump", help="create a custom-format dump")
-    restore_p = sub.add_parser("restore", help="restore a dump")
+    sub.add_parser("dump", help="create a PostgreSQL custom-format dump")
+    sub.add_parser("sqlite-dump", help="snapshot a SQLite database via the backup API")
+    restore_p = sub.add_parser("restore", help="restore a PostgreSQL dump")
     restore_p.add_argument("file", help="path to the .dump file")
     sub.add_parser("prune", help="remove old dumps beyond BACKUP_KEEP")
     args = parser.parse_args()
@@ -95,6 +172,10 @@ def main() -> int:
             os.makedirs(backup_dir(), exist_ok=True)
             path = dump()
             print(f"backup written to {path}")
+        elif args.command == "sqlite-dump":
+            os.makedirs(backup_dir(), exist_ok=True)
+            path = sqlite_dump()
+            print(f"sqlite backup written to {path}")
         elif args.command == "restore":
             restore(args.file)
             print(f"restored {args.file}")
