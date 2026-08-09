@@ -217,6 +217,7 @@ services:
     entrypoint: ["/bin/sh", "/boot.sh"]
     environment:
       TS_AUTH_TOKEN: ${TS_AUTHKEY:?Set TS_AUTHKEY in .env (tailscale auth key)}
+      TS_ACCEPT_DNS: "false"
     restart: unless-stopped
 
 volumes:
