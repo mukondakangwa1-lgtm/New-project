@@ -9,6 +9,7 @@ from app.api.v1.endpoints import (
     assignments, study_groups, calendar_goals, exams, analytics, code_agent,
     internet_archive, auto_learner, speaking, kudos_root, superadmin, shield, embed, media,
     memory, devices, profile, sandbox, soul, terminal, visit,
+    voice,
 )
 
 api_router = APIRouter()
@@ -49,3 +50,4 @@ api_router.include_router(sandbox.router, prefix="/kudos/sandbox", tags=["KUDOS 
 api_router.include_router(soul.router, prefix="/kudos/soul", tags=["KUDOS Soul"])
 api_router.include_router(terminal.router, prefix="/kudos/terminal", tags=["KUDOS Terminal"])
 api_router.include_router(visit.router, prefix="/kudos", tags=["KUDOS Visit"])
+api_router.include_router(voice.router, prefix="/kudos/voice", tags=["KUDOS Voice"])

@@ -395,6 +395,53 @@ class KudosAskResponse(BaseModel):
     answer: str
     sources: list[dict] = []  # [{document_id, title, chunk_preview}]
     conversation_id: int
+    media: list[dict] = []  # [{kind: image|video, url, mime, caption}] generated in this answer
+
+
+class ChatSendResponse(BaseModel):
+    answer: str
+    conversation_id: int
+    learned: list[dict] = []  # what KUDOS ingested from attachments
+    media: list[dict] = []  # generated/sent media to render
+
+
+class ToolRegisterRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    description: str = ""
+    method: str = "GET"
+    url: str
+    headers: str = "{}"
+    body_schema: str = "{}"
+    auth_type: str = "none"
+    auth_value: str = ""
+    auth_header_name: str = "Authorization"
+
+
+class ToolCallRequest(BaseModel):
+    tool_id: int
+    args: dict = {}
+
+
+class VisitRecord(BaseModel):
+    guest_id: str = ""
+    path: str = ""
+    referrer: str = ""
+    share_token: str = ""  # signed ?u= identity token
+
+
+class GuestProfileUpdate(BaseModel):
+    guest_id: str = Field(min_length=8, max_length=64)
+    name: str = ""
+    ai_name: str = ""
+
+
+class GuestProfileResponse(BaseModel):
+    guest_id: str
+    name: str = ""
+    ai_name: str = ""
+    visit_count: int = 0
+    first_seen: Optional[datetime] = None
+    last_seen: Optional[datetime] = None
 
 
 class MemoryCreate(BaseModel):
@@ -544,6 +591,7 @@ class KudosConversationResponse(BaseModel):
     id: int
     user_id: int
     title: str
+    archived: bool = False
     created_at: datetime
 
 
@@ -555,6 +603,7 @@ class KudosMessageResponse(BaseModel):
     role: str
     content: str
     sources: str
+    media: str = ""
     created_at: datetime
 
 

@@ -10,6 +10,8 @@ from pydantic import BaseModel
 from app.core.deps import require_admin
 from app.core.kudos_identity import (
     add_guideline,
+    delete_guideline,
+    edit_guideline,
     get_guidelines,
     get_identity,
     get_improvement_log,
@@ -80,6 +82,28 @@ def add_rule(guideline: str, admin: User = Depends(require_admin)):
     return {"result": add_guideline(guideline)}
 
 
+@router.patch("/guidelines/{index}")
+def edit_rule(index: int, new_text: str, admin: User = Depends(require_admin)):
+    """Edit a single guideline by its 1-based number (as shown in the UI)."""
+    try:
+        return {"result": edit_guideline(index, new_text)}
+    except ValueError as exc:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@router.delete("/guidelines/{index}")
+def delete_rule(index: int, admin: User = Depends(require_admin)):
+    """Delete a single guideline by its 1-based number (as shown in the UI)."""
+    try:
+        return {"result": delete_guideline(index)}
+    except ValueError as exc:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
 # ──────────────────────────────────────────────
 # ROOT TERMINAL
 # ──────────────────────────────────────────────
@@ -98,7 +122,9 @@ def root_execute(body: RootCommand, admin: User = Depends(require_admin)):
     safe_commands = {
         "status": lambda: get_status_report(),
         "identity": lambda: get_identity(),
-        "guidelines": lambda: {"guidelines": get_guidelines()},
+        "guidelines": lambda: _guidelines_command(args),
+        "rule": lambda: _guidelines_command(args),
+        "rules": lambda: _guidelines_command(args),
         "abilities": lambda: {"abilities": get_new_abilities()},
         "gaps": lambda: {"gaps": get_knowledge_gaps()},
         "log": lambda: {"log": get_improvement_log()},
@@ -118,6 +144,55 @@ def root_execute(body: RootCommand, admin: User = Depends(require_admin)):
             return {"command": cmd, "error": str(e)}
 
     return {"error": f"Unknown command: {cmd}. Type 'help' for available commands."}
+
+
+def _guidelines_command(args: str) -> dict:
+    """Manage KUDOS guidelines from the root terminal.
+
+    Usage:
+      guidelines                     → list all rules
+      guidelines add <text>          → add a rule
+      guidelines edit <n> <text>     → edit rule #n (1-based, as shown in the UI)
+      guidelines delete <n>          → delete rule #n
+      guidelines clear               → remove all rules
+    """
+    parts = args.split(" ", 1)
+    sub = parts[0].lower() if args else ""
+    rest = parts[1].strip() if len(parts) > 1 else ""
+
+    if not sub:
+        rules = get_guidelines()
+        return {"guidelines": rules, "count": len(rules),
+                "usage": "guidelines add|edit <n>|delete <n>|clear"}
+
+    if sub == "add":
+        if not rest:
+            return {"error": "Usage: guidelines add <text>"}
+        return {"result": add_guideline(rest)}
+
+    if sub in ("edit", "delete"):
+        idx_part, _, text = rest.partition(" ")
+        try:
+            index = int(idx_part)
+        except ValueError:
+            return {"error": f"Usage: guidelines {sub} <rule-number> [new text]"}
+
+        def _index_error(exc: ValueError) -> dict:
+            return {"error": str(exc)}
+
+        try:
+            if sub == "edit":
+                if not text.strip():
+                    return {"error": "Usage: guidelines edit <rule-number> <new text>"}
+                return {"result": edit_guideline(index, text.strip())}
+            return {"result": delete_guideline(index)}
+        except ValueError as exc:
+            return _index_error(exc)
+
+    if sub == "clear":
+        return {"result": set_guidelines([])}
+
+    return {"error": f"Unknown guideline sub-command: {sub} (try add|edit|delete|clear)"}
 
 
 def _get_file_tree() -> dict:

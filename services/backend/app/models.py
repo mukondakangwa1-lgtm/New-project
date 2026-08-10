@@ -301,6 +301,7 @@ class KudosConversation(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     guest_key = Column(String(64), nullable=True, index=True)  # anonymous visitor chats
     title = Column(String(255), default="New Conversation")
+    archived = Column(Boolean, default=False, index=True)  # moved to the archive panel (not deleted)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     user = relationship("User")
@@ -316,6 +317,7 @@ class KudosMessage(Base):
     role = Column(String(20), nullable=False)  # user, kudos
     content = Column(Text, nullable=False)
     sources = Column(Text, default="")  # JSON: which documents were referenced
+    media = Column(Text, default="")  # JSON: [{kind: image|video, url, mime, caption}]
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     conversation = relationship("KudosConversation", back_populates="messages")
@@ -613,3 +615,91 @@ class AgentTask(Base):
     finished_at = Column(DateTime, nullable=True)
 
     creator = relationship("User")
+
+
+class KudosTool(Base):
+    """
+    A registered external API/tool KUDOS can invoke to execute a command.
+    KUDOS auto-collects these at runtime (REGISTER_TOOL marker) or via the
+    superadmin panel. Auth values are stored locally but are NEVER returned to
+    clients, logged, or included in LLM context.
+    """
+    __tablename__ = "kudos_tools"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(120), nullable=False, unique=True)
+    description = Column(Text, default="")
+    method = Column(String(10), default="GET")  # GET | POST | PUT | PATCH | DELETE
+    url = Column(Text, nullable=False)  # full URL or "{param}" template
+    headers = Column(Text, default="{}")  # JSON extra headers
+    body_schema = Column(Text, default="{}")  # JSON: {"arg": "type"} template
+    response_kind = Column(String(10), default="json")  # json | text
+    auth_type = Column(String(10), default="none")  # none | bearer | header | query
+    auth_value = Column(Text, default="")  # secret — never serialized out
+    auth_header_name = Column(String(60), default="Authorization")
+    timeout = Column(Integer, default=30)
+    enabled = Column(Boolean, default=True)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    last_used_at = Column(DateTime, nullable=True)
+
+    creator = relationship("User")
+
+
+class Visit(Base):
+    """Site visit tracking. KUDOS learns who clicked its link the moment they
+    arrive: identity may come from a signed ?u= token, the session cookie, or a
+    browser guest_key. Guest profiles (name + what they call KUDOS) live here
+    too, keyed by guest_key until the user signs in and claims them."""
+    __tablename__ = "visits"
+
+    id = Column(Integer, primary_key=True, index=True)
+    guest_key = Column(String(64), nullable=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    name = Column(String(120), nullable=True)
+    ai_name = Column(String(60), nullable=True)
+    ip = Column(String(64), default="")
+    user_agent = Column(String(300), default="")
+    path = Column(String(255), default="")
+    referrer = Column(String(300), default="")
+    first_seen = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    last_seen = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    visit_count = Column(Integer, default=1)
+
+
+class RadioPlace(Base):
+    """A geographic place KUDOS knows about via Radio Garden's radio towers.
+    Lat/lon anchor the internal world landscape."""
+    __tablename__ = "radio_places"
+
+    id = Column(Integer, primary_key=True, index=True)
+    place_id = Column(String(120), nullable=False, unique=True)
+    name = Column(String(200), nullable=False)
+    country = Column(String(120), default="")
+    continent = Column(String(60), default="")
+    lat = Column(Float, default=0.0)
+    lon = Column(Float, default=0.0)
+    live_station_count = Column(Integer, default=0)
+    last_synced_at = Column(DateTime, nullable=True)
+
+    stations = relationship("RadioStation", back_populates="place", cascade="all, delete-orphan")
+
+
+class RadioStation(Base):
+    """A live radio tower (station) KUDOS can tune into from anywhere."""
+    __tablename__ = "radio_stations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    station_id = Column(String(160), nullable=False, unique=True)
+    title = Column(String(200), nullable=False)
+    place_id = Column(Integer, ForeignKey("radio_places.id"), nullable=True)
+    place_name = Column(String(200), default="")
+    country = Column(String(120), default="")
+    stream_path = Column(String(255), default="")  # channel hash for the stream URL
+    genre = Column(String(200), default="")
+    current_track = Column(String(255), default="")
+    frequency = Column(String(30), default="")
+    is_live = Column(Boolean, default=True)
+    last_seen_at = Column(DateTime, nullable=True)
+
+    place = relationship("RadioPlace", back_populates="stations")

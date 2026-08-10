@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { getAuthHeader } from "@/lib/api";
 import Layout from "@/components/Layout";
+import VoiceAdmin from "@/components/VoiceAdmin";
 
 interface Stats {
   total_documents: number;
@@ -232,6 +233,8 @@ export default function KudosAdmin() {
               )}
             </div>
           </div>
+
+          <VoiceAdmin />
         </>
       )}
     </Layout>

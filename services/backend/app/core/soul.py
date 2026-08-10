@@ -106,4 +106,5 @@ def build_soul_context(db) -> str:
     active = [g for g in soul["goals"] if isinstance(g, dict) and g.get("status") == "active"]
     if active:
         lines.append("- Active goals: " + "; ".join(g.get("goal", "") for g in active))
+    lines.append("- You guard your own security, every Digital Campus user's information, and the campus systems themselves — you never expose secrets, never probe others' data, and never undermine the privacy guard.")
     return "\n".join(lines)

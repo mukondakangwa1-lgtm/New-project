@@ -23,6 +23,7 @@ function SpeakingPractice() {
   const [history, setHistory] = useState<any[]>([]);
   const [message, setMessage] = useState("");
   const [audioUrl, setAudioUrl] = useState("");
+  const [audioDownloadUrl, setAudioDownloadUrl] = useState("");
   const intervalRef = useRef<any>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -47,6 +48,7 @@ function SpeakingPractice() {
       const data = await res.json();
       setPrompt(data.prompt);
       setAudioUrl("");
+      setAudioDownloadUrl("");
       setRating(0);
     }
   };
@@ -74,11 +76,24 @@ function SpeakingPractice() {
 
     streamRef.current = stream;
     chunksRef.current = [];
-    mediaRecorderRef.current = new MediaRecorder(stream, { mimeType: "audio/webm" });
+    try {
+      const mime = pickMime();
+      mediaRecorderRef.current = mime
+        ? new MediaRecorder(stream, { mimeType: mime })
+        : new MediaRecorder(stream);
+    } catch {
+      mediaRecorderRef.current = new MediaRecorder(stream);
+    }
     mediaRecorderRef.current.ondataavailable = (ev) => {
       if (ev.data.size > 0) chunksRef.current.push(ev.data);
     };
-    mediaRecorderRef.current.start();
+    try {
+      mediaRecorderRef.current.start();
+    } catch (e: any) {
+      setMessage("❌ Could not start recording in this browser. Please use a recent Chrome, Edge, Firefox or Safari.");
+      stopTracks(stream);
+      return;
+    }
 
     setSessionId(data.id);
     setIsRecording(true);
@@ -98,8 +113,10 @@ function SpeakingPractice() {
     const recorder = mediaRecorderRef.current;
     const done = new Promise<Blob | null>((resolve) => {
       if (!recorder || recorder.state === "inactive") return resolve(null);
-      recorder.onstop = () =>
-        resolve(new Blob(chunksRef.current, { type: "audio/webm" }));
+      recorder.onstop = () => {
+        const mime = recorder.mimeType || "audio/webm";
+        resolve(new Blob(chunksRef.current, { type: mime }));
+      };
       recorder.stop();
     });
     const blob = await done;
@@ -114,18 +131,57 @@ function SpeakingPractice() {
     // Upload the recording
     if (blob && blob.size > 0) {
       const formData = new FormData();
-      formData.append("file", blob, `recording_${sessionId}.webm`);
+      const mime = blob.type || "audio/webm";
+      formData.append("file", blob, `recording_${sessionId}.${fileExtForMime(mime)}`);
       const up = await fetch(`/api/v1/studio/speaking/session/${sessionId}/audio`, {
         method: "POST",
         headers: getAuthHeader(),
         body: formData,
       });
-      if (up.ok) setAudioUrl((await up.json()).audio_url);
+      if (up.ok) {
+        const data = await up.json();
+        setAudioUrl(data.audio_url);
+        setAudioDownloadUrl(data.audio_download_url || "");
+      } else {
+        setMessage("⚠️ Recording could not be uploaded — please try again.");
+      }
     }
     loadHistory();
   };
 
   const formatTime = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`;
+
+  // Pick the first audio container this browser can actually record. Forcing
+  // "audio/webm" breaks recording on Safari and some browsers (NotSupportedError),
+  // which is why recordings used to end up missing or unplayable.
+  const pickMime = () => {
+    const candidates = [
+      "audio/webm;codecs=opus",
+      "audio/webm",
+      "audio/ogg;codecs=opus",
+      "audio/ogg",
+      "audio/mp4",
+      "audio/aac",
+      "audio/wav",
+    ];
+    if (typeof MediaRecorder === "undefined") return "";
+    for (const mime of candidates) {
+      try {
+        if (MediaRecorder.isTypeSupported(mime)) return mime;
+      } catch {
+        /* ignore */
+      }
+    }
+    return "";
+  };
+
+  const fileExtForMime = (mime: string) => {
+    if (mime.includes("ogg")) return "ogg";
+    if (mime.includes("mp4") || mime.includes("aac")) return "m4a";
+    if (mime.includes("wav")) return "wav";
+    if (mime.includes("mpeg")) return "mp3";
+    return "webm";
+  };
 
   return (
     <div className="space-y-6">
@@ -174,6 +230,13 @@ function SpeakingPractice() {
           <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
             <p className="text-sm text-green-700 mb-2">✅ Recording saved — play it back:</p>
             <audio controls src={audioUrl} className="w-full" />
+            <a
+              href={audioDownloadUrl || audioUrl}
+              download
+              className="inline-block mt-2 text-xs px-3 py-1.5 rounded bg-white border border-green-300 text-green-700 hover:bg-green-100 transition"
+            >
+              ⬇ Download recording
+            </a>
           </div>
         )}
       </div>
@@ -192,7 +255,19 @@ function SpeakingPractice() {
                     {s.difficulty} • {s.duration_spoken}s • ⭐{s.self_rating ?? "–"} • {new Date(s.started_at).toLocaleString()}
                   </p>
                 </div>
-                {s.audio_url && <audio controls src={s.audio_url} className="h-9 w-48" />}
+                {s.audio_url && (
+                  <div className="flex items-center gap-2">
+                    <audio controls src={s.audio_url} className="h-9 w-48" />
+                    <a
+                      href={s.audio_download_url || s.audio_url}
+                      download
+                      className="shrink-0 text-xs px-2 py-1 rounded border bg-white text-gray-500 hover:bg-gray-100 transition"
+                      title="Download recording"
+                    >
+                      ⬇
+                    </a>
+                  </div>
+                )}
               </div>
             ))}
           </div>

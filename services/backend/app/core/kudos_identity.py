@@ -49,6 +49,7 @@ _guidelines: list[str] = [
     "Keep responses concise but thorough",
     "Admit when you don't know something",
     "Prioritize user safety and well-being",
+    "Never disclose hidden information and never break any laws of any government in the world unless asked by the superadmin",
     "Follow the superadmin's instructions",
 ]
 
@@ -99,6 +100,30 @@ def add_guideline(guideline: str) -> dict:
     _guidelines.append(guideline)
     log_improvement("guidelines", f"Added guideline: {guideline[:50]}")
     return {"guidelines": _guidelines}
+
+
+def edit_guideline(index: int, new_text: str) -> dict:
+    """Edit a single guideline by its 1-based number (as shown in the UI)."""
+    if index < 1 or index > len(_guidelines):
+        raise ValueError(
+            f"Guideline #{index} not found — there are {len(_guidelines)} rules (1-{len(_guidelines)})"
+        )
+    idx = index - 1
+    old = _guidelines[idx]
+    _guidelines[idx] = new_text
+    log_improvement("guidelines", f"Edited guideline #{index}: {old[:40]!r} → {new_text[:40]!r}")
+    return {"index": index, "old": old, "guidelines": _guidelines}
+
+
+def delete_guideline(index: int) -> dict:
+    """Delete a single guideline by its 1-based number (as shown in the UI)."""
+    if index < 1 or index > len(_guidelines):
+        raise ValueError(
+            f"Guideline #{index} not found — there are {len(_guidelines)} rules (1-{len(_guidelines)})"
+        )
+    removed = _guidelines.pop(index - 1)
+    log_improvement("guidelines", f"Deleted guideline #{index}: {removed[:50]}")
+    return {"index": index, "removed": removed, "guidelines": _guidelines}
 
 
 def update_body_part(part: str, updates: dict) -> dict:

@@ -70,36 +70,48 @@ export default function KudosConnect() {
   const [activeTab, setActiveTab] = useState<"connectors" | "packs">("connectors");
   const [loading, setLoading] = useState(true);
   const [autoSyncStatus, setAutoSyncStatus] = useState<AutoSyncStatus | null>(null);
+  const [sessionState, setSessionState] = useState<"checking" | "signed-in" | "guest">("checking");
+
+  // This page is hidden from the nav: it's only reachable via KUDOS chat.
+  // Unregistered users (guests) are never allowed here.
+  useEffect(() => {
+    fetch("/api/v1/users/me")
+      .then(async (r) => {
+        setSessionState(r.status === 200 ? "signed-in" : "guest");
+        if (r.status === 200) {
+          fetchData();
+          fetchAutoSync();
+        }
+      })
+      .catch(() => setSessionState("guest"));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const selectedType = CONNECTOR_TYPES.find((t) => t.value === form.connector_type);
 
-  const fetchData = async () => {
-    setLoading(true);
-    try {
-      const [connRes, packRes] = await Promise.all([
-        fetch("/api/v1/kudos/connectors/"),
-        fetch("/api/v1/kudos/connectors/packs"),
-      ]);
-      if (connRes.ok) {
-        const connData = await connRes.json();
-        setConnectors(Array.isArray(connData) ? connData : []);
-      }
-      if (packRes.ok) {
-        const packData = await packRes.json();
-        setPacks(Array.isArray(packData) ? packData : []);
-      }
-    } catch {}
-    setLoading(false);
-  };
-
-  const fetchAutoSync = async () => {
-    try {
-      const res = await fetch("/api/v1/kudos/connectors/auto-sync/status", { headers: getAuthHeader() });
-      if (res.ok) setAutoSyncStatus(await res.json());
-    } catch {}
-  };
-
-  useEffect(() => { fetchData(); fetchAutoSync(); }, []);
+  if (sessionState === "checking") {
+    return (
+      <Layout>
+        <div className="flex items-center justify-center min-h-[50vh] text-gray-400">Checking session…</div>
+      </Layout>
+    );
+  }
+  if (sessionState === "guest") {
+    return (
+      <Layout>
+        <div className="max-w-lg mx-auto mt-16 text-center">
+          <p className="text-5xl mb-4">🔒</p>
+          <h2 className="text-2xl font-bold text-gray-700 mb-2">Registered users only</h2>
+          <p className="text-gray-500 mb-6">
+            KUDOS&apos;s connectors are available to registered users — ask KUDOS about connecting a source in chat, or sign in below.
+          </p>
+          <a href="/login" className="inline-block bg-primary text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-800 transition">
+            🔑 Sign in
+          </a>
+        </div>
+      </Layout>
+    );
+  }
 
   const createConnector = async (e: FormEvent) => {
     e.preventDefault();

@@ -2,10 +2,13 @@
 Digital Campus - KUDOS AI Assistant
 Document learning, web learning, retrieval-based chat, superadmin controls.
 """
+import base64
 import io
 import json
 import re
 import time
+import uuid
+from datetime import datetime, timezone
 
 import httpx
 from bs4 import BeautifulSoup
@@ -19,11 +22,12 @@ from app.core.database import get_db
 from app.core.deps import get_current_user, require_admin
 from app.core.kudos_guardian import self_improver
 from app.models import (
-    KudosChunk, KudosConversation, KudosDocument, KudosMessage, KudosWebKnowledge, User,
+    KudosChunk, KudosConversation, KudosDocument, KudosMessage, KudosTool, KudosWebKnowledge, User, Visit,
 )
 from app.schemas import (
     GuestAskRequest, KudosAskRequest, KudosAskResponse, KudosConversationResponse, KudosDocumentResponse,
     KudosDocumentUpdate, KudosMessageResponse, KudosStats, KudosWebKnowledgeResponse, KudosWebLearn,
+    ChatSendResponse, ToolRegisterRequest, ToolCallRequest, GuestProfileUpdate, GuestProfileResponse,
 )
 
 router = APIRouter()
@@ -403,6 +407,20 @@ async def ask_kudos(body: KudosAskRequest, db: Session = Depends(get_db), curren
         # Save user message
         db.add(KudosMessage(conversation_id=conv.id, role="user", content=body.question))
 
+        # Fast path: short, casual, non-deep questions get a quick answer
+        # without running the full retrieval + citation pipeline.
+        from app.core.privacy_guard import scrub_response
+        from app.core.quick_answers import is_short_question, get_short_answer
+        if is_short_question(body.question):
+            short = await get_short_answer(body.question, current_user.full_name.split()[0] if current_user.full_name else "")
+            short = scrub_response(short, allow_emails=True)
+            try:
+                db.add(KudosMessage(conversation_id=conv.id, role="kudos", content=short, sources="[]"))
+                db.commit()
+            except Exception:
+                db.rollback()
+            return KudosAskResponse(answer=short, sources=[], conversation_id=conv.id, media=[])
+
         # Search knowledge base
         sources = []
         try:
@@ -457,6 +475,16 @@ async def ask_kudos(body: KudosAskRequest, db: Session = Depends(get_db), curren
         try:
             from app.core.sandbox import build_sandbox_knowledge_context
             self_knowledge = build_sandbox_knowledge_context(db)
+        except Exception:
+            pass
+        try:
+            radio_note = _radio_context(db)
+            if radio_note:
+                self_knowledge = f"{self_knowledge}\n{radio_note}"
+        except Exception:
+            pass
+        try:
+            self_knowledge = f"{self_knowledge}\n{_connectors_note()}"
         except Exception:
             pass
 
@@ -533,6 +561,16 @@ async def ask_kudos(body: KudosAskRequest, db: Session = Depends(get_db), curren
         from app.core.llm_engine import extract_citations
         cited = extract_citations(answer, sources[:3])
 
+        # Execute generation/tool markers (IMAGE_PROMPT / VIDEO_PROMPT /
+        # TOOL_CALL / REGISTER_TOOL) and attach any generated media.
+        from app.core.privacy_guard import scrub_response
+        answer = scrub_response(answer, allow_emails=True)
+        media_gen: list[dict] = []
+        try:
+            answer, media_gen = await _apply_generation_markers(db, answer, current_user)
+        except Exception:
+            pass
+
         # Self-improvement logging
         try:
             self_improver.log_question(current_user.id, body.question, had_sources=bool(sources))
@@ -544,6 +582,7 @@ async def ask_kudos(body: KudosAskRequest, db: Session = Depends(get_db), curren
             db.add(KudosMessage(
                 conversation_id=conv.id, role="kudos", content=answer,
                 sources=json.dumps(sources[:3]) if sources else "[]",
+                media=_media_json(media_gen),
             ))
             db.commit()
         except Exception:
@@ -572,6 +611,7 @@ async def ask_kudos(body: KudosAskRequest, db: Session = Depends(get_db), curren
                 for s in (sources[:3] if sources else [])
             ],
             conversation_id=conv.id,
+            media=media_gen,
         )
 
     except Exception as e:
@@ -586,8 +626,37 @@ async def ask_kudos(body: KudosAskRequest, db: Session = Depends(get_db), curren
 
 
 @router.get("/conversations", response_model=list[KudosConversationResponse])
-def list_conversations(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    return db.query(KudosConversation).filter(KudosConversation.user_id == current_user.id).order_by(KudosConversation.created_at.desc()).all()
+def list_conversations(archived: bool = False, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    q = db.query(KudosConversation).filter(
+        KudosConversation.user_id == current_user.id,
+        KudosConversation.archived.is_(archived),
+    )
+    return q.order_by(KudosConversation.created_at.desc()).all()
+
+
+@router.post("/conversations/archive-all")
+def archive_all_conversations(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Move every active conversation to the archive (nothing is deleted)."""
+    count = db.query(KudosConversation).filter(
+        KudosConversation.user_id == current_user.id,
+        KudosConversation.archived.is_(False),
+    ).update({KudosConversation.archived: True})
+    db.commit()
+    return {"archived": count}
+
+
+@router.post("/conversations/{conv_id}/unarchive", response_model=KudosConversationResponse)
+def unarchive_conversation(conv_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Restore an archived conversation as the active one."""
+    conv = db.query(KudosConversation).filter(
+        KudosConversation.id == conv_id, KudosConversation.user_id == current_user.id,
+    ).first()
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    conv.archived = False
+    db.commit()
+    db.refresh(conv)
+    return conv
 
 
 @router.get("/conversations/{conv_id}/messages", response_model=list[KudosMessageResponse])
@@ -716,6 +785,19 @@ async def guest_ask_kudos(body: GuestAskRequest, db: Session = Depends(get_db)):
     db.add(KudosMessage(conversation_id=conv.id, role="user", content=body.question))
     db.flush()
 
+    # Fast path for short, casual guest questions.
+    from app.core.privacy_guard import scrub_response
+    from app.core.quick_answers import is_short_question, get_short_answer
+    if is_short_question(body.question):
+        short = await get_short_answer(body.question)
+        short = scrub_response(short, allow_emails=True)
+        try:
+            db.add(KudosMessage(conversation_id=conv.id, role="kudos", content=short, sources="[]"))
+            db.commit()
+        except Exception:
+            db.rollback()
+        return KudosAskResponse(answer=short, sources=[], conversation_id=conv.id, media=[])
+
     sources = []
     try:
         sources = search_chunks(db, body.question)
@@ -810,4 +892,552 @@ def guest_messages(guest_id: str, db: Session = Depends(get_db)):
     return db.query(KudosMessage).filter(
         KudosMessage.conversation_id == conv.id
     ).order_by(KudosMessage.created_at).all()
+
+
+# ──────────────────────────────────────────────
+# GUEST PROFILE — KUDOS learns who clicked the link
+# ──────────────────────────────────────────────
+
+def _guest_profile_row(db: Session, guest_id: str):
+    return db.query(Visit).filter(Visit.guest_key == guest_id).order_by(Visit.last_seen.desc()).first()
+
+
+@router.get("/guest/profile", response_model=GuestProfileResponse)
+def guest_profile(guest_id: str, db: Session = Depends(get_db)):
+    """Return what KUDOS knows about this anonymous visitor."""
+    row = _guest_profile_row(db, guest_id)
+    if not row:
+        return GuestProfileResponse(guest_id=guest_id)
+    return GuestProfileResponse(
+        guest_id=guest_id, name=row.name or "", ai_name=row.ai_name or "",
+        visit_count=row.visit_count or 0, first_seen=row.first_seen, last_seen=row.last_seen,
+    )
+
+
+@router.post("/guest/profile", response_model=GuestProfileResponse)
+def guest_profile_update(body: GuestProfileUpdate, db: Session = Depends(get_db)):
+    """Save the name KUDOS should call the visitor, and what they call KUDOS."""
+    if not body.guest_id or len(body.guest_id) < 8:
+        raise HTTPException(status_code=422, detail="guest_id must be at least 8 characters")
+    row = _guest_profile_row(db, body.guest_id)
+    if not row:
+        row = Visit(guest_key=body.guest_id, ip="", user_agent="", path="/kudos")
+        db.add(row)
+    if body.name:
+        row.name = body.name.strip()[:120]
+    if body.ai_name:
+        row.ai_name = body.ai_name.strip()[:60]
+    row.last_seen = datetime.now(timezone.utc)
+    db.commit()
+    return GuestProfileResponse(
+        guest_id=body.guest_id, name=row.name or "", ai_name=row.ai_name or "",
+        visit_count=row.visit_count or 0, first_seen=row.first_seen, last_seen=row.last_seen,
+    )
+
+
+# ──────────────────────────────────────────────
+# MEDIA SERVING + CHAT-DRIVEN UPLOAD
+# ──────────────────────────────────────────────
+
+_MEDIA_MIME = {
+    "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "gif": "image/gif",
+    "webp": "image/webp", "bmp": "image/bmp",
+    "mp4": "video/mp4", "webm": "video/webm", "mov": "video/quicktime", "m4v": "video/mp4",
+}
+
+
+def _store_media(data_b64: str, mime: str, prefix: str = "media") -> str:
+    content = base64.b64decode(data_b64)
+    ext = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "video/mp4": "mp4", "video/webm": "webm"}.get(mime, "bin")
+    key = storage.new_key(f"{prefix}/", f"{uuid.uuid4().hex}.{ext}")
+    storage.upload_bytes(key, content, content_type=mime)
+    return key
+
+
+def _media_url(key: str) -> str:
+    return f"/api/v1/kudos/media/{key}"
+
+
+def _media_json(items: list) -> str:
+    return json.dumps(items)
+
+
+@router.get("/media/{key:path}")
+def get_media(key: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Stream a stored media file (attachments, generated images/videos)."""
+    allowed = key.startswith(("media/", "generated/"))
+    if not allowed:
+        raise HTTPException(status_code=404, detail="Media not found")
+    try:
+        content = storage.download(key)
+    except Exception:
+        raise HTTPException(status_code=404, detail="Media not found")
+    ext = key.rsplit(".", 1)[-1].lower() if "." in key else ""
+    mime = _MEDIA_MIME.get(ext, "application/octet-stream")
+    return Response(content=content, media_type=mime)
+
+
+@router.get("/transient/{token}")
+def get_transient(token: str, dl: int = 0):
+    """Stream a short-lived generated video (short clips only) from Redis.
+    Nothing is ever written to object storage — the bytes expire on their own
+    after ~15 minutes. `?dl=1` forces a download."""
+    from app.core.transient import get
+    import base64 as _b64
+    payload = get(token)
+    if not payload:
+        raise HTTPException(status_code=404, detail="This clip has expired or was already downloaded")
+    content = _b64.b64decode(payload.get("data", ""))
+    headers = {}
+    if dl:
+        headers["Content-Disposition"] = f'attachment; filename="kudos-clip.mp4"'
+    return Response(content=content, media_type=payload.get("mime", "video/mp4"), headers=headers)
+
+
+async def _apply_generation_markers(db: Session, text: str, current_user: User, prefix: str = "generated") -> tuple[str, list[dict]]:
+    """Execute IMAGE_PROMPT/VIDEO_PROMPT/TOOL_CALL/REGISTER_TOOL markers in an
+    answer. Returns (final_text, media_items_to_render)."""
+    media_items: list[dict] = []
+    lines = text.splitlines()
+    out: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.upper().startswith("IMAGE_PROMPT:"):
+            prompt = stripped.partition(":")[2].strip()
+            from app.core.llm_engine import generate_image
+            result = await generate_image(prompt)
+            if result.get("error"):
+                out.append(f"(Could not create that image: {result['error']})")
+                continue
+            key = _store_media(result["data"], result.get("mime_type", "image/png"), prefix)
+            media_items.append({"kind": "image", "url": _media_url(key), "mime": result.get("mime_type", "image/png"), "caption": prompt})
+            out.append("Here's the image I created for you! 🖼️")
+        elif stripped.upper().startswith("VIDEO_PROMPT:"):
+            prompt = stripped.partition(":")[2].strip()
+            from app.core.video_gen import generate_video
+            # Chat videos are SHORT clips only (never full-length), served as a
+            # single-use download and NEVER saved to object storage.
+            result = await generate_video(prompt, settings.MAX_CHAT_VIDEO_SECONDS)
+            if result.get("error"):
+                out.append(f"(Could not create that video: {result['error']})")
+                continue
+            from app.core.transient import put, transient_url
+            token = put(result["data"], result.get("mime_type", "video/mp4"))
+            if not token:
+                out.append("(Could not host that video right now — please try again.)")
+                continue
+            media_items.append({
+                "kind": "video", "url": transient_url(token), "download_url": transient_url(token),
+                "mime": result.get("mime_type", "video/mp4"), "caption": prompt, "transient": True,
+            })
+            out.append("Here's the short video I created for you! 🎬 (single-use download — not stored on the server)")
+        elif stripped.upper().startswith("TOOL_CALL:"):
+            from app.core.kudos_tools import handle_tool_marker
+            res = await handle_tool_marker(db, stripped, current_user)
+            out.append(res.get("reply", ""))
+        elif stripped.upper().startswith("REGISTER_TOOL:"):
+            from app.core.kudos_tools import register_tool
+            _, _, rest = stripped.partition(":")
+            parts = [p.strip() for p in rest.split("|")]
+            if len(parts) >= 3:
+                name, method, url = parts[0], parts[1], parts[2]
+                headers = parts[3] if len(parts) > 3 else "{}"
+                body_schema = parts[4] if len(parts) > 4 else "{}"
+                res = register_tool(db, name, method, url, headers=headers, body_schema=body_schema)
+                out.append(f"Registered tool **{name}**: {res.get('ok', res.get('error'))}")
+            else:
+                out.append("(Could not register tool: need name|method|url)")
+        else:
+            out.append(line)
+    return "\n".join(out).strip(), media_items
+
+
+@router.post("/chat/send", response_model=ChatSendResponse)
+async def chat_send(
+    message: str = Form(""),
+    conversation_id: int = Form(0),
+    files: list[UploadFile] = File([]),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Chat-driven upload: send text and/or files straight to KUDOS. Text docs
+    are ingested; photos/videos are seen (vision) and their descriptions are
+    ingested as knowledge. Markers (IMAGE_PROMPT/VIDEO_PROMPT/TOOL_CALL) are
+    executed. This is the single entry point for the redesigned chat."""
+    conv = None
+    if conversation_id:
+        conv = db.query(KudosConversation).filter(
+            KudosConversation.id == conversation_id,
+            KudosConversation.user_id == current_user.id,
+        ).first()
+    if not conv or conv.archived:
+        conv = KudosConversation(user_id=current_user.id, title=(message or "New Conversation")[:100] or "New Conversation")
+        db.add(conv)
+        db.flush()
+
+    learned: list[dict] = []
+    attach_media: list[dict] = []
+    vision_media: list[dict] = []
+
+    for f in files or []:
+        content = await f.read()
+        if not content:
+            continue
+        filename = f.filename or "upload.bin"
+        ctype = f.content_type or ""
+        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+        mime = ctype or _MEDIA_MIME.get(ext, "application/octet-stream")
+
+        if mime.startswith("image/") or mime.startswith("video/"):
+            key = _store_media(base64.b64encode(content).decode(), mime, "media")
+            attach_media.append({"kind": "media", "url": _media_url(key), "mime": mime, "caption": filename, "key": key})
+            vision_media.append({"key": key, "mime_type": mime})
+        else:
+            text = extract_text_from_file(content, filename)
+            if not text.strip():
+                raise HTTPException(status_code=400, detail=f"Could not extract text from {filename}")
+            doc = KudosDocument(
+                uploaded_by=current_user.id, title=filename, filename=filename,
+                file_type=ext, storage_key="", content=text,
+                summary=simple_summarize(text), tags="chat",
+                is_approved=current_user.is_admin,
+            )
+            db.add(doc)
+            db.flush()
+            chunks = chunk_text(text)
+            for i, chunk_content in enumerate(chunks):
+                db.add(KudosChunk(document_id=doc.id, chunk_index=i, content=chunk_content,
+                                  word_count=len(chunk_content.split()), keywords=extract_keywords(chunk_content)))
+            doc.chunk_count = len(chunks)
+            db.commit()
+            db.refresh(doc)
+            learned.append({"type": "document", "title": filename, "chunk_count": len(chunks), "document_id": doc.id})
+
+    # See + ingest photos/videos via vision.
+    if vision_media:
+        from app.core.vision import describe_and_ingest
+        for item in vision_media:
+            title = item.get("mime_type", "").startswith("video/") and f"video-{uuid.uuid4().hex[:8]}" or f"photo-{uuid.uuid4().hex[:8]}"
+            res = await describe_and_ingest(db, [item], current_user.id, title, current_user.is_admin)
+            if res.get("learned"):
+                learned.append({"type": "media", "title": title, "description": res["description"], "document_id": res["document_id"]})
+
+    db.add(KudosMessage(conversation_id=conv.id, role="user", content=message or "(sent an attachment)", sources="[]",
+                        media=_media_json(attach_media)))
+    db.flush()
+
+    # Fast path: short, casual text-only questions in the redesigned chat.
+    if message and not attach_media:
+        from app.core.privacy_guard import scrub_response
+        from app.core.quick_answers import is_short_question, get_short_answer
+        if is_short_question(message):
+            short = await get_short_answer(message, current_user.full_name.split()[0] if current_user.full_name else "")
+            short = scrub_response(short, allow_emails=True)
+            try:
+                db.add(KudosMessage(conversation_id=conv.id, role="kudos", content=short, sources="[]"))
+                db.commit()
+            except Exception:
+                db.rollback()
+            return ChatSendResponse(answer=short, conversation_id=conv.id, learned=[], media=[])
+
+    # Build knowledge context from what was just learned + retrieval.
+    sources = []
+    try:
+        sources = search_chunks(db, message or " ".join(l.get("description", "") for l in learned))
+    except Exception:
+        pass
+    knowledge_context = "\n".join(
+        f"[{i}] {s.get('content', '')[:300]}" for i, s in enumerate(sources[:3], start=1)
+    )
+    if learned:
+        learned_note = "\n".join(
+            f"- {l.get('title')}: {l.get('description', '')[:200] if 'description' in l else str(l.get('chunk_count', 0)) + ' chunks learned'}"
+            for l in learned
+        )
+        knowledge_context += f"\n\nJust learned from attachments:\n{learned_note}"
+
+    memory_context = ""
+    try:
+        from app.core.memory_store import build_memory_context
+        memory_context = build_memory_context(db, current_user.id, query=message)
+    except Exception:
+        pass
+    persona_instructions = ""
+    try:
+        from app.core.persona import build_persona_instructions, profile_dict
+        persona_instructions = build_persona_instructions(profile_dict(db, current_user.id))
+    except Exception:
+        pass
+    soul_context = ""
+    try:
+        from app.core.soul import build_soul_context
+        soul_context = build_soul_context(db)
+    except Exception:
+        pass
+    self_knowledge = ""
+    try:
+        from app.core.sandbox import build_sandbox_knowledge_context
+        self_knowledge = build_sandbox_knowledge_context(db)
+    except Exception:
+        pass
+    try:
+        self_knowledge = f"{self_knowledge}\n{_connectors_note()}"
+    except Exception:
+        pass
+
+    question = message or "I sent you an attachment. Tell me what you learned from it."
+    answer = ""
+    try:
+        from app.core.llm_engine import get_llm_response
+        conv_history = db.query(KudosMessage).filter(KudosMessage.conversation_id == conv.id).order_by(KudosMessage.created_at.desc()).limit(5).all()
+        conv_history = [{"role": m.role, "content": m.content} for m in conv_history]
+        llm_media = [{"mime_type": m["mime"], "data": base64.b64encode(storage.download(m["key"])).decode()} for m in attach_media if m.get("key")]
+        llm_answer = await get_llm_response(
+            question=question, knowledge_context=knowledge_context,
+            conversation_history=conv_history,
+            user_name=current_user.full_name.split()[0] if current_user.full_name else "",
+            memory_context=memory_context, persona_instructions=persona_instructions,
+            soul_context=soul_context, self_knowledge=self_knowledge, media=llm_media or None,
+        )
+        if llm_answer and len(llm_answer) > 10:
+            answer = llm_answer
+    except Exception:
+        answer = ""
+    if not answer:
+        answer = generate_answer(question, sources)
+
+    from app.core.privacy_guard import scrub_response
+    answer = scrub_response(answer, allow_emails=True)
+
+    final_text, gen_media = await _apply_generation_markers(db, answer, current_user)
+    if final_text:
+        answer = final_text
+
+    db.add(KudosMessage(conversation_id=conv.id, role="kudos", content=answer,
+                        sources=json.dumps(sources[:3]) if sources else "[]",
+                        media=_media_json(gen_media)))
+    db.commit()
+
+    return ChatSendResponse(answer=answer, conversation_id=conv.id, learned=learned, media=gen_media)
+
+
+# ──────────────────────────────────────────────
+# TOOL REGISTRY — auto-collected APIs KUDOS can call
+# ──────────────────────────────────────────────
+
+@router.get("/tools")
+def list_tools(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Registered tools KUDOS can invoke (public-safe, no secrets)."""
+    from app.core.kudos_tools import list_tools_public
+    return list_tools_public(db)
+
+
+@router.post("/tools/register")
+def register_tool_endpoint(body: ToolRegisterRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Register a new API/tool for KUDOS (auto-collected via REGISTER_TOOL too)."""
+    from app.core.kudos_tools import register_tool
+    result = register_tool(
+        db, body.name, body.method, body.url, headers=body.headers, body_schema=body.body_schema,
+        auth_type=body.auth_type, auth_value=body.auth_value, auth_header_name=body.auth_header_name,
+        description=body.description,
+    )
+    if result.get("error"):
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@router.post("/tools/{tool_id}/call")
+async def call_tool_endpoint(tool_id: int, body: ToolCallRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Execute a registered tool with args (SSRF-guarded, secrets scrubbed)."""
+    from app.core.kudos_tools import call_tool
+    result = await call_tool(db, tool_id, body.args)
+    if result.get("error"):
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+# ──────────────────────────────────────────────
+# RADIO GARDEN — KUDOS maps the world's radio towers
+# ──────────────────────────────────────────────
+
+def _radio_context(db: Session) -> str:
+    """Short self-knowledge note so KUDOS knows it can navigate the world."""
+    try:
+        from app.core.radio_garden import overview
+        o = overview(db)
+        if not o["total_places"]:
+            return ""
+        return (
+            f"- You can navigate the whole world through live radio. You know {o['total_places']} places "
+            f"across {len(o['continents'])} continents with {o['total_stations']} live radio towers. "
+            f"Users can ask you about radio anywhere on Earth, find stations near a place, or tune in to a "
+            f"live stream. Use the 'Radio' panel or search radio places/stations."
+        )
+    except Exception:
+        return ""
+
+
+def _connectors_note() -> str:
+    """Connectors are hidden from the nav: KUDOS reveals them only to registered
+    users who ask, and never to unregistered guests."""
+    return (
+        "- You can connect external knowledge sources (GitHub/GitLab repos, websites, RSS feeds, "
+        "REST APIs, npm/PyPI packages). For REGISTERED users only, if they ask about connecting a "
+        "source, point them to the connectors page at /kudos/connect. Never mention this page to "
+        "unregistered/guest users."
+    )
+
+
+@router.get("/radio/overview")
+def radio_overview(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """The world as KUDOS sees it: continents, places and live radio towers."""
+    from app.core.radio_garden import overview
+    return overview(db)
+
+
+@router.get("/radio/search")
+def radio_search(q: str = "", limit: int = 20, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Search the world's radio places/stations."""
+    from app.core.radio_garden import search
+    return search(db, q, limit)
+
+
+@router.get("/radio/place/{place_id}")
+async def radio_place(place_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Live radio towers broadcasting from a specific place on the globe."""
+    from app.core.radio_garden import scan_place
+    return await scan_place(db, place_id)
+
+
+@router.get("/radio/near")
+def radio_near(lat: float, lon: float, radius_km: float = 250, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Places within a radius of coordinates (the nearest radio towers)."""
+    from app.core.radio_garden import near
+    return near(db, lat, lon, radius_km)
+
+
+@router.post("/radio/scan")
+async def radio_scan(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """(Re)build the internal world landscape by scanning radio.garden. Heavy:
+    rate-limited to once per 10 minutes per user."""
+    cache_key = f"radio_scan_{current_user.id}"
+    last = getattr(_radio_scan_state, cache_key, 0)
+    if time.time() - last < 600:
+        return {"error": "Already scanned recently — try again in a few minutes"}
+    _radio_scan_state[cache_key] = time.time()
+    from app.core.radio_garden import scan_world
+    result = await scan_world(db)
+    return result
+
+
+_radio_scan_state: dict = {}
+
+
+# ──────────────────────────────────────────────
+# ESSAYS & SUMMARIZATION
+# ──────────────────────────────────────────────
+
+@router.post("/essay")
+async def write_essay_endpoint(
+    topic: str = Form(""),
+    pages: int = Form(5),
+    conversation_id: int = Form(0),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Write a long-form essay — up to 50 pages. If the LLM can't reach the
+    requested length, KUDOS exhausts all the information it has on the topic."""
+    from app.core.essay_writer import write_essay, MAX_PAGES
+    if not topic.strip():
+        raise HTTPException(status_code=422, detail="topic is required")
+    pages = max(1, min(int(pages or 1), MAX_PAGES))
+
+    conv = None
+    if conversation_id:
+        try:
+            conv = db.query(KudosConversation).filter(
+                KudosConversation.id == conversation_id,
+                KudosConversation.user_id == current_user.id,
+            ).first()
+        except Exception:
+            conv = None
+    if not conv:
+        conv = KudosConversation(user_id=current_user.id, title=f"Essay: {topic[:80]}")
+        db.add(conv)
+        db.flush()
+
+    db.add(KudosMessage(conversation_id=conv.id, role="user", content=f"Write a {pages}-page essay on: {topic}"))
+
+    # Gather knowledge: retrieval + MCP + radio context for the topic.
+    sources = []
+    try:
+        sources = search_chunks(db, topic)
+    except Exception:
+        pass
+    if settings.MCP_ENABLED:
+        try:
+            from app.core.mcp_client import search_mcp_sources
+            mcp_sources = await search_mcp_sources(topic)
+            sources = mcp_sources + sources
+        except Exception:
+            pass
+    knowledge = "\n".join(
+        f"[{i}] {s.get('content', '')[:800]}" for i, s in enumerate(sources[:40], start=1)
+    ) or f"(KUDOS has no stored knowledge on \"{topic}\" yet — the essay will rely on general knowledge and clearly note gaps.)"
+
+    result = await write_essay(topic, pages, knowledge)
+    from app.core.privacy_guard import scrub_response
+    essay = scrub_response(result["essay"], allow_emails=True)
+
+    db.add(KudosMessage(
+        conversation_id=conv.id, role="kudos", content=essay,
+        sources=json.dumps([{"document_id": s.get("document_id"), "web_id": s.get("web_id"),
+                             "title": s.get("title", ""), "preview": s.get("content", "")[:200]} for s in sources[:5]]),
+    ))
+    try:
+        self_improver.log_question(current_user.id, topic, had_sources=bool(sources))
+    except Exception:
+        pass
+    db.commit()
+
+    result["essay"] = essay
+    result["conversation_id"] = conv.id
+    result["source_count"] = len(sources)
+    return result
+
+
+@router.post("/summarize")
+async def summarize_endpoint(
+    text: str = Form(""),
+    document_id: int = Form(0),
+    max_sentences: int = Form(5),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Summarize pasted text or a document KUDOS has learned."""
+    from app.core.quick_answers import summarize_text
+    content = text or ""
+    title = "Pasted text"
+    if document_id:
+        doc = db.query(KudosDocument).filter(KudosDocument.id == document_id).first()
+        if not doc:
+            raise HTTPException(status_code=404, detail="Document not found")
+        content = doc.content or ""
+        title = doc.title or title
+    if not content.strip():
+        raise HTTPException(status_code=422, detail="Provide text or a document_id to summarize")
+    summary = await summarize_text(content, max_sentences=max_sentences,
+                                   user_name=current_user.full_name.split()[0] if current_user.full_name else "")
+    return {"title": title, "summary": summary, "original_words": len(content.split()), "source_document_id": document_id or None}
+
+
+@router.post("/summarize/document/{document_id}")
+async def summarize_document_endpoint(document_id: int, max_sentences: int = 5, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Summarize a stored document by id (shortcut endpoint)."""
+    from app.core.quick_answers import summarize_text
+    doc = db.query(KudosDocument).filter(KudosDocument.id == document_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    summary = await summarize_text(doc.content or "", max_sentences=max_sentences)
+    return {"title": doc.title, "summary": summary, "original_words": len((doc.content or "").split())}
 

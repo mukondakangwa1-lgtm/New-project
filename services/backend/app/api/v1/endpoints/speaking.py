@@ -29,6 +29,48 @@ router = APIRouter()
 
 AUDIO_PREFIX = "audio/"
 
+# Normalize browser recording MIME types to a stable container name + extension
+# so the same recording plays everywhere. The real container is detected from
+# the upload's Content-Type (MediaRecorder picks webm/ogg/mp4 per browser).
+_MIME_TO_EXT = {
+    "audio/webm": "webm",
+    "audio/ogg": "ogg",
+    "audio/opus": "opus",
+    "audio/mp4": "m4a",
+    "audio/aac": "m4a",
+    "audio/mpeg": "mp3",
+    "audio/wav": "wav",
+    "audio/x-wav": "wav",
+}
+_EXT_TO_MIME = {ext: mime for mime, ext in _MIME_TO_EXT.items()}
+_EXT_TO_MIME.update({"m4a": "audio/mp4", "webm": "audio/webm", "ogg": "audio/ogg", "opus": "audio/opus", "mp3": "audio/mpeg", "wav": "audio/wav"})
+
+
+def _normalize_audio_mime(content_type: str) -> str:
+    """Strip codecs/params and map to a stable audio/* type, defaulting to webm."""
+    ctype = (content_type or "").split(";")[0].strip().lower()
+    if ctype.startswith("audio/"):
+        base = ctype.split("/", 1)[1]
+        if ctype in _MIME_TO_EXT:
+            return ctype
+        # e.g. audio/ogg;codecs=opus, audio/x-wav
+        if base == "ogg":
+            return "audio/ogg"
+        if base in ("mp4", "aac", "m4a"):
+            return "audio/mp4"
+        if base in ("mpeg", "mp3"):
+            return "audio/mpeg"
+        if base in ("wav", "x-wav"):
+            return "audio/wav"
+        if base.startswith("webm"):
+            return "audio/webm"
+        return ctype
+    return "audio/webm"
+
+
+def _ext_for_mime(mime: str) -> str:
+    return _MIME_TO_EXT.get(mime, "webm")
+
 
 # ──────────────────────────────────────────────
 # SPEAKING PRACTICE
@@ -147,23 +189,27 @@ async def upload_practice_audio(
     if not session:
         raise HTTPException(404, "Session not found")
 
-    ext = os.path.splitext(file.filename or "recording.webm")[1] or ".webm"
-    key = storage.new_key(AUDIO_PREFIX, f"speaking_{session.id}_{user.id}{ext}")
+    ext = _ext_for_mime(_normalize_audio_mime(file.content_type or ""))
+    key = storage.new_key(AUDIO_PREFIX, f"speaking_{session.id}_{user.id}.{ext}")
     content = await file.read()
-    storage.upload_bytes(key, content, content_type="audio/webm")
+    mime = _normalize_audio_mime(file.content_type or "") or "audio/webm"
+    storage.upload_bytes(key, content, content_type=mime)
 
     session.audio_url = key
+    session.audio_mime = mime
     db.commit()
     return {
         "status": "saved",
         "audio_url": f"/api/v1/studio/speaking/session/{session.id}/audio",
+        "audio_download_url": f"/api/v1/studio/speaking/session/{session.id}/audio?dl=1",
+        "mime": mime,
         "bytes": len(content),
     }
 
 
 @router.get("/speaking/session/{session_id}/audio")
-def get_practice_audio(session_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Stream a speaking session recording."""
+def get_practice_audio(session_id: int, dl: int = 0, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Stream (or download with ?dl=1) a speaking session recording."""
     session = (
         db.query(SpeakingSession)
         .filter(SpeakingSession.id == session_id, SpeakingSession.user_id == user.id)
@@ -172,14 +218,23 @@ def get_practice_audio(session_id: int, user: User = Depends(get_current_user), 
     if not session or not session.audio_url:
         raise HTTPException(404, "No recording for this session")
     key = session.audio_url if session.audio_url.startswith(AUDIO_PREFIX) else f"{AUDIO_PREFIX}{session.audio_url}"
+
+    mime = session.audio_mime or _normalize_audio_mime(_EXT_TO_MIME.get(key.rsplit(".", 1)[-1] or "", "") or "")
+    if not mime.startswith("audio/"):
+        mime = "audio/webm"
+    filename = f"speaking_{session_id}.{_ext_for_mime(mime)}"
+    headers = {}
+    if dl:
+        headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+
     path = storage.local_path(key)
     if path is not None:
         if not path.is_file():
             raise HTTPException(404, "Recording file missing")
-        return FileResponse(path, media_type="audio/webm", filename=key.rsplit("/", 1)[-1])
+        return FileResponse(path, media_type=mime, filename=filename, headers=headers)
     try:
         return StreamingResponse(
-            storage.stream(key), media_type="audio/webm", filename=key.rsplit("/", 1)[-1],
+            storage.stream(key), media_type=mime, headers=headers,
         )
     except FileNotFoundError:
         raise HTTPException(404, "Recording file missing")
@@ -222,6 +277,11 @@ def _session_dict(session: SpeakingSession, user: User | None = None) -> dict:
             f"/api/v1/studio/speaking/session/{session.id}/audio"
             if session.audio_url else None
         ),
+        "audio_download_url": (
+            f"/api/v1/studio/speaking/session/{session.id}/audio?dl=1"
+            if session.audio_url else None
+        ),
+        "audio_mime": session.audio_mime or "",
         "started_at": session.started_at.isoformat() if session.started_at else None,
         "completed_at": session.completed_at.isoformat() if session.completed_at else None,
     }

@@ -3,12 +3,15 @@ import { getAuthHeader, signOut } from "@/lib/api";
 import Layout from "@/components/Layout";
 import { ProgressBar, useLongProcess } from "@/components/ProgressBar";
 import KudosGuestChat from "@/components/KudosGuestChat";
+import RadioPanel from "@/components/RadioPanel";
+import MessageContent, { CopyButton } from "@/components/MessageContent";
 
 interface Message {
   id: number;
   role: string;
   content: string;
   sources: string;
+  media?: string;
   created_at: string;
 }
 interface Conversation {
@@ -102,7 +105,6 @@ export default function KudosChat() {
         created_at: new Date().toISOString(),
       },
     ]);
-
     try {
       // Use direct ask endpoint for speed
       const endpoint = arenaMode === "directchat"
@@ -131,6 +133,7 @@ export default function KudosChat() {
             role: "kudos",
             content: data.answer,
             sources: JSON.stringify(data.alternatives || []),
+            media: JSON.stringify(data.media || []),
             created_at: new Date().toISOString(),
           },
         ]);
@@ -161,6 +164,54 @@ export default function KudosChat() {
     setCurrentConvId(null);
     setMessages([]);
     setLastSources([]);
+  };
+
+  const writeEssay = async () => {
+    const topic = prompt("Essay topic:");
+    if (!topic || !topic.trim()) return;
+    const pagesStr = prompt("How many pages? (up to 50)", "5");
+    if (!pagesStr) return;
+    const pages = Math.max(1, Math.min(parseInt(pagesStr, 10) || 5, 50));
+    setLoading(true);
+    askProgress.start(`Writing a ${pages}-page essay…`);
+    try {
+      const body = new URLSearchParams();
+      body.set("topic", topic.trim());
+      body.set("pages", String(pages));
+      body.set("conversation_id", currentConvId ? String(currentConvId) : "0");
+      const res = await fetch("/api/v1/kudos/essay", {
+        method: "POST",
+        headers: { ...getAuthHeader(), "Content-Type": "application/x-www-form-urlencoded" },
+        body,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Essay failed");
+      setCurrentConvId(data.conversation_id);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Date.now(),
+          role: "user",
+          content: `Write a ${data.target_pages || pages}-page essay on: ${topic.trim()}`,
+          sources: "",
+          created_at: new Date().toISOString(),
+        },
+        {
+          id: Date.now() + 1,
+          role: "kudos",
+          content: data.essay,
+          sources: JSON.stringify(
+            (data.source_count ? [{ title: `${data.source_count} knowledge sources grounded this essay` }] : [])
+          ),
+          created_at: new Date().toISOString(),
+        },
+      ]);
+    } catch (e: any) {
+      alert(`⚠️ ${e.message}`);
+    } finally {
+      setLoading(false);
+      askProgress.stop();
+    }
   };
 
   const deleteConv = async (id: number) => {
@@ -210,12 +261,6 @@ export default function KudosChat() {
             className="bg-white border px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition"
           >
             🌐 Teach Web
-          </a>
-          <a
-            href="/kudos/connect"
-            className="bg-white border px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition"
-          >
-            🔌 Connectors
           </a>
           <a
             href="/kudos/admin"
@@ -456,9 +501,69 @@ export default function KudosChat() {
                   }`}
                 >
                   {msg.role === "kudos" && (
-                    <p className="text-xs font-bold text-primary mb-1">🧠 KUDOS</p>
+                    <div className="flex items-center justify-between gap-3 mb-1">
+                      <p className="text-xs font-bold text-primary">🧠 KUDOS</p>
+                      <CopyButton text={msg.content} label="⧉ Copy" />
+                    </div>
                   )}
-                  <div className="text-sm whitespace-pre-wrap">{msg.content}</div>
+                  {msg.role === "kudos" ? (
+                    <MessageContent text={msg.content} />
+                  ) : (
+                    <div className="text-sm whitespace-pre-wrap">{msg.content}</div>
+                  )}
+
+                  {/* Generated media (images, transient short videos) */}
+                  {msg.role === "kudos" && msg.media && (
+                    <div className="mt-3 space-y-3">
+                      {(() => {
+                        try {
+                          const items: any[] = JSON.parse(msg.media);
+                          return items.filter((m: any) => m.kind === "image" || m.kind === "video").map((m: any, i: number) =>
+                            m.kind === "image" ? (
+                              <div key={i} className="space-y-1">
+                                <img
+                                  src={m.url}
+                                  alt={m.caption || "KUDOS generated image"}
+                                  className="rounded-lg border border-gray-200 max-w-full"
+                                />
+                                <div className="flex gap-2">
+                                  <CopyButton text={window.location.origin + m.url} label="Copy image URL" />
+                                  <a
+                                    href={m.url}
+                                    download
+                                    className="text-xs px-2 py-1 rounded border bg-white text-gray-500 hover:bg-gray-100 transition"
+                                  >
+                                    ⬇ Download
+                                  </a>
+                                </div>
+                              </div>
+                            ) : (
+                              <div key={i} className="space-y-1">
+                                <video
+                                  src={m.url}
+                                  controls
+                                  className="rounded-lg border border-gray-200 max-w-full bg-black"
+                                  style={{ maxHeight: 320 }}
+                                />
+                                <div className="flex gap-2">
+                                  <CopyButton text={window.location.origin + m.url} label="Copy video URL" />
+                                  <a
+                                    href={`${m.url}?dl=1`}
+                                    className="text-xs px-2 py-1 rounded border bg-white text-gray-500 hover:bg-gray-100 transition"
+                                    title="Download short clip (not stored on the server)"
+                                  >
+                                    ⬇ Download clip
+                                  </a>
+                                </div>
+                              </div>
+                            )
+                          );
+                        } catch {
+                          return null;
+                        }
+                      })()}
+                    </div>
+                  )}
 
                   {/* Sources */}
                   {msg.role === "kudos" && msg.sources && (
@@ -499,6 +604,39 @@ export default function KudosChat() {
 
           {/* Input */}
           <div className="p-4 border-t bg-gray-50">
+            <div className="flex gap-1 mb-2">
+              <button
+                onClick={writeEssay}
+                disabled={loading}
+                className="text-xs px-3 py-1 rounded-full bg-amber-100 text-amber-800 hover:bg-amber-200 transition disabled:opacity-50"
+              >
+                📝 Essay (up to 50 pages)
+              </button>
+              <button
+                onClick={() => {
+                  const doc = prompt("Paste text to summarize, or leave blank to open your documents:");
+                  if (doc === null) return;
+                  if (doc.trim()) {
+                    const body = new URLSearchParams();
+                    body.set("text", doc);
+                    fetch("/api/v1/kudos/summarize", {
+                      method: "POST",
+                      headers: { ...getAuthHeader(), "Content-Type": "application/x-www-form-urlencoded" },
+                      body,
+                    })
+                      .then((r) => r.json())
+                      .then((d) => alert(`📋 ${d.title}\n\n${d.summary}`))
+                      .catch(() => alert("Could not summarize that text."));
+                  } else {
+                    window.location.assign("/kudos/archive");
+                  }
+                }}
+                className="text-xs px-3 py-1 rounded-full bg-sky-100 text-sky-800 hover:bg-sky-200 transition"
+              >
+                📋 Summarize
+              </button>
+            </div>
+            <RadioPanel />
             {/* Arena Mode Selector */}
             <div className="flex gap-1 mb-2">
               {[{ id: "battlemode", icon: "⚔️", label: "Battle" }, { id: "agent", icon: "🤖", label: "Agent" }, { id: "sidebyside", icon: "📊", label: "Compare" }, { id: "directchat", icon: "💬", label: "Direct" }].map((m) => (

@@ -255,6 +255,38 @@ def update_body(part: str, updates: dict, admin: User = Depends(require_admin)):
 
 
 # ──────────────────────────────────────────────
+# NETWORK DOCTOR (KUDOS reinforces the network)
+# ──────────────────────────────────────────────
+
+@router.get("/network/status")
+async def network_status(admin: User = Depends(require_admin)):
+    """Live network snapshot from the networkops sidecar."""
+    from app.core import network_ops
+    return await network_ops.network_status()
+
+
+@router.post("/network/diagnose")
+async def network_diagnose(admin: User = Depends(require_admin)):
+    """Run a full network diagnosis (containers, tailscale, funnel, TLS)."""
+    from app.core import network_ops
+    return await network_ops.network_diagnose()
+
+
+@router.post("/network/fix")
+async def network_fix(admin: User = Depends(require_admin)):
+    """Heal the network: restart tailscale, re-apply funnel, re-verify TLS."""
+    from app.core import network_ops
+    return await network_ops.network_fix()
+
+
+@router.get("/network/events")
+async def network_events(limit: int = 50, admin: User = Depends(require_admin)):
+    """Watchdog event log (auto-heal history)."""
+    from app.core import network_ops
+    return await network_ops.network_events(limit=limit)
+
+
+# ──────────────────────────────────────────────
 # ROOT TERMINAL
 # ──────────────────────────────────────────────
 
@@ -264,7 +296,7 @@ class RootCommand(BaseModel):
 
 
 @router.post("/root/exec")
-def root_execute(body: RootCommand, admin: User = Depends(require_admin)):
+async def root_execute(body: RootCommand, admin: User = Depends(require_admin)):
     """Execute a root command."""
     cmd = body.command.lower().strip()
     args = body.args.strip()
@@ -317,6 +349,21 @@ def root_execute(body: RootCommand, admin: User = Depends(require_admin)):
         "gaps": lambda: get_self_knowledge().get("things_to_learn", []),
         "capabilities": lambda: get_self_knowledge().get("capabilities", []),
     }
+
+    async def _network(command: str):
+        from app.core import network_ops
+        if command == "status":
+            return await network_ops.network_status()
+        if command == "diagnose":
+            return await network_ops.network_diagnose()
+        if command == "fix":
+            return await network_ops.network_fix()
+        if command == "events":
+            return await network_ops.network_events(limit=50)
+        return {"error": "network subcommands: status | diagnose | fix | events"}
+
+    if cmd == "network":
+        return {"command": "network", "result": await _network(args.lower().strip() or "status")}
 
     if cmd in commands:
         try:

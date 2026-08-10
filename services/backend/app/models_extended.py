@@ -293,10 +293,39 @@ class SpeakingSession(Base):
     self_rating = Column(Integer, nullable=True)  # 1-5
     notes = Column(Text, default="")
     audio_url = Column(Text, default="")  # path to saved recording
+    audio_mime = Column(String(60), default="")  # actual container format (webm/ogg/mp4)
     started_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     completed_at = Column(DateTime, nullable=True)
 
     user = relationship("User")
+
+
+class VoiceProfile(Base):
+    """KUDOS's signature voice: the superadmin captures their own voice and
+    it becomes the voice KUDOS speaks with on every platform."""
+    __tablename__ = "voice_profiles"
+
+    id = Column(Integer, primary_key=True)
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    tts_enabled = Column(Boolean, default=False)
+    cloned_voice_id = Column(String(120), default="")  # ElevenLabs voice id
+    default_voice = Column(String(120), default="")    # fallback voice name/id
+    signature_active = Column(Boolean, default=False)  # KUDOS speaks with the superadmin's voice
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class VoiceSample(Base):
+    """A recording of the superadmin reading for KUDOS's signature voice."""
+    __tablename__ = "voice_samples"
+
+    id = Column(Integer, primary_key=True)
+    profile_id = Column(Integer, ForeignKey("voice_profiles.id"), nullable=True)
+    storage_key = Column(String(255), default="")
+    mime = Column(String(60), default="audio/webm")
+    transcribed = Column(Text, default="")
+    duration_seconds = Column(Integer, default=0)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class Broadcast(Base):

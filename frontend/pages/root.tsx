@@ -10,6 +10,8 @@ export default function RootDashboard() {
   const [terminalInput, setTerminalInput] = useState("");
   const [newName, setNewName] = useState("");
   const [newGuideline, setNewGuideline] = useState("");
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [editText, setEditText] = useState("");
   const [loading, setLoading] = useState(true);
   const terminalRef = useRef<HTMLDivElement>(null);
 
@@ -39,16 +41,9 @@ export default function RootDashboard() {
     setLoading(false);
   };
 
-  const executeCommand = async () => {
-    if (!terminalInput.trim()) return;
-    const cmd = terminalInput.trim();
-    setTerminalOutput((prev) => [...prev, `$ ${cmd}`, ""]);
-    setTerminalInput("");
-
-    const parts = cmd.split(" ");
-    const command = parts[0];
-    const args = parts.slice(1).join(" ");
-
+  const runRoot = async (command: string, args: string) => {
+    const line = args ? `$ ${command} ${args}` : `$ ${command}`;
+    setTerminalOutput((prev) => [...prev, line, ""]);
     const res = await fetch("/api/v1/root/exec", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...getAuthHeader() },
@@ -56,11 +51,28 @@ export default function RootDashboard() {
     });
     if (res.ok) {
       const data = await res.json();
-      const output = typeof data.result === "string" ? data.result : JSON.stringify(data.result || data, null, 2);
+      const output = data.error
+        ? `Error: ${data.error}`
+        : typeof data.result === "string"
+        ? data.result
+        : JSON.stringify(data.result || data, null, 2);
       setTerminalOutput((prev) => [...prev, output, ""]);
+      if (["guidelines", "rule", "rules"].includes(command)) {
+        fetchData();
+      }
     } else {
       setTerminalOutput((prev) => [...prev, `Error: ${res.statusText}`, ""]);
     }
+  };
+
+  const executeCommand = async () => {
+    if (!terminalInput.trim()) return;
+    const cmd = terminalInput.trim();
+    setTerminalInput("");
+    const parts = cmd.split(" ");
+    const command = parts[0];
+    const args = parts.slice(1).join(" ");
+    await runRoot(command, args);
   };
 
   const renameKudos = async () => {
@@ -79,14 +91,20 @@ export default function RootDashboard() {
 
   const addGuideline = async () => {
     if (!newGuideline) return;
-    const res = await fetch(`/api/v1/root/guidelines/add?guideline=${encodeURIComponent(newGuideline)}`, {
-      method: "POST",
-      headers: getAuthHeader(),
-    });
-    if (res.ok) {
-      setNewGuideline("");
-      fetchData();
-    }
+    await runRoot("guidelines", `add ${newGuideline}`);
+    setNewGuideline("");
+  };
+
+  const saveEdit = async (i: number) => {
+    if (!editText.trim()) return;
+    await runRoot("guidelines", `edit ${i + 1} ${editText}`);
+    setEditingIndex(null);
+    setEditText("");
+  };
+
+  const deleteGuideline = async (i: number) => {
+    if (!window.confirm(`Delete rule ${i + 1}? This runs 'guidelines delete ${i + 1}' in the root terminal.`)) return;
+    await runRoot("guidelines", `delete ${i + 1}`);
   };
 
   return (
@@ -138,19 +156,56 @@ export default function RootDashboard() {
 
           {/* Guidelines */}
           <div className="bg-white rounded-xl border shadow p-4 md:p-6">
-            <h3 className="font-semibold text-lg mb-4">📜 KUDOS Guidelines</h3>
+            <h3 className="font-semibold text-lg mb-1">📜 KUDOS Guidelines</h3>
+            <p className="text-xs text-gray-400 mb-4">
+              Add, edit and delete rules here — every change also runs in the Root Terminal below
+              (guidelines add|edit &lt;n&gt;|delete &lt;n&gt;).
+            </p>
             <div className="space-y-2 mb-4">
               {guidelines.map((g, i) => (
                 <div key={i} className="flex items-start gap-2 text-sm">
-                  <span className="text-gray-400 font-mono">{i + 1}.</span>
-                  <span>{g}</span>
+                  <span className="text-gray-400 font-mono pt-0.5">{i + 1}.</span>
+                  {editingIndex === i ? (
+                    <div className="flex-1 flex gap-2">
+                      <input
+                        type="text"
+                        value={editText}
+                        onChange={(e) => setEditText(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && saveEdit(i)}
+                        className="flex-1 rounded border px-3 py-1 text-sm"
+                        autoFocus
+                      />
+                      <button onClick={() => saveEdit(i)} className="text-xs bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700">
+                        Save
+                      </button>
+                      <button onClick={() => { setEditingIndex(null); setEditText(""); }} className="text-xs bg-gray-100 px-3 py-1 rounded hover:bg-gray-200">
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <span className="flex-1">{g}</span>
+                      <button
+                        onClick={() => { setEditingIndex(i); setEditText(g); }}
+                        className="text-xs bg-yellow-100 text-yellow-700 px-3 py-1 rounded hover:bg-yellow-200"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => deleteGuideline(i)}
+                        className="text-xs bg-red-100 text-red-700 px-3 py-1 rounded hover:bg-red-200"
+                      >
+                        Delete
+                      </button>
+                    </>
+                  )}
                 </div>
               ))}
             </div>
             <div className="flex gap-2">
               <input type="text" value={newGuideline} onChange={(e) => setNewGuideline(e.target.value)}
                 className="flex-1 rounded border px-3 py-2 text-sm"
-                placeholder="Add new guideline..."
+                placeholder="Add new rule... (runs as: guidelines add <rule>)"
                 onKeyDown={(e) => e.key === "Enter" && addGuideline()} />
               <button onClick={addGuideline} className="bg-primary text-white px-4 py-2 rounded text-sm hover:bg-blue-800">
                 Add Rule
@@ -174,7 +229,7 @@ export default function RootDashboard() {
               <input type="text" value={terminalInput} onChange={(e) => setTerminalInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && executeCommand()}
                 className="flex-1 bg-transparent text-green-400 font-mono text-sm px-2 py-2 outline-none"
-                placeholder="Type a command (help, status, tree, files, read, gaps, abilities, log)" />
+                placeholder="help, status, guidelines add|edit <n>|delete <n>, tree, files, read, gaps, abilities, log" />
             </div>
           </div>
 

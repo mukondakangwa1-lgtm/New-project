@@ -9,6 +9,7 @@ from typing import Optional
 import httpx
 
 from app.core.config import settings
+from app.core.privacy_guard import GUARD_SYSTEM_NOTE as _PRIVACY_NOTE
 
 
 # ──────────────────────────────────────────────
@@ -122,11 +123,17 @@ def get_llm_status() -> list[dict]:
 # LLM QUERY FUNCTIONS
 # ──────────────────────────────────────────────
 
-async def query_google_gemini(prompt: str, system_prompt: str = "") -> Optional[str]:
-    """Query Google Gemini API."""
+async def query_google_gemini(prompt: str, system_prompt: str = "", media: Optional[list] = None) -> Optional[str]:
+    """Query Google Gemini API. `media` is a list of {"mime_type", "data"}
+    base64 payloads (images and/or video) for multimodal understanding."""
     api_key = get_api_key("google_gemini")
     if not api_key:
         return None
+
+    parts = [{"text": prompt}]
+    for m in (media or []):
+        if m.get("data"):
+            parts.append({"inline_data": {"mime_type": m.get("mime_type", "image/jpeg"), "data": m["data"]}})
 
     try:
         endpoint = f"{LLM_CONFIGS['google_gemini']['endpoint']}/{get_model('google_gemini')}:generateContent"
@@ -134,9 +141,7 @@ async def query_google_gemini(prompt: str, system_prompt: str = "") -> Optional[
             res = await client.post(
                 f"{endpoint}?key={api_key}",
                 json={
-                    "contents": [{
-                        "parts": [{"text": prompt}]
-                    }],
+                    "contents": [{"parts": parts}],
                     "systemInstruction": {
                         "parts": [{"text": system_prompt}] if system_prompt else [{"text": "You are KUDOS, a helpful AI assistant for a university Digital Campus. Be friendly, concise, and helpful. Respond like a knowledgeable friend."}]
                     },
@@ -159,13 +164,21 @@ async def query_google_gemini(prompt: str, system_prompt: str = "") -> Optional[
     return None
 
 
-async def query_openai(prompt: str, system_prompt: str = "") -> Optional[str]:
-    """Query OpenAI API."""
+async def query_openai(prompt: str, system_prompt: str = "", media: Optional[list] = None) -> Optional[str]:
+    """Query OpenAI API. `media` supports image_url content parts for vision."""
     api_key = get_api_key("openai")
     if not api_key:
         return None
 
     try:
+        user_content: list = [{"type": "text", "text": prompt}]
+        for m in (media or []):
+            if m.get("data") and m.get("mime_type", "").startswith("image/"):
+                user_content.append({
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{m['mime_type']};base64,{m['data']}"},
+                })
+
         async with httpx.AsyncClient(timeout=settings.LLM_TIMEOUT_SECONDS) as client:
             res = await client.post(
                 LLM_CONFIGS["openai"]["endpoint"],
@@ -173,7 +186,7 @@ async def query_openai(prompt: str, system_prompt: str = "") -> Optional[str]:
                     "model": get_model("openai"),
                     "messages": [
                         {"role": "system", "content": system_prompt or "You are KUDOS, a helpful AI assistant for a university Digital Campus. Be friendly, concise, and helpful."},
-                        {"role": "user", "content": prompt},
+                        {"role": "user", "content": user_content},
                     ],
                     "temperature": 0.7,
                     "max_tokens": 1024,
@@ -303,6 +316,7 @@ async def query_best_llm(
     prompt: str,
     system_prompt: str = "",
     provider: str | None = None,
+    media: Optional[list] = None,
 ) -> dict:
     """
     Route a prompt to the best LLM provider.
@@ -346,7 +360,7 @@ async def query_best_llm(
         started = time.monotonic()
         try:
             result = await asyncio.wait_for(
-                provider_functions[name](prompt, system_prompt), timeout=timeout
+                provider_functions[name](prompt, system_prompt, media), timeout=timeout
             )
         except Exception as exc:
             latency_ms = int((time.monotonic() - started) * 1000)
@@ -413,6 +427,7 @@ def build_human_prompt(
     soul_context: str = "",
     self_knowledge: str = "",
     terminal_context: str = "",
+    privacy_guard_system_note: str = "",
 ) -> tuple[str, str]:
     """
     Build a prompt that makes the LLM respond like a human.
@@ -448,6 +463,20 @@ SOUL (who you are — always stay true to this):
 
 WHAT YOU KNOW (built-in knowledge you can rely on):
 {self_knowledge if self_knowledge else "- You rely on the user's knowledge sources and your own experience."}
+
+TOOLS YOU CAN USE:
+- To CREATE an image: reply with a single line `IMAGE_PROMPT:<detailed prompt>` and nothing else.
+- To CREATE a short video clip (8-10 seconds): reply with a single line `VIDEO_PROMPT:<detailed prompt>` and nothing else.
+- To CALL a registered tool/API: reply with a single line `TOOL_CALL:<tool_name>|<json args>` and nothing else.
+- To REGISTER a new tool/API you need: reply with a single line `REGISTER_TOOL:<name>|<method>|<url>|<json headers>|<json body_schema>` and nothing else.
+Only use these markers when the user's request genuinely requires an action.
+
+LONG-FORM WRITING:
+- If the user asks for a long, in-depth, or "unlimited pages" essay or paper, you may write up to 50 pages. Write in well-structured sections. If you cannot reach the requested length, provide ALL the information you have on the topic and say so.
+- If the user pastes long text and asks to summarize, give a tight, useful summary (a few sentences) and offer to go deeper.
+- SHORT QUESTIONS get SHORT answers: when the user asks something quick, casual, or not deep (greetings, simple facts), reply in 1-3 short sentences — do not pad it out.
+- Any code, URL, or identifier you produce is presented in COPY-PASTE FRIENDLY form: plain, unbroken, in its own block so it can be copied exactly.
+{privacy_guard_system_note}
 """
 
     if terminal_context:
@@ -487,9 +516,11 @@ async def get_llm_response(
     soul_context: str = "",
     self_knowledge: str = "",
     terminal_context: str = "",
+    media: Optional[list] = None,
 ) -> Optional[str]:
     """
     Get a human-like response from the best available LLM.
+    `media` = [{"mime_type":..., "data": base64}] for images/video understanding.
     """
     user_prompt, system_prompt = build_human_prompt(
         question=question,
@@ -501,10 +532,85 @@ async def get_llm_response(
         soul_context=soul_context,
         self_knowledge=self_knowledge,
         terminal_context=terminal_context,
+        privacy_guard_system_note=_PRIVACY_NOTE,
     )
 
-    result = await query_best_llm(user_prompt, system_prompt)
+    result = await query_best_llm(user_prompt, system_prompt, media=media)
     return result.get("response")
+
+
+async def generate_image(prompt: str) -> dict:
+    """Generate an image with any configured provider (auto-detect).
+
+    Returns {"mime_type": ..., "data": base64, "provider": ...} or
+    {"error": ...}. Tries Google Gemini image generation first, then OpenAI.
+    """
+    import base64 as _b64
+
+    # 1) Google Gemini (image-capable models return inline_data).
+    if get_api_key("google_gemini"):
+        try:
+            endpoint = f"{LLM_CONFIGS['google_gemini']['endpoint']}/{settings.GEMINI_IMAGE_MODEL}:generateContent"
+            async with httpx.AsyncClient(timeout=min(settings.LLM_TIMEOUT_SECONDS * 2, 90)) as client:
+                res = await client.post(
+                    f"{endpoint}?key={get_api_key('google_gemini')}",
+                    json={
+                        "contents": [{"parts": [{"text": prompt}]}],
+                        "generationConfig": {"responseModalities": ["IMAGE", "TEXT"], "temperature": 1.0},
+                    },
+                    headers={"Content-Type": "application/json"},
+                )
+                if res.status_code == 200:
+                    data = res.json()
+                    for cand in data.get("candidates", []):
+                        for part in cand.get("content", {}).get("parts", []):
+                            inline = part.get("inlineData") or part.get("inline_data")
+                            if inline and inline.get("data"):
+                                return {
+                                    "mime_type": inline.get("mimeType", inline.get("mime_type", "image/png")),
+                                    "data": inline["data"],
+                                    "provider": "google_gemini",
+                                }
+                    return {"error": "Gemini returned no image"}
+                return {"error": f"Gemini image failed ({res.status_code}): {res.text[:200]}"}
+        except Exception as e:
+            return {"error": f"Gemini image error: {e}"}
+
+    # 2) OpenAI images API.
+    api_key = get_api_key("openai")
+    if api_key:
+        try:
+            async with httpx.AsyncClient(timeout=min(settings.LLM_TIMEOUT_SECONDS * 2, 90)) as client:
+                res = await client.post(
+                    "https://api.openai.com/v1/images/generations",
+                    json={
+                        "model": settings.OPENAI_IMAGE_MODEL,
+                        "prompt": prompt,
+                        "n": 1,
+                        "size": "1024x1024",
+                        "response_format": "b64_json",
+                    },
+                    headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                )
+                if res.status_code == 200:
+                    item = res.json().get("data", [{}])[0]
+                    if item.get("b64_json"):
+                        return {"mime_type": "image/png", "data": item["b64_json"], "provider": "openai"}
+                    if item.get("url"):
+                        img = await client.get(item["url"])
+                        if img.status_code == 200:
+                            return {"mime_type": "image/png", "data": _b64.b64encode(img.content).decode(), "provider": "openai"}
+                    return {"error": "OpenAI returned no image"}
+                return {"error": f"OpenAI image failed ({res.status_code}): {res.text[:200]}"}
+        except Exception as e:
+            return {"error": f"OpenAI image error: {e}"}
+
+    return {"error": "No image provider configured (set Gemini or OpenAI key in the LLM panel)"}
+
+
+def media_provider_configured() -> bool:
+    """True if at least one provider supports multimodal/vision."""
+    return bool(get_api_key("google_gemini") or get_api_key("openai"))
 
 
 def extract_citations(text: str, sources: list[dict], max_index: int = 9) -> list[dict]:

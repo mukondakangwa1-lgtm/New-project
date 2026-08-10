@@ -96,6 +96,31 @@ class Settings(BaseSettings):
     LLM_TIMEOUT_SECONDS: float = 30.0
     LLM_COOLDOWN_SECONDS: float = 60.0
 
+    # Vision + media generation (auto-detected by provider key availability).
+    GEMINI_IMAGE_MODEL: str = "gemini-2.5-flash-image"
+    OPENAI_IMAGE_MODEL: str = "gpt-image-1"
+    # Video generation (up to MAX_VIDEO_SECONDS; clips are stitched together).
+    GEMINI_VIDEO_MODEL: str = "veo-3.0-generation-001"
+    OPENAI_VIDEO_MODEL: str = "sora-2"
+    VIDEO_CLIP_MAX_SECONDS: int = 8
+    MAX_VIDEO_SECONDS: int = 300  # 5 minutes
+    # Chat/agent videos are short clips only, served as single-use downloads
+    # and never persisted to object storage.
+    MAX_CHAT_VIDEO_SECONDS: int = 10
+
+    # KUDOS Voice — speech-to-text & text-to-speech.
+    ELEVENLABS_API_KEY: str = ""
+    ELEVENLABS_TTS_MODEL: str = "eleven_multilingual_v2"
+    OPENAI_TTS_MODEL: str = "gpt-4o-mini-tts"
+    OPENAI_TTS_VOICE: str = "nova"  # fallback voice until the signature voice is cloned
+
+    # Registered external tool execution
+    TOOL_CALL_TIMEOUT_SECONDS: float = 30.0
+    TOOL_CALL_MAX_RESPONSE_CHARS: int = 8000
+
+    # networkops sidecar (KUDOS network doctor). Empty = feature disabled.
+    NETWORKOPS_URL: str = ""
+
     # Optional semantic retrieval. Keyword search remains the safe fallback.
     SEMANTIC_SEARCH_ENABLED: bool = False
     EMBED_PROVIDER: str = "openai"
