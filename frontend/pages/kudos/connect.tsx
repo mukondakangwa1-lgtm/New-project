@@ -72,6 +72,25 @@ export default function KudosConnect() {
   const [autoSyncStatus, setAutoSyncStatus] = useState<AutoSyncStatus | null>(null);
   const [sessionState, setSessionState] = useState<"checking" | "signed-in" | "guest">("checking");
 
+  const fetchData = async () => {
+    try {
+      const [connRes, packRes] = await Promise.all([
+        fetch("/api/v1/kudos/connectors/", { headers: getAuthHeader() }),
+        fetch("/api/v1/kudos/connectors/packs", { headers: getAuthHeader() }),
+      ]);
+      if (connRes.ok) setConnectors(await connRes.json());
+      if (packRes.ok) setPacks(await packRes.json());
+    } catch {}
+    setLoading(false);
+  };
+
+  const fetchAutoSync = async () => {
+    try {
+      const res = await fetch("/api/v1/kudos/connectors/auto-sync/status", { headers: getAuthHeader() });
+      if (res.ok) setAutoSyncStatus(await res.json());
+    } catch {}
+  };
+
   // This page is hidden from the nav: it's only reachable via KUDOS chat.
   // Unregistered users (guests) are never allowed here.
   useEffect(() => {
@@ -83,7 +102,7 @@ export default function KudosConnect() {
           fetchAutoSync();
         }
       })
-      .catch(() => setSessionState("guest"));
+      .catch(() => { setSessionState("guest"); setLoading(false); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
