@@ -3,15 +3,18 @@ KUDOS Sandbox — Safe testing environment
 KUDOS tests features before offering them for superadmin approval.
 Isolated execution, rollback capability, proposal workflow.
 """
+
 from __future__ import annotations
 
 import os
 import subprocess
-from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Optional
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from app.core.workspace import Workspace
+
+import contextlib
 
 from app.core.paths import project_root
 from app.models import KudosMemory
@@ -31,11 +34,13 @@ _proposal_counter = 0
 
 
 def _log(action: str, details: str):
-    _sandbox_log.append({
-        "action": action,
-        "details": details,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    })
+    _sandbox_log.append(
+        {
+            "action": action,
+            "details": details,
+            "timestamp": datetime.now(UTC).isoformat(),
+        }
+    )
     if len(_sandbox_log) > 500:
         _sandbox_log[:] = _sandbox_log[-200:]
 
@@ -44,11 +49,12 @@ def _log(action: str, details: str):
 # PROPOSAL SYSTEM
 # ──────────────────────────────────────────────
 
+
 def create_proposal(
     title: str,
     description: str,
     category: str,
-    changes: list[dict] = None,
+    changes: list[dict] | None = None,
     test_code: str = "",
 ) -> dict:
     """KUDOS creates a proposal for superadmin to review."""
@@ -64,7 +70,7 @@ def create_proposal(
         "test_code": test_code,
         "status": "pending",  # pending, testing, approved, rejected, deployed
         "test_result": None,
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
         "reviewed_at": None,
         "deployed_at": None,
     }
@@ -73,14 +79,14 @@ def create_proposal(
     return proposal
 
 
-def list_proposals(status: Optional[str] = None) -> list[dict]:
+def list_proposals(status: str | None = None) -> list[dict]:
     """List all proposals."""
     if status:
         return [p for p in _sandbox_proposals if p["status"] == status]
     return _sandbox_proposals
 
 
-def get_proposal(proposal_id: int) -> Optional[dict]:
+def get_proposal(proposal_id: int) -> dict | None:
     """Get a specific proposal."""
     for p in _sandbox_proposals:
         if p["id"] == proposal_id:
@@ -91,6 +97,7 @@ def get_proposal(proposal_id: int) -> Optional[dict]:
 # ──────────────────────────────────────────────
 # TESTING ENGINE
 # ──────────────────────────────────────────────
+
 
 def _python_bin() -> str:
     """Locate a usable Python interpreter for the backend venv.
@@ -137,7 +144,10 @@ def test_proposal(proposal_id: int) -> dict:
         result = subprocess.run(
             [python, "-m", "pytest", "tests/", "-q", "--tb=no"],
             cwd=os.path.join(REPO_PATH, "services", "backend"),
-            capture_output=True, text=True, timeout=30,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
         )
         if result.returncode == 0:
             results["tests"].append({"name": "existing_tests", "status": "PASS", "details": "All tests passed"})
@@ -158,7 +168,10 @@ def test_proposal(proposal_id: int) -> dict:
                 try:
                     subprocess.run(
                         [python, "-m", "py_compile", full_path],
-                        cwd=REPO_PATH, capture_output=True, timeout=10,
+                        cwd=REPO_PATH,
+                        capture_output=True,
+                        timeout=10,
+                        check=False,
                     )
                     results["tests"].append({"name": f"syntax_{filepath}", "status": "PASS"})
                     results["passed"] += 1
@@ -171,7 +184,10 @@ def test_proposal(proposal_id: int) -> dict:
         result = subprocess.run(
             [python, "-c", "from app.main import app; print('OK')"],
             cwd=os.path.join(REPO_PATH, "services", "backend"),
-            capture_output=True, text=True, timeout=10,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
         )
         if "OK" in result.stdout:
             results["tests"].append({"name": "import_check", "status": "PASS"})
@@ -200,6 +216,7 @@ def test_proposal(proposal_id: int) -> dict:
 # APPROVAL & DEPLOYMENT
 # ──────────────────────────────────────────────
 
+
 def recommend_proposal(proposal_id: int) -> dict:
     """KUDOS reviews a tested proposal and decides whether to recommend it.
 
@@ -220,10 +237,13 @@ def recommend_proposal(proposal_id: int) -> dict:
     proposal["status"] = "testing"
 
     test_result = proposal.get("test_result") or {"passed": 0, "failed": 0, "tests": []}
-    summary = "\n".join(
-        f"- {t.get('name')}: {t.get('status')} ({t.get('details', '')[:160]})"
-        for t in (test_result.get("tests") or [])
-    ) or "no tests recorded"
+    summary = (
+        "\n".join(
+            f"- {t.get('name')}: {t.get('status')} ({t.get('details', '')[:160]})"
+            for t in (test_result.get("tests") or [])
+        )
+        or "no tests recorded"
+    )
 
     system_prompt = (
         "You are KUDOS's sandbox reviewer. A university feature proposal has "
@@ -251,7 +271,7 @@ def recommend_proposal(proposal_id: int) -> dict:
         "decision": decision,
         "confidence": confidence,
         "rationale": rationale,
-        "reviewed_at": datetime.now(timezone.utc).isoformat(),
+        "reviewed_at": datetime.now(UTC).isoformat(),
     }
     proposal["recommendation"] = recommendation
     proposal["status"] = "recommended" if decision == "recommend" else "not_recommended"
@@ -299,17 +319,41 @@ def _parse_recommendation(raw: str, test_result: dict) -> tuple[str, float, str]
 
 SANDBOX_KNOWLEDGE = [
     ("concept", "A sandbox is an isolated environment for safely testing changes without touching the main system."),
-    ("concept", "KUDOS sandbox flow: proposal created by the admin panel, tests run in isolation, KUDOS recommends, the superadmin approves, deployment commits via git."),
+    (
+        "concept",
+        "KUDOS sandbox flow: proposal created by the admin panel, tests run in isolation, KUDOS recommends, the superadmin approves, deployment commits via git.",  # noqa: E501
+    ),
     ("concept", "Sandbox file writes keep a .sandbox_backup of every touched file so anything can be rolled back."),
     ("concept", "Sandbox tests: full pytest suite, syntax check on changed Python files, and an app import check."),
-    ("concept", "Sandbox isolation: tests use a separate SQLite database, subprocess limits and timeouts, so failures do not touch production."),
-    ("concept", "The sandbox browses only through the Secure Web Bridge, which validates every URL to block private and reserved networks."),
-    ("fact", "The internet uses HTTPS (TLS) to encrypt traffic between clients and servers; the bridge only allows https URLs."),
+    (
+        "concept",
+        "Sandbox isolation: tests use a separate SQLite database, subprocess limits and timeouts, so failures do not touch production.",  # noqa: E501
+    ),
+    (
+        "concept",
+        "The sandbox browses only through the Secure Web Bridge, which validates every URL to block private and reserved networks.",  # noqa: E501
+    ),
+    (
+        "fact",
+        "The internet uses HTTPS (TLS) to encrypt traffic between clients and servers; the bridge only allows https URLs.",  # noqa: E501
+    ),
     ("fact", "A URL is: scheme://host[:port]/path?query — the bridge enforces an https scheme and a real public host."),
-    ("fact", "SSRF is an attack where a server-side request is tricked into hitting internal addresses; blocking private IPs, loopback and link-local ranges prevents it."),
-    ("fact", "DNS resolves host names to addresses; the bridge re-validates the address after every redirect for up to 4 hops."),
-    ("fact", "Web content fetched by the bridge is sanitized: scripts and styles are stripped, size capped at 256 KB, then truncated to plain text for the LLM."),
-    ("fact", "KUDOS also learns the internet through kudos web connectors and the Internet Archive; everything is chunked, embedded, and searchable."),
+    (
+        "fact",
+        "SSRF is an attack where a server-side request is tricked into hitting internal addresses; blocking private IPs, loopback and link-local ranges prevents it.",  # noqa: E501
+    ),
+    (
+        "fact",
+        "DNS resolves host names to addresses; the bridge re-validates the address after every redirect for up to 4 hops.",  # noqa: E501
+    ),
+    (
+        "fact",
+        "Web content fetched by the bridge is sanitized: scripts and styles are stripped, size capped at 256 KB, then truncated to plain text for the LLM.",  # noqa: E501
+    ),
+    (
+        "fact",
+        "KUDOS also learns the internet through kudos web connectors and the Internet Archive; everything is chunked, embedded, and searchable.",  # noqa: E501
+    ),
 ]
 
 
@@ -341,21 +385,24 @@ def seed_sandbox_knowledge(db) -> int:
     if db.query(KudosMemory).filter(KudosMemory.source == "sandbox-kb").first():
         return 0
     seeded = 0
-    try:
+    with contextlib.suppress(Exception):
         db.rollback()
-    except Exception:
-        pass
     for kind, content in SANDBOX_KNOWLEDGE:
         try:
             write_memory(
-                db, user_id=SANDBOX_KB_USER_ID,
-                content=content, layer="knowledge", kind=kind,
-                importance=0.8, source="sandbox-kb",
+                db,
+                user_id=SANDBOX_KB_USER_ID,
+                content=content,
+                layer="knowledge",
+                kind=kind,
+                importance=0.8,
+                source="sandbox-kb",
             )
             seeded += 1
         except Exception:
             continue
     return seeded
+
 
 def approve_proposal(proposal_id: int) -> dict:
     """Superadmin approves a proposal."""
@@ -366,7 +413,7 @@ def approve_proposal(proposal_id: int) -> dict:
         return {"error": f"Cannot approve: status is {proposal['status']}"}
 
     proposal["status"] = "approved"
-    proposal["reviewed_at"] = datetime.now(timezone.utc).isoformat()
+    proposal["reviewed_at"] = datetime.now(UTC).isoformat()
     _log("approved", f"Proposal #{proposal_id} approved by superadmin")
     return {"status": "approved", "proposal": proposal}
 
@@ -378,7 +425,7 @@ def reject_proposal(proposal_id: int, reason: str = "") -> dict:
         return {"error": "Proposal not found"}
 
     proposal["status"] = "rejected"
-    proposal["reviewed_at"] = datetime.now(timezone.utc).isoformat()
+    proposal["reviewed_at"] = datetime.now(UTC).isoformat()
     proposal["rejection_reason"] = reason
     _log("rejected", f"Proposal #{proposal_id} rejected: {reason}")
     return {"status": "rejected"}
@@ -408,7 +455,11 @@ def deploy_proposal(proposal_id: int) -> dict:
 
         result = subprocess.run(
             ["git", "add", "--", *changed_files],
-            cwd=REPO_PATH, capture_output=True, text=True, timeout=10,
+            cwd=REPO_PATH,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
         )
         if result.returncode != 0:
             return {"error": f"Git add failed: {result.stderr[:200]}"}
@@ -416,17 +467,25 @@ def deploy_proposal(proposal_id: int) -> dict:
         commit_msg = f"kudos: {proposal['title']}\n\n{proposal['description']}\n\nProposal #{proposal['id']}"
         result = subprocess.run(
             ["git", "commit", "-m", commit_msg],
-            cwd=REPO_PATH, capture_output=True, text=True, timeout=10,
+            cwd=REPO_PATH,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
         )
 
         if result.returncode == 0:
             # Get hash
             hash_result = subprocess.run(
                 ["git", "rev-parse", "HEAD"],
-                cwd=REPO_PATH, capture_output=True, text=True, timeout=10,
+                cwd=REPO_PATH,
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
             )
             proposal["status"] = "deployed"
-            proposal["deployed_at"] = datetime.now(timezone.utc).isoformat()
+            proposal["deployed_at"] = datetime.now(UTC).isoformat()
             proposal["commit_hash"] = hash_result.stdout.strip()[:8]
             _log("deployed", f"Proposal #{proposal_id} deployed: {proposal['commit_hash']}")
             return {"status": "deployed", "commit": proposal["commit_hash"]}
@@ -443,10 +502,10 @@ def deploy_proposal(proposal_id: int) -> dict:
 
 # Proposals may only touch files inside a disposable task workspace. The
 # sandbox never writes to the main working tree.
-_default_workspace: Optional["Workspace"] = None
+_default_workspace: Workspace | None = None
 
 
-def _get_workspace() -> "Workspace":
+def _get_workspace() -> Workspace:
     """Lazily create the default sandbox workspace (one per process)."""
     global _default_workspace
     if _default_workspace is None or not _default_workspace.path.exists():
@@ -523,6 +582,7 @@ def rollback_file(filepath: str) -> dict:
 # ──────────────────────────────────────────────
 # SANDBOX STATUS
 # ──────────────────────────────────────────────
+
 
 def get_sandbox_status() -> dict:
     """Get sandbox status."""

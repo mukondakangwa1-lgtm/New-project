@@ -8,10 +8,10 @@ from bs4 import BeautifulSoup
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.api.v1.endpoints.kudos import simple_summarize
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models import KudosWebKnowledge, User
-from app.api.v1.endpoints.kudos import simple_summarize
 
 router = APIRouter()
 
@@ -19,6 +19,7 @@ router = APIRouter()
 # ──────────────────────────────────────────────
 # DUCKDUCKGO SEARCH (No API key needed)
 # ──────────────────────────────────────────────
+
 
 @router.post("/search")
 async def search_and_learn(
@@ -55,6 +56,7 @@ async def search_and_learn(
                 # Extract actual URL from DuckDuckGo redirect
                 if "uddg=" in href:
                     import urllib.parse
+
                     href = urllib.parse.parse_qs(urllib.parse.urlparse(href).query).get("uddg", [href])[0]
 
                 # Fetch and learn from the page
@@ -96,12 +98,13 @@ async def search_and_learn(
         }
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Search failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Search failed: {e}") from e
 
 
 # ──────────────────────────────────────────────
 # WIKIPEDIA CONNECTOR (Vast free knowledge)
 # ──────────────────────────────────────────────
+
 
 @router.post("/wikipedia")
 async def learn_from_wikipedia(
@@ -147,7 +150,7 @@ async def learn_from_wikipedia(
                 article_data = article_res.json()
                 pages_data = article_data.get("query", {}).get("pages", {})
 
-                for page_id, page_info in pages_data.items():
+                for _page_id, page_info in pages_data.items():
                     extract = page_info.get("extract", "")
                     if len(extract) < 100:
                         continue
@@ -173,12 +176,13 @@ async def learn_from_wikipedia(
             }
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Wikipedia lookup failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Wikipedia lookup failed: {e}") from e
 
 
 # ──────────────────────────────────────────────
 # HUMAN INTERACTION LEARNING (Social patterns)
 # ──────────────────────────────────────────────
+
 
 @router.post("/learn-conversation")
 async def learn_conversation_patterns(
@@ -214,6 +218,7 @@ async def learn_conversation_patterns(
                     href = links[0].get("href", "")
                     if "uddg=" in href:
                         import urllib.parse
+
                         href = urllib.parse.parse_qs(urllib.parse.urlparse(href).query).get("uddg", [href])[0]
 
                     page_res = await client.get(href, timeout=10, follow_redirects=True)
@@ -246,6 +251,7 @@ async def learn_conversation_patterns(
 # ──────────────────────────────────────────────
 # LLM LEARNING MODE
 # ──────────────────────────────────────────────
+
 
 @router.post("/learn-llm-style")
 async def learn_llm_style(
@@ -280,7 +286,7 @@ async def learn_llm_style(
                 data = res.json()
                 pages = data.get("query", {}).get("pages", {})
 
-                for page_id, page_info in pages.items():
+                for _page_id, page_info in pages.items():
                     extract = page_info.get("extract", "")
                     if len(extract) > 100:
                         web = KudosWebKnowledge(

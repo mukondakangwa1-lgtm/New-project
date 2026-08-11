@@ -1,6 +1,7 @@
 """
 Digital Campus - Course Endpoints
 """
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -168,6 +169,4 @@ def list_enrollments(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="You are not enrolled in this course",
             )
-    return (
-        db.query(Enrollment).filter(Enrollment.course_id == course_id).all()
-    )
+    return db.query(Enrollment).filter(Enrollment.course_id == course_id).all()

@@ -8,9 +8,9 @@ builds an internal geographic landscape KUDOS can query and tune into.
 
 Public data source: https://radio.garden/ (community API /api/ara/content/...)
 """
+
 import math
-import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 from sqlalchemy.orm import Session
@@ -81,14 +81,16 @@ def _channels_from_page(data: dict) -> list[dict]:
                         sid = url.rsplit("/", 1)[-1] or page.get("title", "")[:40]
                         place = page.get("place") or {}
                         country = page.get("country") or {}
-                        channels.append({
-                            "id": sid,
-                            "url": url,
-                            "title": page.get("title") or "",
-                            "place_name": (place.get("title") if isinstance(place, dict) else "") or "",
-                            "country": (country.get("title") if isinstance(country, dict) else "") or "",
-                            "genre": page.get("subtitle") or page.get("genre") or "",
-                        })
+                        channels.append(
+                            {
+                                "id": sid,
+                                "url": url,
+                                "title": page.get("title") or "",
+                                "place_name": (place.get("title") if isinstance(place, dict) else "") or "",
+                                "country": (country.get("title") if isinstance(country, dict) else "") or "",
+                                "genre": page.get("subtitle") or page.get("genre") or "",
+                            }
+                        )
             elif isinstance(entry, dict):
                 # Legacy: content entry is itself a channel.
                 channels.append(entry)
@@ -113,7 +115,7 @@ async def scan_world(db: Session, max_places: int = 8000, max_stations_per_place
 
     added_places = 0
     total_stations = 0
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     for item in _places_from_data(data):
         place_id = item.get("id")
@@ -161,7 +163,7 @@ async def scan_place(db: Session, place_id: str) -> dict:
     except Exception as e:
         return {"error": f"radio.garden page unreachable: {e}"}
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     title = (data.get("data") or {}).get("title") if isinstance(data, dict) else ""
     place = db.query(RadioPlace).filter(RadioPlace.place_id == place_id).first()
     if not place:
@@ -190,11 +192,16 @@ async def scan_place(db: Session, place_id: str) -> dict:
         station.frequency = (ch.get("freq") or "")[:30]
         station.last_seen_at = now
         station.is_live = True
-        stations.append({
-            "id": station.station_id, "title": station.title, "genre": station.genre,
-            "frequency": station.frequency, "current_track": station.current_track,
-            "stream_url": stream_url_for(station),
-        })
+        stations.append(
+            {
+                "id": station.station_id,
+                "title": station.title,
+                "genre": station.genre,
+                "frequency": station.frequency,
+                "current_track": station.current_track,
+                "stream_url": stream_url_for(station),
+            }
+        )
     place.live_station_count = len(stations)
     db.commit()
     return {"place": place.name, "lat": place.lat, "lon": place.lon, "stations": stations}
@@ -224,18 +231,41 @@ def search(db: Session, q: str, limit: int = 20) -> dict:
     places = (
         db.query(RadioPlace)
         .filter(RadioPlace.name.ilike(like) | RadioPlace.country.ilike(like))
-        .order_by(RadioPlace.name).limit(limit).all()
+        .order_by(RadioPlace.name)
+        .limit(limit)
+        .all()
     )
     stations = (
         db.query(RadioStation)
         .filter(RadioStation.title.ilike(like) | RadioStation.genre.ilike(like))
-        .order_by(RadioStation.title).limit(limit).all()
+        .order_by(RadioStation.title)
+        .limit(limit)
+        .all()
     )
     return {
-        "places": [{"place_id": p.place_id, "name": p.name, "country": p.country, "continent": p.continent,
-                    "lat": p.lat, "lon": p.lon, "stations": p.live_station_count or 0} for p in places],
-        "stations": [{"id": s.station_id, "title": s.title, "place": s.place_name, "country": s.country,
-                      "genre": s.genre, "stream_url": stream_url_for(s)} for s in stations],
+        "places": [
+            {
+                "place_id": p.place_id,
+                "name": p.name,
+                "country": p.country,
+                "continent": p.continent,
+                "lat": p.lat,
+                "lon": p.lon,
+                "stations": p.live_station_count or 0,
+            }
+            for p in places
+        ],
+        "stations": [
+            {
+                "id": s.station_id,
+                "title": s.title,
+                "place": s.place_name,
+                "country": s.country,
+                "genre": s.genre,
+                "stream_url": stream_url_for(s),
+            }
+            for s in stations
+        ],
     }
 
 
@@ -246,9 +276,17 @@ def near(db: Session, lat: float, lon: float, radius_km: float = 250) -> list[di
     for p in places:
         d = _haversine_km(lat, lon, p.lat, p.lon)
         if d <= radius_km:
-            results.append({"place_id": p.place_id, "name": p.name, "country": p.country,
-                            "distance_km": round(d, 1), "lat": p.lat, "lon": p.lon,
-                            "stations": p.live_station_count or 0})
+            results.append(
+                {
+                    "place_id": p.place_id,
+                    "name": p.name,
+                    "country": p.country,
+                    "distance_km": round(d, 1),
+                    "lat": p.lat,
+                    "lon": p.lon,
+                    "stations": p.live_station_count or 0,
+                }
+            )
     results.sort(key=lambda r: r["distance_km"])
     return results[:30]
 

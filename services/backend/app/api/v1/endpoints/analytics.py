@@ -1,15 +1,25 @@
 """
 Digital Campus - Admin Analytics Dashboard
 """
-from datetime import datetime, timezone, timedelta
+
+from datetime import UTC, datetime, timedelta
+
 from fastapi import APIRouter, Depends
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.deps import require_admin
-from app.models import User, Course, Enrollment, Attendance, Session as SessionModel, KudosConversation, KudosMessage
-from app.models_extended import Assignment, Submission, ExamAttempt
+from app.models import (
+    Attendance,
+    Course,
+    Enrollment,
+    KudosConversation,
+    KudosMessage,
+    User,
+)
+from app.models import Session as SessionModel
+from app.models_extended import Assignment, ExamAttempt, Submission
 
 router = APIRouter()
 
@@ -20,8 +30,8 @@ def admin_overview(db: Session = Depends(get_db), admin: User = Depends(require_
     return {
         "users": {
             "total": db.query(User).count(),
-            "admins": db.query(User).filter(User.is_admin == True).count(),
-            "students": db.query(User).filter(User.is_admin == False).count(),
+            "admins": db.query(User).filter(User.is_admin).count(),
+            "students": db.query(User).filter(~User.is_admin).count(),
         },
         "courses": {
             "total": db.query(Course).count(),
@@ -53,16 +63,18 @@ def admin_overview(db: Session = Depends(get_db), admin: User = Depends(require_
 @router.get("/attendance-trends")
 def attendance_trends(days: int = 30, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
     """Get attendance trends over time."""
-    since = datetime.now(timezone.utc) - timedelta(days=days)
+    since = datetime.now(UTC) - timedelta(days=days)
     sessions = db.query(SessionModel).filter(SessionModel.session_date >= since.date()).all()
     trends = []
     for s in sessions:
         checkins = db.query(Attendance).filter(Attendance.session_id == s.id).count()
-        trends.append({
-            "date": str(s.session_date),
-            "course_id": s.course_id,
-            "checkins": checkins,
-        })
+        trends.append(
+            {
+                "date": str(s.session_date),
+                "course_id": s.course_id,
+                "checkins": checkins,
+            }
+        )
     return {"days": days, "data": trends}
 
 
@@ -83,7 +95,7 @@ def top_courses(limit: int = 10, db: Session = Depends(get_db), admin: User = De
 @router.get("/engagement")
 def engagement_stats(db: Session = Depends(get_db), admin: User = Depends(require_admin)):
     """Get user engagement metrics."""
-    active_users = db.query(User).filter(User.is_active == True).count()
+    active_users = db.query(User).filter(User.is_active).count()
     users_with_submissions = db.query(func.count(func.distinct(Submission.student_id))).scalar() or 0
     users_with_attendance = db.query(func.count(func.distinct(Attendance.student_id))).scalar() or 0
     return {

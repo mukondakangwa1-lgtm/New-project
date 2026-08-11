@@ -8,12 +8,11 @@ import httpx
 from bs4 import BeautifulSoup
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from typing import Optional
 
+from app.api.v1.endpoints.kudos import simple_summarize
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models import KudosWebKnowledge, User
-from app.api.v1.endpoints.kudos import simple_summarize
 
 router = APIRouter()
 
@@ -25,10 +24,11 @@ WAYBACK_API = "https://web.archive.org"
 # WAYBACK MACHINE — Archived Web Pages
 # ──────────────────────────────────────────────
 
+
 @router.post("/wayback")
 async def learn_from_wayback(
     url: str,
-    year: Optional[int] = None,
+    year: int | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -106,7 +106,7 @@ async def learn_from_wayback(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(500, f"Error fetching from Wayback Machine: {str(e)[:200]}")
+        raise HTTPException(500, f"Error fetching from Wayback Machine: {str(e)[:200]}") from e
 
 
 @router.get("/wayback/history")
@@ -132,13 +132,15 @@ async def wayback_history(url: str, limit: int = 20):
             snapshots = []
             for row in rows[1:]:  # Skip header
                 ts = row[0]
-                snapshots.append({
-                    "timestamp": ts,
-                    "year": ts[:4],
-                    "month": ts[4:6],
-                    "day": ts[6:8],
-                    "url": f"https://web.archive.org/web/{ts}/{url}",
-                })
+                snapshots.append(
+                    {
+                        "timestamp": ts,
+                        "year": ts[:4],
+                        "month": ts[4:6],
+                        "day": ts[6:8],
+                        "url": f"https://web.archive.org/web/{ts}/{url}",
+                    }
+                )
 
             return {"url": url, "snapshots": snapshots, "count": len(snapshots)}
     except Exception as e:
@@ -148,6 +150,7 @@ async def wayback_history(url: str, limit: int = 20):
 # ──────────────────────────────────────────────
 # INTERNET ARCHIVE SEARCH — Books, Texts, Media
 # ──────────────────────────────────────────────
+
 
 @router.post("/search")
 async def search_archive(
@@ -181,7 +184,12 @@ async def search_archive(
             docs = data.get("response", {}).get("docs", [])
 
             if not docs:
-                return {"query": query, "media_type": media_type, "results": [], "message": f"No results found for '{query}' in {media_type}"}
+                return {
+                    "query": query,
+                    "media_type": media_type,
+                    "results": [],
+                    "message": f"No results found for '{query}' in {media_type}",
+                }
 
             results = []
             for doc in docs:
@@ -222,14 +230,16 @@ async def search_archive(
                     learned_by=current_user.id,
                 )
                 db.add(web)
-                results.append({
-                    "identifier": identifier,
-                    "title": title[:100],
-                    "creator": creator[:100],
-                    "year": year,
-                    "url": f"https://archive.org/details/{identifier}",
-                    "chars": len(content),
-                })
+                results.append(
+                    {
+                        "identifier": identifier,
+                        "title": title[:100],
+                        "creator": creator[:100],
+                        "year": year,
+                        "url": f"https://archive.org/details/{identifier}",
+                        "chars": len(content),
+                    }
+                )
 
             db.commit()
 
@@ -244,12 +254,13 @@ async def search_archive(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(500, f"Error searching Internet Archive: {str(e)[:200]}")
+        raise HTTPException(500, f"Error searching Internet Archive: {str(e)[:200]}") from e
 
 
 # ──────────────────────────────────────────────
 # SPECIFIC ITEM — Fetch details and content
 # ──────────────────────────────────────────────
+
 
 @router.post("/item/{identifier}")
 async def learn_from_item(
@@ -279,7 +290,9 @@ async def learn_from_item(
             if isinstance(subject, list):
                 subject = ", ".join(subject[:10])
 
-            content = f"Title: {title}\nCreator: {creator}\nYear: {year}\nSubject: {subject}\nDescription: {description}"
+            content = (
+                f"Title: {title}\nCreator: {creator}\nYear: {year}\nSubject: {subject}\nDescription: {description}"
+            )
 
             # Try to get text content for texts
             files = meta.get("files", [])
@@ -323,12 +336,13 @@ async def learn_from_item(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(500, f"Error fetching item: {str(e)[:200]}")
+        raise HTTPException(500, f"Error fetching item: {str(e)[:200]}") from e
 
 
 # ──────────────────────────────────────────────
 # BATCH LEARN — Popular topics from Internet Archive
 # ──────────────────────────────────────────────
+
 
 @router.post("/batch-learn")
 async def batch_learn_archive(
@@ -378,14 +392,16 @@ async def batch_learn_archive(
                     except Exception:
                         pass
 
-                    db.add(KudosWebKnowledge(
-                        url=f"https://archive.org/details/{identifier}",
-                        title=f"[Archive] {title}"[:255],
-                        content=content[:50000],
-                        summary=simple_summarize(content),
-                        is_approved=True,
-                        learned_by=current_user.id,
-                    ))
+                    db.add(
+                        KudosWebKnowledge(
+                            url=f"https://archive.org/details/{identifier}",
+                            title=f"[Archive] {title}"[:255],
+                            content=content[:50000],
+                            summary=simple_summarize(content),
+                            is_approved=True,
+                            learned_by=current_user.id,
+                        )
+                    )
                     total_learned += 1
 
         except Exception:
@@ -402,6 +418,7 @@ async def batch_learn_archive(
 # ──────────────────────────────────────────────
 # TIMEMACHINE — Browse website history
 # ──────────────────────────────────────────────
+
 
 @router.post("/timemachine")
 async def timemachine_learn(
@@ -458,14 +475,16 @@ async def timemachine_learn(
                     text = soup.get_text(separator="\n", strip=True)
 
                     if len(text) > 200:
-                        db.add(KudosWebKnowledge(
-                            url=wayback_url,
-                            title=f"[{year}] {title}"[:255],
-                            content=text[:30000],
-                            summary=simple_summarize(text),
-                            is_approved=current_user.is_admin,
-                            learned_by=current_user.id,
-                        ))
+                        db.add(
+                            KudosWebKnowledge(
+                                url=wayback_url,
+                                title=f"[{year}] {title}"[:255],
+                                content=text[:30000],
+                                summary=simple_summarize(text),
+                                is_approved=current_user.is_admin,
+                                learned_by=current_user.id,
+                            )
+                        )
                         learned += 1
 
                 except Exception:
@@ -480,4 +499,4 @@ async def timemachine_learn(
         }
 
     except Exception as e:
-        raise HTTPException(500, f"Error: {str(e)[:200]}")
+        raise HTTPException(500, f"Error: {str(e)[:200]}") from e

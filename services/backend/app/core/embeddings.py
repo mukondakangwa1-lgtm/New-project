@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-from typing import List
 
 from app.core.config import settings
 
@@ -17,15 +16,9 @@ class EmbeddingsProvider:
     """Small provider-neutral boundary around the OpenAI embeddings API."""
 
     def __init__(self, provider: str | None = None):
-        self.provider = (
-            provider
-            or os.getenv("EMBED_PROVIDER")
-            or settings.EMBED_PROVIDER
-        ).lower()
+        self.provider = (provider or os.getenv("EMBED_PROVIDER") or settings.EMBED_PROVIDER).lower()
         if self.provider != "openai":
-            raise NotImplementedError(
-                f"Embeddings provider '{self.provider}' is not implemented"
-            )
+            raise NotImplementedError(f"Embeddings provider '{self.provider}' is not implemented")
         if OpenAI is None:
             raise RuntimeError("The openai package is required for embeddings")
 
@@ -33,12 +26,10 @@ class EmbeddingsProvider:
         if not api_key:
             raise RuntimeError("OPENAI_API_KEY is required for semantic embeddings")
 
-        self.model = os.getenv(
-            "OPENAI_EMBEDDING_MODEL", settings.OPENAI_EMBEDDING_MODEL
-        )
+        self.model = os.getenv("OPENAI_EMBEDDING_MODEL", settings.OPENAI_EMBEDDING_MODEL)
         self.client = OpenAI(api_key=api_key)
 
-    def embed_texts(self, texts: List[str]) -> List[List[float]]:
+    def embed_texts(self, texts: list[str]) -> list[list[float]]:
         """Return one embedding vector for each input text."""
         if not texts:
             return []

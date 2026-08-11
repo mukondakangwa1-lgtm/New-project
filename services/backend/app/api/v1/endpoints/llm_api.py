@@ -2,15 +2,16 @@
 Digital Campus - KUDOS LLM API
 Configure and use external LLMs (Google Gemini, OpenAI, Groq, Ollama).
 """
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.deps import require_admin
 from app.core.llm_engine import (
-    set_api_key,
-    get_llm_status,
-    query_best_llm,
-    provider_is_configured,
     LLM_CONFIGS,
+    get_llm_status,
+    provider_is_configured,
+    query_best_llm,
+    set_api_key,
 )
 from app.models import User
 from app.schemas import LLMConfigureRequest
@@ -51,7 +52,7 @@ def configure_llm(
         "provider": provider,
         "name": LLM_CONFIGS[provider]["name"],
         "persistent": False,
-        "message": f"✅ {LLM_CONFIGS[provider]['name']} configured for this process. Use deployment secrets for persistence.",
+        "message": f"✅ {LLM_CONFIGS[provider]['name']} configured for this process. Use deployment secrets for persistence.",  # noqa: E501
     }
 
 
@@ -63,14 +64,17 @@ async def test_llm(
 ):
     """Test an LLM provider (superadmin only)."""
     provider = provider.strip().lower()
-    if provider:
-        # Test specific provider
-        if provider not in LLM_CONFIGS or not provider_is_configured(provider):
-            raise HTTPException(status_code=400, detail=f"Provider {provider} is not configured")
+    # Test specific provider
+    if provider and (provider not in LLM_CONFIGS or not provider_is_configured(provider)):
+        raise HTTPException(status_code=400, detail=f"Provider {provider} is not configured")
 
     result = await query_best_llm(prompt, provider=provider or None)
-    return {"provider": result.get("provider", "none"), "response": result.get("response"),
-            "message": result.get("message", ""), "details": result.get("details", [])}
+    return {
+        "provider": result.get("provider", "none"),
+        "response": result.get("response"),
+        "message": result.get("message", ""),
+        "details": result.get("details", []),
+    }
 
 
 @router.get("/providers")
@@ -78,10 +82,12 @@ def list_providers():
     """List all available LLM providers (public)."""
     providers = []
     for key, config in LLM_CONFIGS.items():
-        providers.append({
-            "id": key,
-            "name": config["name"],
-            "icon": config["icon"],
-            "endpoint": config["endpoint"],
-        })
+        providers.append(
+            {
+                "id": key,
+                "name": config["name"],
+                "icon": config["icon"],
+                "endpoint": config["endpoint"],
+            }
+        )
     return {"providers": providers}

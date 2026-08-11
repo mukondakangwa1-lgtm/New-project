@@ -12,12 +12,12 @@ Rules enforced here:
 - Never force-push by default.
 - Push and pull-request creation require separate approval.
 """
+
 import os
 import re
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 from app.core.pathguard import PathError, resolve_inside
 
@@ -51,19 +51,20 @@ class RepoState:
 def _run(repo: Path, args: list[str], timeout: int = 60) -> subprocess.CompletedProcess:
     try:
         return subprocess.run(
-            ["git"] + args,
+            ["git", *args],
             cwd=str(repo),
             capture_output=True,
             text=True,
             timeout=timeout,
             env={**os.environ},
+            check=False,
         )
     except subprocess.TimeoutExpired:
-        return subprocess.CompletedProcess(["git"] + args, 124, "", "timeout")
+        return subprocess.CompletedProcess(["git", *args], 124, "", "timeout")
 
 
 def _lines(out: str) -> list[str]:
-    return [l for l in out.splitlines() if l.strip()]
+    return [line for line in out.splitlines() if line.strip()]
 
 
 def current_branch(repo: Path) -> str:
@@ -116,10 +117,7 @@ def assert_task_branch(repo: Path, *, approval: bool = False) -> RepoState:
     """
     state = repo_state(repo)
     if state.protected and not approval:
-        raise GitOpsError(
-            f"Branch '{state.branch}' is protected. Refusing to modify it "
-            "without explicit approval."
-        )
+        raise GitOpsError(f"Branch '{state.branch}' is protected. Refusing to modify it without explicit approval.")
     return state
 
 
@@ -159,7 +157,7 @@ def stage_files(repo: Path, files: list[str], *, repo_root: Path) -> dict:
         try:
             resolve_inside(repo_root, rel, allow_missing=True)
         except PathError as exc:
-            raise GitOpsError(f"Refusing to stage: {exc}")
+            raise GitOpsError(f"Refusing to stage: {exc}") from exc
         resolved.append(rel)
     rc = _run(repo, ["add", "--", *resolved])
     if rc.returncode != 0:
@@ -188,7 +186,7 @@ def commit(repo: Path, message: str, files: list[str], *, repo_root: Path) -> di
     return {"committed": hash_rc.stdout.strip(), "branch": current_branch(repo)}
 
 
-def detect_conflicts(repo: Path, remote_branch: Optional[str] = None) -> dict:
+def detect_conflicts(repo: Path, remote_branch: str | None = None) -> dict:
     """Detect conflicts with the remote before pushing.
 
     Fetches and uses ``git merge-tree`` on the merge base to find conflicts.
@@ -265,8 +263,7 @@ def create_pull_request(
         }
     rc = _run(
         repo,
-        ["gh", "pr", "create", "--base", base, "--head", branch,
-         "--title", title, "--body", body],
+        ["gh", "pr", "create", "--base", base, "--head", branch, "--title", title, "--body", body],
         timeout=120,
     )
     if rc.returncode != 0:

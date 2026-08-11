@@ -15,11 +15,12 @@ Precision ladder — KUDOS reports the best honesty it has:
   last-known       (this device's previous fix)
   unknown          (nothing measured yet — KUDOS says so, never guesses)
 """
+
 from __future__ import annotations
 
 import json
 import math
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -27,10 +28,10 @@ from sqlalchemy.orm import Session
 from app.models import KudosDevice, User
 from app.models_extended import KudosAccessPoint, KudosCellTower, KudosScan
 
-
 # ──────────────────────────────────────────────
 # PATH-LOSS / DISTANCE ESTIMATION
 # ──────────────────────────────────────────────
+
 
 def _dist_from_rssi(rssi: float) -> float:
     """Log-distance path-loss: RSSI -> metres from the anchor."""
@@ -51,11 +52,19 @@ def _weighted_centroid(points: list[dict]) -> dict:
     lon = sum(p["lon"] * p["weight"] for p in points) / wsum
     lat2 = sum((p["lat"] - lat) ** 2 for p in points) / len(points)
     lon2 = sum((p["lon"] - lon) ** 2 for p in points) / len(points)
-    spread_km = math.sqrt(max(lat2, 0.0) * 111.0 ** 2 + max(lon2, 0.0) * (111.0 * max(math.cos(math.radians(lat)), 0.01)) ** 2)
+    spread_km = math.sqrt(
+        max(lat2, 0.0) * 111.0**2 + max(lon2, 0.0) * (111.0 * max(math.cos(math.radians(lat)), 0.01)) ** 2
+    )
     matches = len(points)
     # Conservative accuracy: more anchors shrink it, spread grows it.
     accuracy = 120.0 / math.sqrt(max(matches, 1)) + spread_km * 1000.0 * 0.6
-    return {"lat": lat, "lon": lon, "accuracy_m": round(min(accuracy, 2500.0), 1), "matches": matches, "spread_km": round(spread_km, 2)}
+    return {
+        "lat": lat,
+        "lon": lon,
+        "accuracy_m": round(min(accuracy, 2500.0), 1),
+        "matches": matches,
+        "spread_km": round(spread_km, 2),
+    }
 
 
 def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -71,11 +80,12 @@ def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 # ANCHOR LEARNING (crowdsourced)
 # ──────────────────────────────────────────────
 
+
 def _learn_wifi(db: Session, device: KudosDevice, wifi: list[dict], gps_ok: bool, gps_lat: float, gps_lon: float):
     """Place/refine Wi-Fi anchors from a device report that carries GPS."""
     if not wifi or not gps_ok:
         return
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     for ap in wifi:
         bssid = ((ap.get("bssid") or "").replace("-", ":") or "").lower()
         if len(bssid) < 11 or ":" not in bssid:
@@ -86,8 +96,9 @@ def _learn_wifi(db: Session, device: KudosDevice, wifi: list[dict], gps_ok: bool
             rssi = -70
         row = db.query(KudosAccessPoint).filter(KudosAccessPoint.bssid == bssid).first()
         if row is None:
-            row = KudosAccessPoint(bssid=bssid, ssid=(ap.get("ssid") or "")[:120],
-                                   lat=gps_lat, lon=gps_lon, first_seen_at=now)
+            row = KudosAccessPoint(
+                bssid=bssid, ssid=(ap.get("ssid") or "")[:120], lat=gps_lat, lon=gps_lon, first_seen_at=now
+            )
             db.add(row)
         else:
             if row.first_seen_at is None:
@@ -107,7 +118,7 @@ def _learn_cells(db: Session, device: KudosDevice, cells: list[dict], gps_ok: bo
     """Place/refine cell-tower anchors from a device report that carries GPS."""
     if not cells or not gps_ok:
         return
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     for tower in cells:
         mcc = int(tower.get("mcc") or 0)
         mnc = int(tower.get("mnc") or 0)
@@ -118,8 +129,7 @@ def _learn_cells(db: Session, device: KudosDevice, cells: list[dict], gps_ok: bo
         key = f"{mcc}-{mnc}-{lac}-{cid}"
         row = db.query(KudosCellTower).filter(KudosCellTower.cell_key == key).first()
         if row is None:
-            row = KudosCellTower(cell_key=key, mcc=mcc, mnc=mnc, lac=lac, cid=cid,
-                                 lat=gps_lat, lon=gps_lon)
+            row = KudosCellTower(cell_key=key, mcc=mcc, mnc=mnc, lac=lac, cid=cid, lat=gps_lat, lon=gps_lon)
             db.add(row)
         n = row.observations or 0
         w_new = 0.3 / (1 + n * 0.03)
@@ -133,6 +143,7 @@ def _learn_cells(db: Session, device: KudosDevice, cells: list[dict], gps_ok: bo
 # ──────────────────────────────────────────────
 # ESTIMATION
 # ──────────────────────────────────────────────
+
 
 def _from_wifi(db: Session, wifi: list[dict]) -> dict:
     """Fingerprint a scan against known anchors (works without GPS)."""
@@ -204,8 +215,15 @@ def ingest_scan(
     # Precision ladder.
     fix = {}
     if gps_ok:
-        fix = {"mode": "gps-fix", "lat": gps_lat, "lon": gps_lon, "accuracy_m": max(gps_accuracy, 5.0),
-               "source": "device GPS", "matches": 1, "spread_km": 0.0}
+        fix = {
+            "mode": "gps-fix",
+            "lat": gps_lat,
+            "lon": gps_lon,
+            "accuracy_m": max(gps_accuracy, 5.0),
+            "source": "device GPS",
+            "matches": 1,
+            "spread_km": 0.0,
+        }
     else:
         wfix = _from_wifi(db, wifi)
         if wfix["matches"] >= 1:
@@ -219,8 +237,15 @@ def ingest_scan(
                 if prev and prev.get("lat") is not None:
                     fix = {**prev, "mode": "last-known", "source": "previous known location"}
                 else:
-                    fix = {"mode": "unknown", "lat": None, "lon": None, "accuracy_m": None,
-                           "source": "no measured signal yet", "matches": 0, "spread_km": 0.0}
+                    fix = {
+                        "mode": "unknown",
+                        "lat": None,
+                        "lon": None,
+                        "accuracy_m": None,
+                        "source": "no measured signal yet",
+                        "matches": 0,
+                        "spread_km": 0.0,
+                    }
 
     scan = KudosScan(
         device_id=device.id,
@@ -244,12 +269,7 @@ def ingest_scan(
 
 
 def latest_fix(db: Session, device_id: int) -> dict:
-    scan = (
-        db.query(KudosScan)
-        .filter(KudosScan.device_id == device_id)
-        .order_by(KudosScan.created_at.desc())
-        .first()
-    )
+    scan = db.query(KudosScan).filter(KudosScan.device_id == device_id).order_by(KudosScan.created_at.desc()).first()
     if not scan or not (scan.result_json and scan.result_json != "{}"):
         return {"lat": None, "lon": None, "accuracy_m": None, "mode": "none", "source": ""}
     try:
@@ -282,9 +302,13 @@ def anchors_summary(db: Session) -> dict:
     fixed = (
         db.query(func.count(KudosScan.id))
         .filter(KudosScan.result_json.like('%"lat"%'), ~KudosScan.result_json.like('%"mode": "unknown"%'))
-        .scalar() or 0
+        .scalar()
+        or 0
     )
     return {
-        "access_points": aps, "cell_towers": towers, "total_scans": scans,
-        "located_scans": fixed, "method": "crowdsourced from KUDOS devices",
+        "access_points": aps,
+        "cell_towers": towers,
+        "total_scans": scans,
+        "located_scans": fixed,
+        "method": "crowdsourced from KUDOS devices",
     }

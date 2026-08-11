@@ -2,7 +2,7 @@
 
 import asyncio
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from app.celery_app import celery
 from app.core.database import SessionLocal
@@ -43,18 +43,20 @@ def sync_connector(self, connector_id: int):
             raise ValueError(f"Unsupported connector type: {connector.connector_type}")
 
         result = asyncio.run(sync_fn(db, connector, config, admin))
-        connector.last_synced_at = datetime.now(timezone.utc)
+        connector.last_synced_at = datetime.now(UTC)
         connector.items_learned += result["items_new"]
         connector.status = "active"
         connector.error_message = ""
-        db.add(KudosSyncLog(
-            connector_id=connector.id,
-            action="celery-sync",
-            items_found=result["items_found"],
-            items_new=result["items_new"],
-            items_updated=result["items_updated"],
-            details=result["details"],
-        ))
+        db.add(
+            KudosSyncLog(
+                connector_id=connector.id,
+                action="celery-sync",
+                items_found=result["items_found"],
+                items_new=result["items_new"],
+                items_updated=result["items_updated"],
+                details=result["details"],
+            )
+        )
         db.commit()
         return {"status": "ok", "connector_id": connector_id, **result}
     except Exception as exc:
@@ -85,7 +87,7 @@ def index_document_embeddings(self, document_id: int):
 
         ensure_vector_table()
         vectors = get_embeddings_provider().embed_texts([chunk.content for chunk in chunks])
-        for chunk, vector in zip(chunks, vectors):
+        for chunk, vector in zip(chunks, vectors, strict=False):
             upsert_vector(
                 document_id=document_id,
                 chunk_index=chunk.chunk_index or 0,

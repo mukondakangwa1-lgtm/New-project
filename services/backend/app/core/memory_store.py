@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime, timedelta, timezone
-from typing import Any, List, Optional
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from sqlalchemy import select
 
@@ -31,10 +31,10 @@ CONSOLIDATE_IMPORTANCE = 0.8
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
-def _try_embed(text: str) -> Optional[List[float]]:
+def _try_embed(text: str) -> list[float] | None:
     """Embed text; return None on any failure so callers fall back."""
     if not settings.SEMANTIC_SEARCH_ENABLED:
         return None
@@ -82,9 +82,9 @@ def write_memory(
     layer: str = "short_term",
     kind: str = "fact",
     importance: float = 0.5,
-    tags: Optional[List[str]] = None,
+    tags: list[str] | None = None,
     source: str = "",
-    expires_at: Optional[datetime] = None,
+    expires_at: datetime | None = None,
     device_policy: str = "replicated",
 ) -> KudosMemory:
     """Create a memory entry. Embedding failures degrade gracefully.
@@ -132,7 +132,7 @@ def write_memory(
     return record
 
 
-def _semantic_rank(db, records: List[KudosMemory], embedding: List[float]) -> Optional[List[KudosMemory]]:
+def _semantic_rank(db, records: list[KudosMemory], embedding: list[float]) -> list[KudosMemory] | None:
     """Rank memories by embedding distance; None when pgvector is unavailable."""
     try:
         distance = KudosMemory.embedding.cosine_distance(embedding)
@@ -141,9 +141,7 @@ def _semantic_rank(db, records: List[KudosMemory], embedding: List[float]) -> Op
     try:
         ids = [r.id for r in records]
         rows = db.execute(
-            select(KudosMemory.id, distance.label("_dist"))
-            .where(KudosMemory.id.in_(ids))
-            .order_by(distance)
+            select(KudosMemory.id, distance.label("_dist")).where(KudosMemory.id.in_(ids)).order_by(distance)
         ).all()
         lookup = {r.id: r for r in records}
         return [lookup[row._mapping["id"]] for row in rows if row._mapping["id"] in lookup]
@@ -151,7 +149,7 @@ def _semantic_rank(db, records: List[KudosMemory], embedding: List[float]) -> Op
         return None
 
 
-def _keyword_score(record: KudosMemory, terms: List[str]) -> float:
+def _keyword_score(record: KudosMemory, terms: list[str]) -> float:
     """Fraction of query terms matched, blended with importance. 0 = no match."""
     haystack = f"{record.content} {record.summary or ''}".lower()
     matches = sum(1 for t in terms if t in haystack)
@@ -166,7 +164,7 @@ def _recency_boost(record: KudosMemory) -> float:
     if not ref:
         return 0.0
     if ref.tzinfo is None:  # SQLite returns naive datetimes
-        ref = ref.replace(tzinfo=timezone.utc)
+        ref = ref.replace(tzinfo=UTC)
     days = max(0.0, (_now() - ref).total_seconds() / 86400.0)
     return max(0.0, 0.25 - days * 0.01)
 
@@ -175,10 +173,10 @@ def retrieve_memories(
     db,
     user_id: int,
     query: str = "",
-    layers: Optional[List[str]] = None,
+    layers: list[str] | None = None,
     limit: int = 8,
     importance_min: float = 0.0,
-) -> List[KudosMemory]:
+) -> list[KudosMemory]:
     """Return the most relevant memories for a user.
 
     Expired short-term memories are excluded; stale rows are lazily deleted.
@@ -207,7 +205,7 @@ def retrieve_memories(
 
     # Keyword + importance + recency path (SQLite-safe)
     terms = [t for t in re.split(r"\W+", query.lower()) if len(t) > 2] if query else []
-    scored: List[tuple[float, KudosMemory]] = []
+    scored: list[tuple[float, KudosMemory]] = []
     for record in records:
         if terms:
             score = _keyword_score(record, terms)
@@ -240,13 +238,17 @@ def consolidate_memories(db, user_id: int) -> int:
     is high (>= 0.8). Returns the number promoted.
     """
     now = _now()
-    candidates = db.execute(
-        select(KudosMemory).where(
-            KudosMemory.user_id == user_id,
-            KudosMemory.layer == "short_term",
-            (KudosMemory.expires_at.is_(None)) | (KudosMemory.expires_at > now),
+    candidates = (
+        db.execute(
+            select(KudosMemory).where(
+                KudosMemory.user_id == user_id,
+                KudosMemory.layer == "short_term",
+                (KudosMemory.expires_at.is_(None)) | (KudosMemory.expires_at > now),
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     promoted = 0
     for record in candidates:
@@ -278,7 +280,7 @@ def build_memory_context(db, user_id: int, query: str = "", limit: int = 5) -> s
     return "\n".join(lines)
 
 
-def clear_memories(db, user_id: int, layer: Optional[str] = None) -> int:
+def clear_memories(db, user_id: int, layer: str | None = None) -> int:
     """Delete a user's memories (optionally one layer). Returns count."""
     statement = select(KudosMemory).where(KudosMemory.user_id == user_id)
     if layer:
@@ -296,7 +298,5 @@ def clear_memories(db, user_id: int, layer: Optional[str] = None) -> int:
     return len(records)
 
 
-def get_memory(db, memory_id: int, user_id: int) -> Optional[KudosMemory]:
-    return db.query(KudosMemory).filter(
-        KudosMemory.id == memory_id, KudosMemory.user_id == user_id
-    ).first()
+def get_memory(db, memory_id: int, user_id: int) -> KudosMemory | None:
+    return db.query(KudosMemory).filter(KudosMemory.id == memory_id, KudosMemory.user_id == user_id).first()

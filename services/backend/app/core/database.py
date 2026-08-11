@@ -2,8 +2,9 @@
 Database connection with multi-db support (SQLite for dev, Postgres for prod).
 Adjusted connect_args depending on the URL so engine works with Postgres (no check_same_thread) and with SQLite.
 """
+
 from sqlalchemy import create_engine, event
-from sqlalchemy.orm import sessionmaker, DeclarativeBase
+from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from app.core.config import settings
 
@@ -29,6 +30,7 @@ if settings.DATABASE_URL.startswith("sqlite"):
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.execute("PRAGMA busy_timeout=5000")
         cursor.close()
+
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

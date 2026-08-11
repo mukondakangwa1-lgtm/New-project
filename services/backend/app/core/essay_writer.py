@@ -8,6 +8,7 @@ information it has on the topic and clearly says so.
 
 A page is treated as ~WORDS_PER_PAGE words of prose.
 """
+
 import asyncio
 
 from app.core.llm_engine import query_best_llm
@@ -28,7 +29,7 @@ _SYSTEM = (
 )
 
 _HEADING_PROMPT = (
-    "You are KUDOS, outlining a {pages}-page essay titled \"{topic}\".\n"
+    'You are KUDOS, outlining a {pages}-page essay titled "{topic}".\n'
     "KNOWLEDGE AVAILABLE:\n{knowledge}\n\n"
     "Create a section outline (title + one-line scope) for the essay. Aim for "
     "about {count} sections. Output strictly as:\n"
@@ -37,12 +38,12 @@ _HEADING_PROMPT = (
 )
 
 _SECTION_PROMPT = (
-    "Write section #{idx} of {count} of an essay on \"{topic}\".\n"
+    'Write section #{idx} of {count} of an essay on "{topic}".\n'
     "SECTION TITLE: {title}\n"
     "SCOPE: {scope}\n"
     "TARGET LENGTH: approximately {target_words} words of flowing prose.\n"
     "KNOWLEDGE AVAILABLE (cite inline as [n] when you use a source):\n{knowledge}\n\n"
-    "Write only the section body — no title, no intro such as \"In this section\", "
+    'Write only the section body — no title, no intro such as "In this section", '
     "no closing remarks about the essay."
 )
 
@@ -105,8 +106,13 @@ async def write_essay(topic: str, pages: int, knowledge: str = "") -> dict:
     for idx, (title, scope) in enumerate(outline, start=1):
         target_words = max(120, min(1200, round(target_words_total / len(outline))))
         prompt = _SECTION_PROMPT.format(
-            idx=idx, count=len(outline), topic=topic, title=title, scope=scope,
-            target_words=target_words, knowledge=_truncate_knowledge(knowledge),
+            idx=idx,
+            count=len(outline),
+            topic=topic,
+            title=title,
+            scope=scope,
+            target_words=target_words,
+            knowledge=_truncate_knowledge(knowledge),
         )
         body = await _llm(prompt, _SYSTEM)
         if not body or len(body) < 60:
@@ -143,7 +149,7 @@ async def _exhaust_info(topic: str, knowledge: str, sections: list[dict], remain
     if not knowledge:
         return ""
     prompt = (
-        f"You are completing an essay on \"{topic}\". Below is the remaining "
+        f'You are completing an essay on "{topic}". Below is the remaining '
         "knowledge KUDOS has on the topic. Write as much additional flowing prose "
         f"as possible (up to ~{remaining_words} words) that was not already covered, "
         "covering every remaining source.\n\nKNOWLEDGE:\n" + _truncate_knowledge(knowledge, 14000)
@@ -155,17 +161,32 @@ async def _exhaust_info(topic: str, knowledge: str, sections: list[dict], remain
 def _section_fallback(topic: str, title: str, scope: str, knowledge: str) -> str:
     """No-LLM fallback: hand back the matching knowledge, summarized."""
     k = knowledge or ""
-    lines = [l for l in k.splitlines() if l.strip()]
-    matched = [l.strip() for l in lines if any(w in l.lower() for w in title.lower().split()[:4])][:6]
-    body = "\n".join(f"- {m[:500]}" for m in matched) if matched else "\n".join(f"- {l[:500]}" for l in lines[:8])
-    return f"Regarding \"{scope}\":\n\n{body}\n\nNote: the full essay engine needs an LLM key to write longer prose. Here is the knowledge KUDOS holds on this part of the topic."
+    lines = [line for line in k.splitlines() if line.strip()]
+    matched = [line.strip() for line in lines if any(w in line.lower() for w in title.lower().split()[:4])][:6]
+    body = "\n".join(f"- {m[:500]}" for m in matched) if matched else "\n".join(f"- {line[:500]}" for line in lines[:8])
+    return f'Regarding "{scope}":\n\n{body}\n\nNote: the full essay engine needs an LLM key to write longer prose. Here is the knowledge KUDOS holds on this part of the topic.'  # noqa: E501
 
 
 def _fallback_essay(topic: str, knowledge: str) -> dict:
     """Fallback when no LLM is reachable: hand over all available knowledge."""
-    k = knowledge or f"No knowledge found on \"{topic}\" yet. Upload a document or teach KUDOS a web page about it."
-    lines = [l.strip() for l in k.splitlines() if l.strip()][:120]
-    essay = f"# {topic}\n\nEverything KUDOS knows about this topic:\n\n" + "\n".join(f"- {l[:600]}" for l in lines)
-    sections = [{"title": f"Everything KUDOS knows about {topic}", "body": "\n".join(f"- {l[:600]}" for l in lines)}]
+    k = knowledge or f'No knowledge found on "{topic}" yet. Upload a document or teach KUDOS a web page about it.'
+    lines = [line.strip() for line in k.splitlines() if line.strip()][:120]
+    essay = f"# {topic}\n\nEverything KUDOS knows about this topic:\n\n" + "\n".join(
+        f"- {line[:600]}" for line in lines
+    )
+    sections = [
+        {
+            "title": f"Everything KUDOS knows about {topic}",
+            "body": "\n".join(f"- {line[:600]}" for line in lines),
+        }
+    ]
     words = len(essay.split())
-    return {"essay": essay, "sections": sections, "page_count": estimate_pages(words), "target_pages": None, "word_count": words, "exhausted": True, "generated_by": "knowledge"}
+    return {
+        "essay": essay,
+        "sections": sections,
+        "page_count": estimate_pages(words),
+        "target_pages": None,
+        "word_count": words,
+        "exhausted": True,
+        "generated_by": "knowledge",
+    }

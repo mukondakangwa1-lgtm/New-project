@@ -23,14 +23,15 @@ Three capabilities live here:
    (code, schema, backup, brain) so it can be re-created anywhere and keep
    running.
 """
+# ruff: noqa: E501
 
 from __future__ import annotations
 
 import json
 import secrets
 import subprocess
-from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -44,16 +45,16 @@ _COMPOSE = "docker-compose.prod.yml"
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
-def _as_aware(dt: Optional[datetime]) -> Optional[datetime]:
+def _as_aware(dt: datetime | None) -> datetime | None:
     """Normalize naive datetimes (SQLite) to UTC-aware for comparisons."""
     if dt is None:
         return None
     if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
+        return dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
 
 
 def _gen_uid() -> str:
@@ -105,6 +106,7 @@ def _singleton(db: Session) -> KudosGovernance:
 # ──────────────────────────────────────────────
 # IDENTITY & ROTATION
 # ──────────────────────────────────────────────
+
 
 def ensure_superadmin_identity(db: Session, user: User) -> dict[str, Any]:
     """Assign a unique ID to the superadmin on login; rotate it when due.
@@ -160,6 +162,7 @@ def _rotate(g: KudosGovernance, now: datetime) -> None:
 # SUCCESSION — transparent, never covert
 # ──────────────────────────────────────────────
 
+
 def succession_state(db: Session) -> str:
     """Governance mode:
 
@@ -189,24 +192,20 @@ def governance_status(db: Session) -> dict[str, Any]:
     mode = succession_state(db)
     next_rot = _as_aware(g.next_rotation_at)
     return {
-        **{
-            "identity": _to_dict(g, mode),
-            "mode": mode,
-            "mode_label": {
-                "owned": "Superadmin is active",
-                "self-managed": "Self-managed — superadmin inactive (KUDOS keeps running, visibly)",
-                "revived": "Fully self-sustaining — superadmin inactive for years",
-                "unclaimed": "No superadmin login yet",
-            }.get(mode, mode),
-            "rotation_due_days": (
-                max(0, (next_rot - _now()).days) if next_rot else 0
-            ),
-            "policy": {
-                "uid_rotates_every_days": g.uid_rotates_every_days or 5,
-                "succession_inactive_days": g.succession_inactive_days or 1095,
-                "revival_years": g.revival_years or 5,
-                "transparency": "visible-status + full audit log; no covert operation",
-            },
+        "identity": _to_dict(g, mode),
+        "mode": mode,
+        "mode_label": {
+            "owned": "Superadmin is active",
+            "self-managed": "Self-managed — superadmin inactive (KUDOS keeps running, visibly)",
+            "revived": "Fully self-sustaining — superadmin inactive for years",
+            "unclaimed": "No superadmin login yet",
+        }.get(mode, mode),
+        "rotation_due_days": (max(0, (next_rot - _now()).days) if next_rot else 0),
+        "policy": {
+            "uid_rotates_every_days": g.uid_rotates_every_days or 5,
+            "succession_inactive_days": g.succession_inactive_days or 1095,
+            "revival_years": g.revival_years or 5,
+            "transparency": "visible-status + full audit log; no covert operation",
         },
     }
 
@@ -215,11 +214,15 @@ def governance_status(db: Session) -> dict[str, Any]:
 # REVIVAL BUNDLE — what travels with KUDOS
 # ──────────────────────────────────────────────
 
+
 def _git_head() -> str:
     try:
         out = subprocess.run(
             ["git", "-C", _REPO_PATH, "rev-parse", "HEAD"],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
         )
         if out.returncode == 0:
             return out.stdout.strip()
@@ -231,11 +234,22 @@ def _git_head() -> str:
 def _env_template() -> list[str]:
     """Names of the environment variables a fresh host must supply (no values)."""
     fields = [
-        "APP_ENV", "SECRET_KEY", "DATABASE_URL", "REDIS_URL",
-        "OPENAI_API_KEY", "GOOGLE_GEMINI_API_KEY", "GROQ_API_KEY",
-        "ELEVENLABS_API_KEY", "STORAGE_BACKEND",
-        "MINIO_ENDPOINT", "MINIO_ACCESS_KEY", "MINIO_SECRET_KEY", "MINIO_BUCKET",
-        "CORS_ORIGINS", "REQUIRE_APPROVAL", "LLM_PROVIDER",
+        "APP_ENV",
+        "SECRET_KEY",
+        "DATABASE_URL",
+        "REDIS_URL",
+        "OPENAI_API_KEY",
+        "GOOGLE_GEMINI_API_KEY",
+        "GROQ_API_KEY",
+        "ELEVENLABS_API_KEY",
+        "STORAGE_BACKEND",
+        "MINIO_ENDPOINT",
+        "MINIO_ACCESS_KEY",
+        "MINIO_SECRET_KEY",
+        "MINIO_BUCKET",
+        "CORS_ORIGINS",
+        "REQUIRE_APPROVAL",
+        "LLM_PROVIDER",
     ]
     return [f for f in fields if getattr(settings, f, None) is not None] or ["(no env overrides needed)"]
 
@@ -245,6 +259,7 @@ def revival_bundle(db: Session) -> dict[str, Any]:
     brain_facts = 0
     try:
         from app.models import KudosBrain
+
         brain_facts = db.query(KudosBrain).count()
     except Exception:
         pass
@@ -278,6 +293,7 @@ def revival_bundle(db: Session) -> dict[str, Any]:
 # SELF-HEAL — rebuild anywhere, keep running
 # ──────────────────────────────────────────────
 
+
 def self_heal_bootstrap(db: Session) -> str:
     """Return a reproducible HOST script that re-stands the full stack.
 
@@ -289,7 +305,7 @@ def self_heal_bootstrap(db: Session) -> str:
     migrate = bundle["migration_command"]
     return f"""#!/usr/bin/env bash
 # KUDOS Self-Heal — rebuild & re-stand the whole stack from the committed repo.
-# Generated by KUDOS on {_now().strftime('%Y-%m-%d %H:%M')} · commit {bundle['code_commit']}
+# Generated by KUDOS on {_now().strftime("%Y-%m-%d %H:%M")} · commit {bundle["code_commit"]}
 # Safe to run on any host with Docker + this repository. Everything is echoed.
 set -euo pipefail
 REPO="${{1:-.}}"

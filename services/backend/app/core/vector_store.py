@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, List
+from typing import Any
 
 from sqlalchemy import Column, Integer, MetaData, Table, Text, select
 
@@ -33,9 +33,7 @@ kudos_vectors = Table(
 
 def _require_pgvector() -> None:
     if Vector is None:
-        raise RuntimeError(
-            "pgvector is not installed — add pgvector to requirements.txt"
-        )
+        raise RuntimeError("pgvector is not installed — add pgvector to requirements.txt")
 
 
 def ensure_vector_table() -> None:
@@ -47,7 +45,7 @@ def ensure_vector_table() -> None:
 def upsert_vector(
     document_id: int,
     chunk_index: int,
-    vector: List[float],
+    vector: list[float],
     metadata_obj: dict | None = None,
 ) -> None:
     """Insert or replace a vector for one document chunk."""
@@ -58,8 +56,7 @@ def upsert_vector(
     with engine.begin() as conn:
         conn.execute(
             kudos_vectors.delete().where(
-                (kudos_vectors.c.document_id == document_id)
-                & (kudos_vectors.c.chunk_index == chunk_index)
+                (kudos_vectors.c.document_id == document_id) & (kudos_vectors.c.chunk_index == chunk_index)
             )
         )
         conn.execute(
@@ -72,7 +69,7 @@ def upsert_vector(
         )
 
 
-def query_vectors(embedding: List[float], top_k: int = 5) -> List[dict[str, Any]]:
+def query_vectors(embedding: list[float], top_k: int = 5) -> list[dict[str, Any]]:
     """Return nearest chunks ordered by cosine distance."""
     _require_pgvector()
     if len(embedding) != VEC_DIM:

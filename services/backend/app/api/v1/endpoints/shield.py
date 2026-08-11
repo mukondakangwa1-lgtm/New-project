@@ -2,13 +2,22 @@
 Digital Campus - KUDOS Shield API
 Self-protection, intrusion detection, backup, performance monitoring.
 """
+
 from fastapi import APIRouter, Depends
 
 from app.core.deps import require_admin
 from app.core.kudos_shield import (
-    start_shield, stop_shield, get_shield_status, get_shield_log,
-    get_threat_log, get_blocked_ips, unblock_ip,
-    update_baseline, _create_backup, restore_backup, list_backups,
+    _create_backup,
+    get_blocked_ips,
+    get_shield_log,
+    get_shield_status,
+    get_threat_log,
+    list_backups,
+    restore_backup,
+    start_shield,
+    stop_shield,
+    unblock_ip,
+    update_baseline,
 )
 from app.models import User
 
@@ -86,4 +95,5 @@ def restore(backup_file: str, admin: User = Depends(require_admin)):
 def performance(admin: User = Depends(require_admin)):
     """Get performance statistics."""
     from app.core.kudos_shield import get_performance_stats
+
     return get_performance_stats()

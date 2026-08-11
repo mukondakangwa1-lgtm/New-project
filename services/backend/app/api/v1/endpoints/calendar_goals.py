@@ -1,16 +1,17 @@
 """
 Digital Campus - Calendar, Goals & Notifications
 """
+
 from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from typing import Optional
+from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models import User
-from app.models_extended import CalendarEvent, StudyGoal, Notification
+from app.models_extended import CalendarEvent, Notification, StudyGoal
 
 router = APIRouter()
 
@@ -22,7 +23,7 @@ class EventCreate(BaseModel):
     start_time: str
     end_time: str
     location: str = ""
-    course_id: Optional[int] = None
+    course_id: int | None = None
     reminder_minutes: int = 30
 
 
@@ -31,12 +32,17 @@ class GoalCreate(BaseModel):
     description: str = ""
     goal_type: str = "daily"
     target_value: int = 1
-    deadline: Optional[str] = None
+    deadline: str | None = None
 
 
 # Calendar
 @router.get("/calendar")
-def list_events(start: Optional[str] = None, end: Optional[str] = None, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def list_events(
+    start: str | None = None,
+    end: str | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     q = db.query(CalendarEvent).filter(CalendarEvent.user_id == user.id)
     if start:
         q = q.filter(CalendarEvent.start_time >= datetime.fromisoformat(start))
@@ -48,10 +54,15 @@ def list_events(start: Optional[str] = None, end: Optional[str] = None, db: Sess
 @router.post("/calendar", status_code=201)
 def create_event(body: EventCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     e = CalendarEvent(
-        user_id=user.id, title=body.title, description=body.description,
-        event_type=body.event_type, start_time=datetime.fromisoformat(body.start_time),
-        end_time=datetime.fromisoformat(body.end_time), location=body.location,
-        course_id=body.course_id, reminder_minutes=body.reminder_minutes,
+        user_id=user.id,
+        title=body.title,
+        description=body.description,
+        event_type=body.event_type,
+        start_time=datetime.fromisoformat(body.start_time),
+        end_time=datetime.fromisoformat(body.end_time),
+        location=body.location,
+        course_id=body.course_id,
+        reminder_minutes=body.reminder_minutes,
     )
     db.add(e)
     db.commit()
@@ -86,7 +97,9 @@ def create_goal(body: GoalCreate, db: Session = Depends(get_db), user: User = De
 
 
 @router.patch("/goals/{goal_id}")
-def update_goal_progress(goal_id: int, increment: int = 1, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def update_goal_progress(
+    goal_id: int, increment: int = 1, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
     g = db.query(StudyGoal).filter(StudyGoal.id == goal_id, StudyGoal.user_id == user.id).first()
     if not g:
         raise HTTPException(404, "Goal not found")
@@ -100,10 +113,12 @@ def update_goal_progress(goal_id: int, increment: int = 1, db: Session = Depends
 
 # Notifications
 @router.get("/notifications")
-def list_notifications(unread_only: bool = False, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def list_notifications(
+    unread_only: bool = False, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
     q = db.query(Notification).filter(Notification.user_id == user.id)
     if unread_only:
-        q = q.filter(Notification.is_read == False)
+        q = q.filter(~Notification.is_read)
     return q.order_by(Notification.created_at.desc()).limit(50).all()
 
 
@@ -118,6 +133,6 @@ def mark_read(notification_id: int, db: Session = Depends(get_db), user: User = 
 
 @router.post("/notifications/read-all")
 def mark_all_read(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    db.query(Notification).filter(Notification.user_id == user.id, Notification.is_read == False).update({"is_read": True})
+    db.query(Notification).filter(Notification.user_id == user.id, ~Notification.is_read).update({"is_read": True})
     db.commit()
     return {"status": "all_read"}

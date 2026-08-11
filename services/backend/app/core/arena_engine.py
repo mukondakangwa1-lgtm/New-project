@@ -2,11 +2,11 @@
 KUDOS Arena Engine — Multi-AI Orchestration
 Queries multiple AI sources IN PARALLEL for speed.
 """
+
 import asyncio
 import re
 from collections import OrderedDict
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 import httpx
 
@@ -19,11 +19,11 @@ _response_cache: OrderedDict = OrderedDict()
 CACHE_TTL = 300  # 5 minutes
 
 
-def _get_cached_response(query: str, mode: str) -> Optional[dict]:
+def _get_cached_response(query: str, mode: str) -> dict | None:
     key = f"{mode}:{query.lower().strip()}"
     if key in _response_cache:
         entry = _response_cache[key]
-        if (datetime.now(timezone.utc) - entry["time"]).total_seconds() < CACHE_TTL:
+        if (datetime.now(UTC) - entry["time"]).total_seconds() < CACHE_TTL:
             _response_cache.move_to_end(key)
             return entry["data"]
         else:
@@ -33,7 +33,7 @@ def _get_cached_response(query: str, mode: str) -> Optional[dict]:
 
 def _set_cached_response(query: str, mode: str, data: dict):
     key = f"{mode}:{query.lower().strip()}"
-    _response_cache[key] = {"data": data, "time": datetime.now(timezone.utc)}
+    _response_cache[key] = {"data": data, "time": datetime.now(UTC)}
     while len(_response_cache) > _RESPONSE_CACHE_MAX:
         _response_cache.popitem(last=False)
 
@@ -76,6 +76,7 @@ SOURCE_TIMEOUT = 5
 # ──────────────────────────────────────────────
 # ANSWER EVALUATOR
 # ──────────────────────────────────────────────
+
 
 def score_answer(query: str, answer: str, source: str) -> float:
     """
@@ -188,7 +189,7 @@ def _synthesize_answers(query: str, answers: list[dict]) -> str:
     """
     Combine insights from multiple high-scoring answers into one superior answer.
     """
-    parts = [f"Here's a comprehensive answer about \"{query}\":\n\n"]
+    parts = [f'Here\'s a comprehensive answer about "{query}":\n\n']
 
     # Use the best answer as the base
     base = answers[0]["content"]
@@ -251,7 +252,7 @@ async def query_multiple_sources(
     sources = mode_config["sources"]
 
     # Build tasks for parallel execution
-    async def _query_source(source: str) -> Optional[dict]:
+    async def _query_source(source: str) -> dict | None:
         try:
             if source == "knowledge_base" and db_session:
                 answer = await asyncio.wait_for(_query_knowledge_base(query, db_session), timeout=SOURCE_TIMEOUT)
@@ -260,27 +261,28 @@ async def query_multiple_sources(
             elif source == "wikipedia":
                 answer = await asyncio.wait_for(_query_wikipedia(query), timeout=SOURCE_TIMEOUT)
             elif source == "cached" and db_session:
-                answer = await asyncio.wait_for(asyncio.to_thread(_query_cache, query, db_session), timeout=SOURCE_TIMEOUT)
+                answer = await asyncio.wait_for(
+                    asyncio.to_thread(_query_cache, query, db_session), timeout=SOURCE_TIMEOUT
+                )
             elif source == "documents" and db_session:
-                answer = await asyncio.wait_for(asyncio.to_thread(_query_documents, query, db_session), timeout=SOURCE_TIMEOUT)
+                answer = await asyncio.wait_for(
+                    asyncio.to_thread(_query_documents, query, db_session), timeout=SOURCE_TIMEOUT
+                )
             elif source == "connectors" and db_session:
-                answer = await asyncio.wait_for(asyncio.to_thread(_query_connectors, query, db_session), timeout=SOURCE_TIMEOUT)
+                answer = await asyncio.wait_for(
+                    asyncio.to_thread(_query_connectors, query, db_session), timeout=SOURCE_TIMEOUT
+                )
             elif source == "mcp":
                 from app.core.mcp_client import search_mcp_sources
-                mcp_results = await asyncio.wait_for(
-                    search_mcp_sources(query, limit=3), timeout=SOURCE_TIMEOUT * 2
-                )
-                answer = "\n\n".join(
-                    item.get("content", "")[:600]
-                    for item in mcp_results
-                    if item.get("content")
-                )
+
+                mcp_results = await asyncio.wait_for(search_mcp_sources(query, limit=3), timeout=SOURCE_TIMEOUT * 2)
+                answer = "\n\n".join(item.get("content", "")[:600] for item in mcp_results if item.get("content"))
             else:
                 return None
 
             if answer and len(answer) > 20:
                 return {"source": source, "content": answer, "metadata": {"type": source}}
-        except (asyncio.TimeoutError, Exception):
+        except (TimeoutError, Exception):
             return None
         return None
 
@@ -297,20 +299,20 @@ async def query_multiple_sources(
         try:
             from app.core.llm_engine import get_llm_response
 
-            knowledge_context = "\n\n".join(
-                answer["content"][:1200] for answer in answers[:5]
-            )
+            knowledge_context = "\n\n".join(answer["content"][:1200] for answer in answers[:5])
             llm_answer = await asyncio.wait_for(
                 get_llm_response(query, knowledge_context=knowledge_context),
                 timeout=SOURCE_TIMEOUT * 2,
             )
             if llm_answer and len(llm_answer) > 20:
-                answers.append({
-                    "source": "llm",
-                    "content": llm_answer,
-                    "metadata": {"type": "llm", "context_sources": len(answers)},
-                })
-        except (asyncio.TimeoutError, Exception):
+                answers.append(
+                    {
+                        "source": "llm",
+                        "content": llm_answer,
+                        "metadata": {"type": "llm", "context_sources": len(answers)},
+                    }
+                )
+        except (TimeoutError, Exception):
             pass
 
     # Cache the results
@@ -319,16 +321,17 @@ async def query_multiple_sources(
     return answers
 
 
-async def _query_knowledge_base(query: str, db) -> Optional[str]:
+async def _query_knowledge_base(query: str, db) -> str | None:
     """Query KUDOS's internal knowledge base."""
     from app.api.v1.endpoints.kudos import search_chunks
+
     sources = search_chunks(db, query, limit=3)
     if not sources:
         return None
     return "\n\n".join(s["content"][:300] for s in sources[:3])
 
 
-async def _query_web_search(query: str) -> Optional[str]:
+async def _query_web_search(query: str) -> str | None:
     """Search DuckDuckGo for answers."""
     try:
         async with httpx.AsyncClient(timeout=4, follow_redirects=True) as client:
@@ -338,19 +341,20 @@ async def _query_web_search(query: str) -> Optional[str]:
                 headers={"User-Agent": "Mozilla/5.0 (compatible; KUDOS/1.0)"},
             )
             from bs4 import BeautifulSoup
+
             soup = BeautifulSoup(res.text, "html.parser")
             snippets = soup.find_all("a", class_="result__snippet")
             if snippets:
                 return " ".join(s.get_text(strip=True) for s in snippets[:3] if s.get_text(strip=True))
             links = soup.find_all("a", class_="result__a")
             if links:
-                return " ".join(l.get_text(strip=True) for l in links[:5] if l.get_text(strip=True))
+                return " ".join(link.get_text(strip=True) for link in links[:5] if link.get_text(strip=True))
     except Exception:
         pass
     return None
 
 
-async def _query_wikipedia(query: str) -> Optional[str]:
+async def _query_wikipedia(query: str) -> str | None:
     """Query Wikipedia for answers."""
     try:
         async with httpx.AsyncClient(timeout=4, follow_redirects=True) as client:
@@ -364,7 +368,14 @@ async def _query_wikipedia(query: str) -> Optional[str]:
                 title = results[0]["title"]
                 article = await client.get(
                     "https://en.wikipedia.org/w/api.php",
-                    params={"action": "query", "titles": title, "prop": "extracts", "exintro": True, "explaintext": True, "format": "json"},
+                    params={
+                        "action": "query",
+                        "titles": title,
+                        "prop": "extracts",
+                        "exintro": True,
+                        "explaintext": True,
+                        "format": "json",
+                    },
                 )
                 pages = article.json().get("query", {}).get("pages", {})
                 for _, page in pages.items():
@@ -376,10 +387,11 @@ async def _query_wikipedia(query: str) -> Optional[str]:
     return None
 
 
-def _query_cache(query: str, db) -> Optional[str]:
+def _query_cache(query: str, db) -> str | None:
     try:
         from app.models import KudosWebKnowledge
-        items = db.query(KudosWebKnowledge).filter(KudosWebKnowledge.is_approved == True, KudosWebKnowledge.is_active == True).all()
+
+        items = db.query(KudosWebKnowledge).filter(KudosWebKnowledge.is_approved, KudosWebKnowledge.is_active).all()
         query_words = set(re.findall(r"[a-zA-Z]{3,}", query.lower()))
         best_score = 0
         best_content = None
@@ -388,16 +400,19 @@ def _query_cache(query: str, db) -> Optional[str]:
             score = sum(1 for w in query_words if w in content_lower)
             if score > best_score:
                 best_score = score
-                best_content = (item.summary or item.content[:1000])
+                best_content = item.summary or item.content[:1000]
         return best_content if best_score > 0 else None
     except Exception:
         return None
 
 
-def _query_documents(query: str, db) -> Optional[str]:
+def _query_documents(query: str, db) -> str | None:
     try:
         from app.models import KudosChunk, KudosDocument
-        chunks = db.query(KudosChunk).join(KudosDocument).filter(KudosDocument.is_approved == True, KudosDocument.is_active == True).all()
+
+        chunks = (
+            db.query(KudosChunk).join(KudosDocument).filter(KudosDocument.is_approved, KudosDocument.is_active).all()
+        )
         query_words = set(re.findall(r"[a-zA-Z]{3,}", query.lower()))
         scored = []
         for chunk in chunks:
@@ -414,12 +429,19 @@ def _query_documents(query: str, db) -> Optional[str]:
         return None
 
 
-def _query_connectors(query: str, db) -> Optional[str]:
+def _query_connectors(query: str, db) -> str | None:
     try:
         from app.models import KudosWebKnowledge
-        items = db.query(KudosWebKnowledge).filter(
-            KudosWebKnowledge.is_approved == True, KudosWebKnowledge.is_active == True, KudosWebKnowledge.title.contains("]")
-        ).all()
+
+        items = (
+            db.query(KudosWebKnowledge)
+            .filter(
+                KudosWebKnowledge.is_approved,
+                KudosWebKnowledge.is_active,
+                KudosWebKnowledge.title.contains("]"),
+            )
+            .all()
+        )
         query_words = set(re.findall(r"[a-zA-Z]{3,}", query.lower()))
         scored = []
         for item in items:

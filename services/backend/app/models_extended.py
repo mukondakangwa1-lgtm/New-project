@@ -2,7 +2,8 @@
 Digital Campus - Extended Models
 Assignments, Grades, Study Groups, Forums, Calendar, Goals, Exams, Notifications
 """
-from datetime import datetime, timezone
+
+from datetime import UTC, datetime
 
 from sqlalchemy import (
     Boolean,
@@ -22,6 +23,7 @@ from app.core.database import Base
 # ASSIGNMENTS & GRADES
 # ──────────────────────────────────────────────
 
+
 class Assignment(Base):
     __tablename__ = "assignments"
 
@@ -34,7 +36,7 @@ class Assignment(Base):
     max_score = Column(Integer, default=100)
     weight = Column(Float, default=1.0)  # percentage weight in final grade
     is_published = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
 
     course = relationship("Course")
     creator = relationship("User")
@@ -52,7 +54,7 @@ class Submission(Base):
     score = Column(Float, nullable=True)
     feedback = Column(Text, default="")
     status = Column(String(20), default="submitted")  # submitted, graded, returned
-    submitted_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    submitted_at = Column(DateTime, default=lambda: datetime.now(UTC))
     graded_at = Column(DateTime, nullable=True)
 
     assignment = relationship("Assignment", back_populates="submissions")
@@ -68,7 +70,7 @@ class Grade(Base):
     letter_grade = Column(String(2), default="")
     gpa_points = Column(Float, default=0.0)
     percentage = Column(Float, default=0.0)
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(UTC))
 
     student = relationship("User")
     course = relationship("Course")
@@ -77,6 +79,7 @@ class Grade(Base):
 # ──────────────────────────────────────────────
 # STUDY GROUPS
 # ──────────────────────────────────────────────
+
 
 class StudyGroup(Base):
     __tablename__ = "study_groups"
@@ -88,7 +91,7 @@ class StudyGroup(Base):
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
     max_members = Column(Integer, default=20)
     is_public = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
 
     course = relationship("Course")
     creator = relationship("User")
@@ -102,7 +105,7 @@ class StudyGroupMember(Base):
     group_id = Column(Integer, ForeignKey("study_groups.id"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     role = Column(String(20), default="member")  # member, moderator
-    joined_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    joined_at = Column(DateTime, default=lambda: datetime.now(UTC))
 
     group = relationship("StudyGroup", back_populates="members")
     user = relationship("User")
@@ -111,6 +114,7 @@ class StudyGroupMember(Base):
 # ──────────────────────────────────────────────
 # DISCUSSION FORUMS
 # ──────────────────────────────────────────────
+
 
 class ForumThread(Base):
     __tablename__ = "forum_threads"
@@ -123,7 +127,7 @@ class ForumThread(Base):
     is_pinned = Column(Boolean, default=False)
     is_locked = Column(Boolean, default=False)
     view_count = Column(Integer, default=0)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
 
     course = relationship("Course")
     creator = relationship("User")
@@ -138,7 +142,7 @@ class ForumReply(Base):
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
     content = Column(Text, nullable=False)
     is_solution = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
 
     thread = relationship("ForumThread", back_populates="replies")
     creator = relationship("User")
@@ -147,6 +151,7 @@ class ForumReply(Base):
 # ──────────────────────────────────────────────
 # CALENDAR & GOALS
 # ──────────────────────────────────────────────
+
 
 class CalendarEvent(Base):
     __tablename__ = "calendar_events"
@@ -161,7 +166,7 @@ class CalendarEvent(Base):
     location = Column(String(255), default="")
     course_id = Column(Integer, ForeignKey("courses.id"), nullable=True)
     reminder_minutes = Column(Integer, default=30)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
 
     user = relationship("User")
     course = relationship("Course")
@@ -179,7 +184,7 @@ class StudyGoal(Base):
     current_value = Column(Integer, default=0)
     deadline = Column(DateTime, nullable=True)
     is_completed = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
 
     user = relationship("User")
 
@@ -187,6 +192,7 @@ class StudyGoal(Base):
 # ──────────────────────────────────────────────
 # EXAMS & QUIZZES
 # ──────────────────────────────────────────────
+
 
 class Exam(Base):
     __tablename__ = "exams"
@@ -201,7 +207,7 @@ class Exam(Base):
     start_time = Column(DateTime, nullable=True)
     end_time = Column(DateTime, nullable=True)
     is_published = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
 
     course = relationship("Course")
     creator = relationship("User")
@@ -232,7 +238,7 @@ class ExamAttempt(Base):
     student_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     answers = Column(Text, default="")  # JSON: {question_id: answer}
     score = Column(Float, nullable=True)
-    started_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    started_at = Column(DateTime, default=lambda: datetime.now(UTC))
     submitted_at = Column(DateTime, nullable=True)
     status = Column(String(20), default="in_progress")  # in_progress, submitted, graded
 
@@ -244,6 +250,7 @@ class ExamAttempt(Base):
 # NOTIFICATIONS
 # ──────────────────────────────────────────────
 
+
 class Notification(Base):
     __tablename__ = "notifications"
 
@@ -254,7 +261,7 @@ class Notification(Base):
     notification_type = Column(String(50), default="info")  # info, warning, assignment, grade, chat, system
     is_read = Column(Boolean, default=False)
     link = Column(Text, default="")  # URL to navigate to
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
 
     user = relationship("User")
 
@@ -263,6 +270,7 @@ class Notification(Base):
 # CERTIFICATES
 # ──────────────────────────────────────────────
 
+
 class Certificate(Base):
     __tablename__ = "certificates"
 
@@ -270,7 +278,7 @@ class Certificate(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     course_id = Column(Integer, ForeignKey("courses.id"), nullable=False)
     certificate_number = Column(String(50), unique=True, nullable=False)
-    issued_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    issued_at = Column(DateTime, default=lambda: datetime.now(UTC))
 
     user = relationship("User")
     course = relationship("Course")
@@ -279,6 +287,7 @@ class Certificate(Base):
 # ──────────────────────────────────────────────
 # STUDIO: SPEAKING, BROADCASTS, VIDEO CALLS, JOURNAL
 # ──────────────────────────────────────────────
+
 
 class SpeakingSession(Base):
     __tablename__ = "speaking_sessions"
@@ -294,7 +303,7 @@ class SpeakingSession(Base):
     notes = Column(Text, default="")
     audio_url = Column(Text, default="")  # path to saved recording
     audio_mime = Column(String(60), default="")  # actual container format (webm/ogg/mp4)
-    started_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    started_at = Column(DateTime, default=lambda: datetime.now(UTC))
     completed_at = Column(DateTime, nullable=True)
 
     user = relationship("User")
@@ -305,23 +314,25 @@ class VoiceProfile(Base):
     it becomes the voice KUDOS speaks with on every platform. The signature
     points at one entry in the kudos_voices library, so KUDOS can still speak
     in any other voice on request."""
+
     __tablename__ = "voice_profiles"
 
     id = Column(Integer, primary_key=True)
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     tts_enabled = Column(Boolean, default=False)
     cloned_voice_id = Column(String(120), default="")  # ElevenLabs voice id (legacy/fallback)
-    default_voice = Column(String(120), default="")    # fallback voice name/id
+    default_voice = Column(String(120), default="")  # fallback voice name/id
     signature_active = Column(Boolean, default=False)  # KUDOS speaks with the superadmin's voice
     signature_voice_id = Column(Integer, ForeignKey("kudos_voices.id"), nullable=True)  # designated library voice
     signature_state = Column(String(20), default="none")  # none | pending | active
     owner_device_id = Column(Integer, ForeignKey("kudos_devices.id"), nullable=True)  # device that donated the voice
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
+    updated_at = Column(DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
 
 
 class VoiceSample(Base):
     """A recording of the superadmin reading for KUDOS's signature voice."""
+
     __tablename__ = "voice_samples"
 
     id = Column(Integer, primary_key=True)
@@ -330,13 +341,14 @@ class VoiceSample(Base):
     mime = Column(String(60), default="audio/webm")
     transcribed = Column(Text, default="")
     duration_seconds = Column(Integer, default=0)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
 
 
 class KudosVoice(Base):
     """The KUDOS voice library — every voice KUDOS can speak with. One row per
     voice: the superadmin's clone (signature), additional cloned voices, and
     stock voices. Cloned voices keep their samples so KUDOS owns them."""
+
     __tablename__ = "kudos_voices"
 
     id = Column(Integer, primary_key=True)
@@ -347,7 +359,7 @@ class KudosVoice(Base):
     source_device_id = Column(Integer, ForeignKey("kudos_devices.id"), nullable=True)
     sample_keys = Column(Text, default="[]")  # JSON array of MinIO keys
     is_signature = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
 
     device = relationship("KudosDevice")
 
@@ -363,7 +375,7 @@ class Broadcast(Base):
     is_public = Column(Boolean, default=True)
     status = Column(String(20), default="live")  # live, ended
     listeners = Column(Integer, default=0)
-    started_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    started_at = Column(DateTime, default=lambda: datetime.now(UTC))
     ended_at = Column(DateTime, nullable=True)
 
     host = relationship("User")
@@ -380,7 +392,7 @@ class VideoCall(Base):
     enable_whiteboard = Column(Boolean, default=True)
     enable_screen_share = Column(Boolean, default=True)
     status = Column(String(20), default="active")  # active, ended
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
 
     host = relationship("User")
     participants = relationship("CallParticipant", back_populates="call", cascade="all, delete-orphan")
@@ -393,7 +405,7 @@ class CallParticipant(Base):
     call_id = Column(Integer, ForeignKey("video_calls.id"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     role = Column(String(20), default="participant")  # host, participant
-    joined_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    joined_at = Column(DateTime, default=lambda: datetime.now(UTC))
     left_at = Column(DateTime, nullable=True)
 
     call = relationship("VideoCall", back_populates="participants")
@@ -407,7 +419,7 @@ class WhiteboardStroke(Base):
     call_id = Column(Integer, ForeignKey("video_calls.id"), nullable=False)
     author_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     data = Column(Text, default="[]")  # JSON batch of stroke points
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
 
     call = relationship("VideoCall")
     author = relationship("User")
@@ -424,7 +436,7 @@ class WebRtcSignal(Base):
     signal_type = Column(String(20), nullable=False)  # offer, answer, ice
     payload = Column(Text, nullable=False)  # JSON SDP / ICE candidate
     is_consumed = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
 
     sender = relationship("User", foreign_keys=[sender_id])
     recipient = relationship("User", foreign_keys=[recipient_id])
@@ -440,7 +452,7 @@ class JournalBlock(Base):
     url = Column(Text, default="")
     content = Column(Text, default="")
     position = Column(Integer, default=0)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
 
     user = relationship("User")
 
@@ -449,10 +461,12 @@ class JournalBlock(Base):
 # KUDOS INTERNAL WORLDMAP — offline navigation + facts
 # ──────────────────────────────────────────────
 
+
 class KudosMapPlace(Base):
     """A place on KUDOS's internal world map (continents, countries, capitals,
     major cities, landmarks). Coordinates where known are authoritative public
     values; places without a known coordinate are never given a guessed one."""
+
     __tablename__ = "kudos_map_places"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -469,12 +483,13 @@ class KudosMapPlace(Base):
     importance = Column(Integer, default=0)
     search_text = Column(String(600), default="")
     is_seed = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
 
 
 class KudosAccessPoint(Base):
     """A Wi-Fi access point KUDOS has located through its devices'
     crowdsourced network scans (the precise layer of the real-world map)."""
+
     __tablename__ = "kudos_access_points"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -485,12 +500,13 @@ class KudosAccessPoint(Base):
     accuracy_m = Column(Float, default=120.0)
     last_signal_dbm = Column(Integer, default=-70)
     observations = Column(Integer, default=0)
-    first_seen_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    first_seen_at = Column(DateTime, default=lambda: datetime.now(UTC))
     last_seen_at = Column(DateTime, nullable=True)
 
 
 class KudosCellTower(Base):
     """A cellular tower KUDOS knows through its devices' scans."""
+
     __tablename__ = "kudos_cell_towers"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -509,6 +525,7 @@ class KudosCellTower(Base):
 class KudosScan(Base):
     """A raw network observation reported by a KUDOS device — the eyes KUDOS
     uses to keep its real-world map honest and precise."""
+
     __tablename__ = "kudos_scans"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -520,17 +537,19 @@ class KudosScan(Base):
     wifi_json = Column(Text, default="[]")
     cells_json = Column(Text, default="[]")
     result_json = Column(Text, default="{}")
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
 
 
 # ──────────────────────────────────────────────
 # KUDOS LINK SWITCHING — terrestrial <-> satellite (Starlink / NTN)
 # ──────────────────────────────────────────────
 
+
 class KudosNetworkState(Base):
     """A transport report from a KUDOS device — the measured links KUDOS can
     switch between: Wi-Fi, cellular and satellite (Android NTN /
     Starlink). KUDOS only ever records links the device actually reported."""
+
     __tablename__ = "kudos_network_states"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -546,8 +565,8 @@ class KudosNetworkState(Base):
     bandwidth_kbps = Column(Integer, default=0)
     rtt_ms = Column(Float, default=0.0)
     provider = Column(String(120), default="")
-    reported_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    reported_at = Column(DateTime, default=lambda: datetime.now(UTC))
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
 
     device = relationship("KudosDevice")
 
@@ -556,18 +575,20 @@ class KudosNetworkSetting(Base):
     """How KUDOS selects a link for a device.
     mode: auto (best available), terrestrial (Wi-Fi/cellular preferred,
     satellite only as fallback), satellite (Starlink/NTN preferred)."""
+
     __tablename__ = "kudos_network_settings"
 
     id = Column(Integer, primary_key=True, index=True)
     device_id = Column(Integer, ForeignKey("kudos_devices.id"), nullable=False, unique=True, index=True)
     mode = Column(String(20), default="auto")  # auto, terrestrial, satellite
     reason = Column(String(200), default="")
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(UTC))
 
 
 # ──────────────────────────────────────────────
 # KUDOS KNOWLEDGE VAULT — curated + indexed knowledge
 # ──────────────────────────────────────────────
+
 
 class KudosVaultEntry(Base):
     """A knowledge vault entry. Curated entries are written by the superadmin
@@ -579,6 +600,7 @@ class KudosVaultEntry(Base):
     Curated entries are global; indexed entries carry user_id scope for
     memories so the vault never leaks one user's knowledge to another.
     """
+
     __tablename__ = "kudos_vault_entries"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -599,8 +621,8 @@ class KudosVaultEntry(Base):
     is_approved = Column(Boolean, default=True)
     is_active = Column(Boolean, default=True)
     search_text = Column(String(2000), default="")
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
+    updated_at = Column(DateTime, default=lambda: datetime.now(UTC))
     approved_at = Column(DateTime, nullable=True)
 
 
@@ -608,6 +630,7 @@ class KudosConstitution(Base):
     """KUDOS's constitution — the grounding policy it always obeys when it
     answers. Superadmin-editable; every change bumps the version so the
     system prompt KUDOS is given always reflects the latest ruling."""
+
     __tablename__ = "kudos_constitution"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -617,5 +640,5 @@ class KudosConstitution(Base):
     is_active = Column(Boolean, default=True)
     version = Column(Integer, default=1)
     updated_by = Column(Integer, ForeignKey("users.id"), nullable=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
+    updated_at = Column(DateTime, default=lambda: datetime.now(UTC))

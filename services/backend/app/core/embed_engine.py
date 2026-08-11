@@ -2,7 +2,9 @@
 KUDOS Embed Engine — Generate embeddable widgets for any website
 KUDOS can create embeds that let external sites connect to the platform.
 """
-from datetime import datetime, timezone
+# ruff: noqa: E501
+
+from datetime import UTC, datetime
 
 from app.core.paths import project_root
 
@@ -59,7 +61,7 @@ EMBED_TYPES = {
 def generate_embed_code(
     embed_type: str,
     base_url: str,
-    options: dict = None,
+    options: dict | None = None,
 ) -> dict:
     """Generate embed code for a specific widget type."""
     if embed_type not in EMBED_TYPES:
@@ -192,6 +194,7 @@ function toggleKudos() {{
 # EMBED API ENDPOINT GENERATION
 # ──────────────────────────────────────────────
 
+
 def generate_api_embed(base_url: str, endpoint: str, format: str = "json") -> dict:
     """Generate an API embed URL that external sites can fetch."""
     embed_url = f"{base_url}/api/v1{endpoint}"
@@ -213,7 +216,7 @@ console.log(data);''',
 _embed_registry: list[dict] = []
 
 
-def register_embed(embed_type: str, base_url: str, options: dict = None, created_by: int = 0) -> dict:
+def register_embed(embed_type: str, base_url: str, options: dict | None = None, created_by: int = 0) -> dict:
     """Register an embed and return its configuration."""
     result = generate_embed_code(embed_type, base_url, options)
     if "error" in result:
@@ -226,7 +229,7 @@ def register_embed(embed_type: str, base_url: str, options: dict = None, created
         "base_url": base_url,
         "options": options or {},
         "created_by": created_by,
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
         "views": 0,
     }
     _embed_registry.append(embed_record)
@@ -242,6 +245,5 @@ def list_embeds() -> list[dict]:
 def get_embed_types() -> list[dict]:
     """Get all available embed types."""
     return [
-        {"id": k, "name": v["name"], "description": v["description"], "icon": v["icon"]}
-        for k, v in EMBED_TYPES.items()
+        {"id": k, "name": v["name"], "description": v["description"], "icon": v["icon"]} for k, v in EMBED_TYPES.items()
     ]

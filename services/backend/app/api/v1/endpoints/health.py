@@ -1,6 +1,8 @@
 """
 Digital Campus - Health, Readiness and Metrics Endpoints
 """
+
+import contextlib
 import os
 import time
 
@@ -51,10 +53,8 @@ def _redis_ready() -> bool:
 def _system_stats() -> dict:
     """Lightweight host stats using only the standard library."""
     stats = {"cpu_count": os.cpu_count(), "load_avg": None, "mem_mb": {}, "disk_free_mb": None}
-    try:
+    with contextlib.suppress(AttributeError, OSError):
         stats["load_avg"] = os.getloadavg()
-    except (AttributeError, OSError):
-        pass
     try:
         with open("/proc/meminfo", encoding="utf-8") as fh:
             lines = fh.read().splitlines()

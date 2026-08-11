@@ -1,15 +1,48 @@
 """
 Digital Campus API v1 - API Router
 """
+
 from fastapi import APIRouter
 
 from app.api.v1.endpoints import (
-    health, auth, users, courses, timetable, social, chat,
-    kudos, connectors, guardian, search_connectors, arena, social_learning, llm_api,
-    assignments, study_groups, calendar_goals, exams, analytics, code_agent,
-    internet_archive, auto_learner, speaking, kudos_root, superadmin, shield, embed, media,
-    memory, devices, profile, sandbox, soul, terminal, visit,
-    voice, maps, network,
+    analytics,
+    arena,
+    assignments,
+    auth,
+    auto_learner,
+    calendar_goals,
+    chat,
+    code_agent,
+    connectors,
+    courses,
+    devices,
+    embed,
+    exams,
+    guardian,
+    health,
+    internet_archive,
+    kudos,
+    kudos_root,
+    llm_api,
+    maps,
+    media,
+    memory,
+    network,
+    profile,
+    sandbox,
+    search_connectors,
+    shield,
+    social,
+    social_learning,
+    soul,
+    speaking,
+    study_groups,
+    superadmin,
+    terminal,
+    timetable,
+    users,
+    visit,
+    voice,
 )
 
 api_router = APIRouter()

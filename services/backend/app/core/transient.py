@@ -9,11 +9,10 @@ so no storage space is consumed by one-off generations.
 Security: tokens are cryptographically random; each fetch returns the payload
 and revokes it (single-use), so content can't be hot-linked or replayed.
 """
-import base64
+
 import hashlib
 import json
 import secrets
-from typing import Optional
 
 from app.core.config import settings
 
@@ -45,13 +44,15 @@ def _key(token: str) -> str:
     return f"kudos:transient:{token}"
 
 
-def put(payload_base64: str, mime_type: str, ttl: int = _DEFAULT_TTL) -> Optional[str]:
+def put(payload_base64: str, mime_type: str, ttl: int = _DEFAULT_TTL) -> str | None:
     """Store bytes (base64) with a TTL. Returns a single-use token or None."""
     client = _get_client()
     if client is None:
         return None
     token = secrets.token_urlsafe(32)
-    value = json.dumps({"mime": mime_type, "data": payload_base64, "sha": hashlib.sha256(payload_base64.encode()).hexdigest()[:12]})
+    value = json.dumps(
+        {"mime": mime_type, "data": payload_base64, "sha": hashlib.sha256(payload_base64.encode()).hexdigest()[:12]}
+    )
     try:
         client.setex(_key(token), max(60, int(ttl)), value)
         return token
@@ -59,7 +60,7 @@ def put(payload_base64: str, mime_type: str, ttl: int = _DEFAULT_TTL) -> Optiona
         return None
 
 
-def get_and_revoke(token: str) -> Optional[dict]:
+def get_and_revoke(token: str) -> dict | None:
     """Fetch a transient payload and delete it (single-use download)."""
     client = _get_client()
     if client is None:
@@ -74,7 +75,7 @@ def get_and_revoke(token: str) -> Optional[dict]:
         return None
 
 
-def get(token: str) -> Optional[dict]:
+def get(token: str) -> dict | None:
     """Fetch a transient payload WITHOUT deleting it. The Redis TTL still
     expires it automatically, so nothing is ever persisted."""
     client = _get_client()

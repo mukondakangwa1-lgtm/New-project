@@ -1,0 +1,21 @@
+target-version = "py311"
+line-length = 120
+
+[lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "C4", "PIE", "RUF", "DTZ"]
+# Intentional resilience patterns used across the KUDOS codebase: broad
+# exception capture around external providers and quiet no-op fallbacks.
+ignore = ["BLE001", "S110", "S112"]
+
+[lint.flake8-bugbear]
+# FastAPI dependency injection is the idiomatic use of callables in defaults.
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Query",
+    "fastapi.Header",
+    "fastapi.Path",
+    "fastapi.Body",
+    "fastapi.Cookie",
+    "fastapi.File",
+    "fastapi.Form",
+]

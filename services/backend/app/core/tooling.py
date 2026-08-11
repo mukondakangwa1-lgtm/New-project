@@ -13,6 +13,7 @@ and prepares the environment (Python/Node detection, venv reuse, dependency
 installation from lockfiles with caching and retries). AI provider
 credentials are never required: the app must start in provider-disabled mode.
 """
+
 import json
 import os
 import re
@@ -20,7 +21,6 @@ import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 
 class ToolingError(RuntimeError):
@@ -43,10 +43,10 @@ class QualityCommand:
 class ProjectEnvironment:
     """Detected runtime environment facts."""
 
-    python: Optional[str] = None
-    python_version: Optional[str] = None
-    node: Optional[str] = None
-    node_version: Optional[str] = None
+    python: str | None = None
+    python_version: str | None = None
+    node: str | None = None
+    node_version: str | None = None
     venv_exists: bool = False
     npm_available: bool = False
     docker_available: bool = False
@@ -58,8 +58,14 @@ class ProjectEnvironment:
 def _run(cwd: Path, args: list[str], timeout: int = 60) -> subprocess.CompletedProcess:
     try:
         return subprocess.run(
-            args, cwd=str(cwd), capture_output=True, text=True, timeout=timeout,
-            env={**os.environ}, preexec_fn=_rl,
+            args,
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            env={**os.environ},
+            preexec_fn=_rl,
+            check=False,
         )
     except subprocess.TimeoutExpired:
         return subprocess.CompletedProcess(args, 124, "timeout", "timeout")
@@ -74,7 +80,7 @@ def _rl() -> None:
         pass
 
 
-def _read_json(path: Path) -> Optional[dict]:
+def _read_json(path: Path) -> dict | None:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except Exception:
@@ -84,6 +90,7 @@ def _read_json(path: Path) -> Optional[dict]:
 # ──────────────────────────────────────────────
 # DETECTION
 # ──────────────────────────────────────────────
+
 
 def detect_environment(repo_root: str | Path) -> ProjectEnvironment:
     """Detect runtimes and tool availability without side effects."""
@@ -115,6 +122,7 @@ def detect_environment(repo_root: str | Path) -> ProjectEnvironment:
 # DISCOVERY
 # ──────────────────────────────────────────────
 
+
 def _package_scripts(pkg: dict) -> list[QualityCommand]:
     """Map common npm scripts to quality gates."""
     scripts = pkg.get("scripts", {})
@@ -129,13 +137,17 @@ def _package_scripts(pkg: dict) -> list[QualityCommand]:
     for script, kind in mapping.items():
         if script in scripts:
             out.append(
-                QualityCommand(name=f"npm:{script}", command=["npm", "run", script],
-                               cwd="frontend", kind=kind, framework="npm")
+                QualityCommand(
+                    name=f"npm:{script}", command=["npm", "run", script], cwd="frontend", kind=kind, framework="npm"
+                )
             )
-    if not out and "devDependencies" in pkg or "dependencies" in pkg:
+    if (not out and "devDependencies" in pkg) or "dependencies" in pkg:
         # TypeScript is present — a tsc typecheck is a safe default gate.
-        out.append(QualityCommand(name="npm:tsc", command=["npx", "tsc", "--noEmit"],
-                                  cwd="frontend", kind="typecheck", framework="npm"))
+        out.append(
+            QualityCommand(
+                name="npm:tsc", command=["npx", "tsc", "--noEmit"], cwd="frontend", kind="typecheck", framework="npm"
+            )
+        )
     return out
 
 
@@ -153,12 +165,11 @@ def _ci_commands(workflows_dir: Path) -> list[QualityCommand]:
         for m in re.finditer(r"^\s+(?:-\s+)?run:\s+(.+)$", text, re.MULTILINE):
             cmd = m.group(1).strip()
             if cmd.startswith(("pytest", "ruff", "npm ci", "tsc")):
-                kind = "test" if cmd.startswith("pytest") else (
-                    "lint" if cmd.startswith("ruff") else "typecheck"
-                )
+                kind = "test" if cmd.startswith("pytest") else ("lint" if cmd.startswith("ruff") else "typecheck")
                 cwd = "services/backend" if "pytest" in cmd or "ruff" in cmd else "frontend"
-                out.append(QualityCommand(name=f"ci:{wf.stem}", command=cmd.split(),
-                                          cwd=cwd, kind=kind, framework="ci"))
+                out.append(
+                    QualityCommand(name=f"ci:{wf.stem}", command=cmd.split(), cwd=cwd, kind=kind, framework="ci")
+                )
     return out
 
 
@@ -175,12 +186,14 @@ def _makefile_commands(makefile: Path) -> list[QualityCommand]:
         target = m.group(1)
         if target in ("test", "lint", "check", "build"):
             # find the recipe line following the target
-            rest = text[m.end():]
+            rest = text[m.end() :]
             recipe = re.search(r"^\t([^\n]+)", rest, re.MULTILINE)
             if recipe:
-                out.append(QualityCommand(name=f"make:{target}",
-                                          command=["make", target],
-                                          cwd=".", kind=target, framework="make"))
+                out.append(
+                    QualityCommand(
+                        name=f"make:{target}", command=["make", target], cwd=".", kind=target, framework="make"
+                    )
+                )
     return out
 
 
@@ -217,12 +230,13 @@ def discover_commands(repo_root: str | Path) -> list[QualityCommand]:
         if not Path(python).exists():
             python = shutil.which("python3") or "python"
         defaults = [
-            QualityCommand("pytest", [python, "-m", "pytest", "tests/", "-q", "--tb=short"],
-                           "services/backend", "test", "pytest"),
-            QualityCommand("ruff", ["ruff", "check", "app/", "--select", "F"],
-                           "services/backend", "lint", "ruff"),
-            QualityCommand("compileall", [python, "-m", "compileall", "-q", "app"],
-                           "services/backend", "typecheck", "python"),
+            QualityCommand(
+                "pytest", [python, "-m", "pytest", "tests/", "-q", "--tb=short"], "services/backend", "test", "pytest"
+            ),
+            QualityCommand("ruff", ["ruff", "check", "app/", "--select", "F"], "services/backend", "lint", "ruff"),
+            QualityCommand(
+                "compileall", [python, "-m", "compileall", "-q", "app"], "services/backend", "typecheck", "python"
+            ),
         ]
         for c in defaults:
             key = (c.name, c.cwd, " ".join(c.command))
@@ -236,6 +250,7 @@ def discover_commands(repo_root: str | Path) -> list[QualityCommand]:
 # ──────────────────────────────────────────────
 # ENVIRONMENT PREPARATION
 # ──────────────────────────────────────────────
+
 
 def ensure_venv(repo_root: str | Path, *, recreate: bool = False) -> str:
     """Create or reuse the backend venv; returns the python interpreter path."""
@@ -260,7 +275,7 @@ def ensure_venv(repo_root: str | Path, *, recreate: bool = False) -> str:
 def install_dependencies(
     repo_root: str | Path,
     *,
-    targets: Optional[list[str]] = None,
+    targets: list[str] | None = None,
     offline: bool = False,
     retries: int = 2,
     timeout: int = 900,
@@ -299,7 +314,7 @@ def install_dependencies(
 
 
 def _with_retry(fn, retries: int, label: str):
-    last: Optional[ToolingError] = None
+    last: ToolingError | None = None
     for attempt in range(retries + 1):
         try:
             return fn()
@@ -342,12 +357,15 @@ def _install_frontend(root: Path, *, offline: bool, retries: int, timeout: int) 
         raise ToolingError("frontend: no package.json found")
     lockfile = frontend / "package-lock.json"
     if lockfile.exists() and not offline:
+
         def _ci() -> None:
             rc = _run(frontend, ["npm", "ci", "--no-audit", "--no-fund"], timeout=timeout)
             if rc.returncode != 0:
                 raise ToolingError(f"npm ci failed: {rc.stderr[-400:]}")
+
         _with_retry(_ci, retries, "npm ci")
     else:
+
         def _install() -> None:
             cmd = ["npm", "install", "--no-audit", "--no-fund"]
             if offline:
@@ -355,4 +373,5 @@ def _install_frontend(root: Path, *, offline: bool, retries: int, timeout: int) 
             rc = _run(frontend, cmd, timeout=timeout)
             if rc.returncode != 0:
                 raise ToolingError(f"npm install failed: {rc.stderr[-400:]}")
+
         _with_retry(_install, retries, "npm install")

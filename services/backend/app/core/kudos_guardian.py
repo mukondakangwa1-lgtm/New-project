@@ -2,11 +2,11 @@
 KUDOS Guardian — File integrity, self-protection, and secure superadmin channel.
 Only the superadmin can modify KUDOS code. KUDOS self-improves from interactions.
 """
+
 import hashlib
 import json
 import os
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 # ──────────────────────────────────────────────
 # FILE INTEGRITY — Hash all KUDOS source files
@@ -48,7 +48,7 @@ def save_integrity_hashes(base_dir: str = "."):
     integrity_path = os.path.join(base_dir, INTEGRITY_FILE)
     data = {
         "hashes": hashes,
-        "saved_at": datetime.now(timezone.utc).isoformat(),
+        "saved_at": datetime.now(UTC).isoformat(),
         "saved_by": "superadmin",
         "version": 1,
     }
@@ -78,12 +78,14 @@ def verify_integrity(base_dir: str = ".") -> dict:
     for filepath, expected_hash in saved["hashes"].items():
         actual_hash = current.get(filepath, "MISSING")
         if actual_hash != expected_hash:
-            violations.append({
-                "file": filepath,
-                "expected": expected_hash[:16] + "...",
-                "actual": actual_hash[:16] + "...",
-                "status": "TAMPERED" if actual_hash != "MISSING" else "DELETED",
-            })
+            violations.append(
+                {
+                    "file": filepath,
+                    "expected": expected_hash[:16] + "...",
+                    "actual": actual_hash[:16] + "...",
+                    "status": "TAMPERED" if actual_hash != "MISSING" else "DELETED",
+                }
+            )
 
     if violations:
         return {
@@ -110,6 +112,7 @@ def update_hashes_after_admin_change(base_dir: str = ".") -> dict:
 # SUPERADMIN SECURE CHANNEL
 # ──────────────────────────────────────────────
 
+
 class KudosSecureChannel:
     """
     Encrypted communication channel between superadmin and KUDOS.
@@ -118,13 +121,11 @@ class KudosSecureChannel:
 
     def __init__(self):
         self._command_log: list[dict] = []
-        self._access_key: Optional[str] = None
+        self._access_key: str | None = None
 
     def initialize(self, superadmin_id: int) -> str:
         """Initialize secure channel and return access key."""
-        key = hashlib.sha256(
-            f"kudos-secure-{superadmin_id}-{datetime.now(timezone.utc).isoformat()}".encode()
-        ).hexdigest()
+        key = hashlib.sha256(f"kudos-secure-{superadmin_id}-{datetime.now(UTC).isoformat()}".encode()).hexdigest()
         self._access_key = key
         self._log(superadmin_id, "CHANNEL_OPEN", "Secure channel initialized")
         return key
@@ -136,7 +137,7 @@ class KudosSecureChannel:
             return False
         return True
 
-    def execute_command(self, user_id: int, is_admin: bool, command: str, params: dict = None) -> dict:
+    def execute_command(self, user_id: int, is_admin: bool, command: str, params: dict | None = None) -> dict:
         """Execute a superadmin command on KUDOS."""
         if not self.verify_access(user_id, is_admin, command):
             return {"error": "Access denied. Only superadmin can control KUDOS."}
@@ -164,12 +165,14 @@ class KudosSecureChannel:
         return self._command_log[-limit:]
 
     def _log(self, user_id: int, action: str, details: str):
-        self._command_log.append({
-            "user_id": user_id,
-            "action": action,
-            "details": details,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        })
+        self._command_log.append(
+            {
+                "user_id": user_id,
+                "action": action,
+                "details": details,
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+        )
 
     def _system_status(self) -> dict:
         return {
@@ -188,6 +191,7 @@ secure_channel = KudosSecureChannel()
 # SELF-IMPROVEMENT ENGINE
 # ──────────────────────────────────────────────
 
+
 class KudosSelfImprover:
     """
     KUDOS learns from user interactions to improve its responses.
@@ -202,12 +206,14 @@ class KudosSelfImprover:
 
     def log_question(self, user_id: int, question: str, had_sources: bool):
         """Log a question and whether KUDOS found relevant sources."""
-        self._question_log.append({
-            "user_id": user_id,
-            "question": question,
-            "had_sources": had_sources,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        })
+        self._question_log.append(
+            {
+                "user_id": user_id,
+                "question": question,
+                "had_sources": had_sources,
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+        )
 
         # Track popular topics
         words = question.lower().split()
@@ -223,13 +229,15 @@ class KudosSelfImprover:
 
     def log_feedback(self, user_id: int, question: str, rating: int, comment: str = ""):
         """Log user feedback on KUDOS response."""
-        self._feedback.append({
-            "user_id": user_id,
-            "question": question,
-            "rating": rating,  # 1-5
-            "comment": comment,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        })
+        self._feedback.append(
+            {
+                "user_id": user_id,
+                "question": question,
+                "rating": rating,  # 1-5
+                "comment": comment,
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+        )
 
     def get_improvement_report(self) -> dict:
         """Generate a report on what KUDOS should learn next."""

@@ -35,14 +35,12 @@ def retrieve_memory_endpoint(
     current_user: User = Depends(get_current_user),
 ):
     """Retrieve the most relevant memories for the current user."""
-    requested = [l.strip() for l in layers.split(",") if l.strip()] if layers else None
+    requested = [layer.strip() for layer in layers.split(",") if layer.strip()] if layers else None
     if requested:
-        invalid = [l for l in requested if l not in STORAGE_LAYERS]
+        invalid = [layer for layer in requested if layer not in STORAGE_LAYERS]
         if invalid:
             raise HTTPException(status_code=400, detail=f"Invalid layer(s): {', '.join(invalid)}")
-    memories = retrieve_memories(
-        db, current_user.id, query=query, layers=requested, limit=min(max(limit, 1), 50)
-    )
+    memories = retrieve_memories(db, current_user.id, query=query, layers=requested, limit=min(max(limit, 1), 50))
     items = [dict(_memory_to_dict(m)) for m in memories]
     if include_replicas:
         from app.core.device_storage import memory_replica_map
@@ -73,7 +71,7 @@ def create_memory_endpoint(
             expires_at=body.expires_at,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return MemoryResponse(**_memory_to_dict(record))
 
 

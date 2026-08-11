@@ -2,24 +2,36 @@
 Digital Campus - KUDOS Code Agent API
 Autonomous code improvement with approval workflow.
 """
+
+import os
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from typing import Optional
 
-from app.core.deps import require_admin
 from app.core.code_agent import (
-    analyze_codebase, generate_improvements, create_proposal, get_proposals,
-    approve_proposal, reject_proposal, commit_approved_changes, push_changes,
-    get_git_status, get_git_diff, get_auto_improvement_status, set_auto_improvement,
+    analyze_codebase,
+    approve_proposal,
+    commit_approved_changes,
+    create_proposal,
+    generate_improvements,
+    get_auto_improvement_status,
+    get_git_diff,
+    get_git_status,
+    get_proposals,
+    push_changes,
+    reject_proposal,
+    set_auto_improvement,
     set_repo_path,
 )
+from app.core.deps import require_admin
 from app.models import User
 
 router = APIRouter()
 
 # Auto-detect repo path
-import os
-set_repo_path(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))))
+set_repo_path(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
+)
 
 
 class ProposalCreate(BaseModel):
@@ -45,6 +57,7 @@ def _proposal_edits(proposal_id: int) -> list | None:
 # CODEBASE ANALYSIS
 # ──────────────────────────────────────────────
 
+
 @router.get("/analyze")
 def analyze(admin: User = Depends(require_admin)):
     """Analyze the codebase — find issues, stats, improvement opportunities."""
@@ -62,8 +75,9 @@ def analyze(admin: User = Depends(require_admin)):
 # PROPOSAL WORKFLOW
 # ──────────────────────────────────────────────
 
+
 @router.get("/proposals")
-def list_proposals(status: Optional[str] = None, admin: User = Depends(require_admin)):
+def list_proposals(status: str | None = None, admin: User = Depends(require_admin)):
     """List all change proposals. Filter: pending, approved, rejected, committed."""
     return {
         "proposals": get_proposals(status),
@@ -132,6 +146,7 @@ def push(approved: bool = False, admin: User = Depends(require_admin)):
 # GIT OPERATIONS
 # ──────────────────────────────────────────────
 
+
 @router.get("/git/status")
 def git_status(admin: User = Depends(require_admin)):
     """Get current git status."""
@@ -147,6 +162,7 @@ def git_diff(admin: User = Depends(require_admin)):
 # ──────────────────────────────────────────────
 # ARCHITECTURE INDEX
 # ──────────────────────────────────────────────
+
 
 @router.get("/architecture")
 def architecture(force: bool = False, admin: User = Depends(require_admin)):
@@ -164,15 +180,16 @@ def architecture(force: bool = False, admin: User = Depends(require_admin)):
 # TASK RUNNER
 # ──────────────────────────────────────────────
 
+
 class TaskCreate(BaseModel):
     task_type: str = "run_command"
     command: str = ""
-    workspace: Optional[str] = None
-    repo_root: Optional[str] = None
-    name: Optional[str] = None
+    workspace: str | None = None
+    repo_root: str | None = None
+    name: str | None = None
     timeout: int = 120
-    edits: Optional[list] = None
-    proposal_id: Optional[int] = None
+    edits: list | None = None
+    proposal_id: int | None = None
     wait: bool = True
 
 
@@ -188,6 +205,7 @@ async def run_new_task(body: TaskCreate, admin: User = Depends(require_admin)):
     import asyncio
 
     from anyio import to_thread
+
     from app.core import task_runner
     from app.core.task_runner import TaskRunnerError
 
@@ -209,7 +227,8 @@ async def run_new_task(body: TaskCreate, admin: User = Depends(require_admin)):
     try:
         task = task_runner.create_task(body.task_type, payload)
         if not body.wait:
-            asyncio.create_task(_background_run(task.id))
+            bg = asyncio.create_task(_background_run(task.id))
+            bg.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
             return {
                 "task_id": task.id,
                 "status": "pending",
@@ -217,7 +236,7 @@ async def run_new_task(body: TaskCreate, admin: User = Depends(require_admin)):
             }
         result = await to_thread.run_sync(task_runner.run_task, task.id)
     except TaskRunnerError as exc:
-        raise HTTPException(400, str(exc))
+        raise HTTPException(400, str(exc)) from exc
     return result
 
 
@@ -225,17 +244,17 @@ async def _background_run(task_id: int) -> None:
     """Run a task off the event loop; settle the row on any unexpected
     exception so it never stays pending forever."""
     from anyio import to_thread
+
     from app.core import task_runner
 
     try:
         await to_thread.run_sync(task_runner.run_task, task_id)
-    except Exception as exc:  # noqa: BLE001 — row must always be settled
+    except Exception as exc:
         task_runner.fail_task(task_id, f"internal error: {exc}")
 
 
 @router.get("/tasks")
-def list_tasks(status: Optional[str] = None, limit: int = 50,
-               admin: User = Depends(require_admin)):
+def list_tasks(status: str | None = None, limit: int = 50, admin: User = Depends(require_admin)):
     """List recent agent tasks from the persisted task store."""
     from app.core import task_runner
 
@@ -243,8 +262,7 @@ def list_tasks(status: Optional[str] = None, limit: int = 50,
 
 
 @router.get("/tasks/logs")
-def task_logs(limit: int = 50, workspace: Optional[str] = None,
-              admin: User = Depends(require_admin)):
+def task_logs(limit: int = 50, workspace: str | None = None, admin: User = Depends(require_admin)):
     """Recent sandbox operation logs (audit trail)."""
     from app.core import task_runner
 
@@ -266,6 +284,7 @@ def task_detail(task_id: int, admin: User = Depends(require_admin)):
 # AUTO-IMPROVEMENT
 # ──────────────────────────────────────────────
 
+
 @router.get("/auto-improvement/status")
 def auto_improvement_status(admin: User = Depends(require_admin)):
     """Get auto-improvement engine status."""
@@ -284,7 +303,9 @@ def auto_generate_proposals(admin: User = Depends(require_admin)):
     suggestions = generate_improvements()
     created = []
     for s in suggestions:
-        proposal = create_proposal(s["title"], s["description"], s["category"], [{"file": f} for f in s.get("files", [])])
+        proposal = create_proposal(
+            s["title"], s["description"], s["category"], [{"file": f} for f in s.get("files", [])]
+        )
         created.append({"id": proposal.id, "title": proposal.title})
     return {
         "generated": len(created),

@@ -25,8 +25,8 @@ from __future__ import annotations
 import re
 import threading
 import time
-from datetime import datetime, timezone
-from typing import Any, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 import sqlalchemy
 from sqlalchemy.orm import Session
@@ -43,17 +43,101 @@ from app.models import (
 # Local stopwords — kept intentionally small and neutral. Content words drive
 # both relevance scoring and the grounding (anti-hallucination) check.
 _STOP = {
-    "the", "and", "for", "are", "was", "were", "with", "that", "this", "these",
-    "those", "have", "has", "had", "you", "your", "yours", "our", "ours", "its",
-    "from", "into", "onto", "over", "under", "than", "then", "when", "where",
-    "which", "what", "who", "whom", "whose", "while", "will", "would", "shall",
-    "should", "could", "can", "may", "might", "must", "not", "but", "also",
-    "too", "very", "just", "only", "about", "after", "before", "because",
-    "between", "both", "each", "every", "other", "some", "such", "more",
-    "most", "however", "therefore", "there", "here", "all", "any", "how",
-    "why", "does", "do", "did", "is", "are", "am", "be", "been", "being",
-    "about", "into", "them", "their", "they", "it's", "i'm", "you're", "we're",
-    "they're", "there's", "please", "tell", "give", "show", "make", "like",
+    "the",
+    "and",
+    "for",
+    "are",
+    "was",
+    "were",
+    "with",
+    "that",
+    "this",
+    "these",
+    "those",
+    "have",
+    "has",
+    "had",
+    "you",
+    "your",
+    "yours",
+    "our",
+    "ours",
+    "its",
+    "from",
+    "into",
+    "onto",
+    "over",
+    "under",
+    "than",
+    "then",
+    "when",
+    "where",
+    "which",
+    "what",
+    "who",
+    "whom",
+    "whose",
+    "while",
+    "will",
+    "would",
+    "shall",
+    "should",
+    "could",
+    "can",
+    "may",
+    "might",
+    "must",
+    "not",
+    "but",
+    "also",
+    "too",
+    "very",
+    "just",
+    "only",
+    "about",
+    "after",
+    "before",
+    "because",
+    "between",
+    "both",
+    "each",
+    "every",
+    "other",
+    "some",
+    "such",
+    "more",
+    "most",
+    "however",
+    "therefore",
+    "there",
+    "here",
+    "all",
+    "any",
+    "how",
+    "why",
+    "does",
+    "do",
+    "did",
+    "is",
+    "am",
+    "be",
+    "been",
+    "being",
+    "them",
+    "their",
+    "they",
+    "it's",
+    "i'm",
+    "you're",
+    "we're",
+    "they're",
+    "there's",
+    "please",
+    "tell",
+    "give",
+    "show",
+    "make",
+    "like",
 }
 _MIN_WORD = 3
 _MIN_SENTENCE = 20
@@ -64,10 +148,17 @@ _BRAIN_TERM_REGEX = re.compile(r"[a-zA-Z]{3,}")
 # "I'm not guessing.", "Teach me a source…"). These are conversational glue,
 # NOT factual claims, so the hallucination guard must not judge them.
 _META_HINTS = (
-    "here's what i know", "every statement above", "i'm not guessing",
-    "i don't have verified information", "my brain and knowledge base",
-    "teach me a source", "i found material", "i'd rather be honest",
-    "i'll answer for certain", "won't guess", "can't back it up",
+    "here's what i know",
+    "every statement above",
+    "i'm not guessing",
+    "i don't have verified information",
+    "my brain and knowledge base",
+    "teach me a source",
+    "i found material",
+    "i'd rather be honest",
+    "i'll answer for certain",
+    "won't guess",
+    "can't back it up",
 )
 # A sentence must carry at least this many content words to be judged as a
 # claim; shorter fragments (templates, filler) are never flagged.
@@ -77,6 +168,7 @@ _MIN_CLAIM_WORDS = 5
 # ──────────────────────────────────────────────
 # TOKENIZATION & SCORING
 # ──────────────────────────────────────────────
+
 
 def brain_terms(text: str) -> list[str]:
     """Content words used for relevance + grounding (no stopwords, >= 3 chars)."""
@@ -114,10 +206,11 @@ def _extract_sentences(text: str) -> list[str]:
 # RETRIEVAL — gather evidence KUDOS actually has
 # ──────────────────────────────────────────────
 
+
 def retrieve_evidence(
     db: Session,
     query: str,
-    user_id: Optional[int] = None,
+    user_id: int | None = None,
     limit: int = 8,
 ) -> list[dict]:
     """Pull evidence from the brain, documents, web knowledge and memories.
@@ -136,9 +229,9 @@ def retrieve_evidence(
         brain_rows = (
             db.query(KudosBrain)
             .filter(
-                (KudosBrain.user_id.is_(None)) | (KudosBrain.user_id == 0) |
-                (KudosBrain.user_id == user_id) if user_id else
-                (KudosBrain.user_id.is_(None)) | (KudosBrain.user_id == 0)
+                (KudosBrain.user_id.is_(None)) | (KudosBrain.user_id == 0) | (KudosBrain.user_id == user_id)
+                if user_id
+                else (KudosBrain.user_id.is_(None)) | (KudosBrain.user_id == 0)
             )
             .limit(2000)
             .all()
@@ -148,14 +241,16 @@ def retrieve_evidence(
                 continue
             score, matched = _score_text(fact.content, fact.keywords, terms)
             if score > 0:
-                candidates.append({
-                    "content": fact.content,
-                    "title": fact.source_title or fact.category or "KUDOS Brain",
-                    "score": score,
-                    "matched": matched,
-                    "source_type": "brain",
-                    "source_id": fact.id,
-                })
+                candidates.append(
+                    {
+                        "content": fact.content,
+                        "title": fact.source_title or fact.category or "KUDOS Brain",
+                        "score": score,
+                        "matched": matched,
+                        "source_type": "brain",
+                        "source_id": fact.id,
+                    }
+                )
     except Exception:
         pass
 
@@ -174,14 +269,16 @@ def retrieve_evidence(
         for chunk in chunks:
             score, matched = _score_text(chunk.content, chunk.keywords, terms)
             if score > 0:
-                candidates.append({
-                    "content": chunk.content[:1000],
-                    "title": chunk.document.title if chunk.document else "Document",
-                    "score": score,
-                    "matched": matched,
-                    "source_type": "document",
-                    "source_id": chunk.document_id,
-                })
+                candidates.append(
+                    {
+                        "content": chunk.content[:1000],
+                        "title": chunk.document.title if chunk.document else "Document",
+                        "score": score,
+                        "matched": matched,
+                        "source_type": "document",
+                        "source_id": chunk.document_id,
+                    }
+                )
     except Exception:
         pass
 
@@ -200,14 +297,16 @@ def retrieve_evidence(
             text = (item.summary or item.content or "")[:1000]
             score, matched = _score_text(text, item.keywords if hasattr(item, "keywords") else "", terms)
             if score > 0:
-                candidates.append({
-                    "content": text,
-                    "title": item.title or item.url,
-                    "score": score,
-                    "matched": matched,
-                    "source_type": "web",
-                    "source_id": item.id,
-                })
+                candidates.append(
+                    {
+                        "content": text,
+                        "title": item.title or item.url,
+                        "score": score,
+                        "matched": matched,
+                        "source_type": "web",
+                        "source_id": item.id,
+                    }
+                )
     except Exception:
         pass
 
@@ -226,14 +325,16 @@ def retrieve_evidence(
             for mem in memories:
                 score, matched = _score_text(mem.content, mem.tags or "", terms)
                 if score > 0:
-                    candidates.append({
-                        "content": mem.content[:600],
-                        "title": "Your memories",
-                        "score": score,
-                        "matched": matched,
-                        "source_type": "memory",
-                        "source_id": mem.id,
-                    })
+                    candidates.append(
+                        {
+                            "content": mem.content[:600],
+                            "title": "Your memories",
+                            "score": score,
+                            "matched": matched,
+                            "source_type": "memory",
+                            "source_id": mem.id,
+                        }
+                    )
         except Exception:
             pass
 
@@ -245,10 +346,11 @@ def retrieve_evidence(
 # REASONING — deterministic "thinking" (no LLM)
 # ──────────────────────────────────────────────
 
+
 def reason(
     db: Session,
     query: str,
-    user_id: Optional[int] = None,
+    user_id: int | None = None,
     limit: int = 8,
 ) -> dict[str, Any]:
     """Think over KUDOS's own knowledge and return a fully grounded answer.
@@ -268,16 +370,18 @@ def reason(
         return {
             "answer": (
                 f"I don't have verified information about that yet. My offline brain has nothing on "
-                f"\"{query[:120]}\" — I'd rather be honest than guess. Try uploading a document or "
+                f'"{query[:120]}" — I\'d rather be honest than guess. Try uploading a document or '
                 f"teaching me a web page about it, and I'll learn it for real."
             ),
-            "sources": [], "grounded": False, "confidence": 0.0,
+            "sources": [],
+            "grounded": False,
+            "confidence": 0.0,
             "steps": steps,
             "reasoning": "No retrieved evidence — refusing to speculate.",
         }
 
     terms = brain_terms(query)
-    matched_any = max((e["matched"] for e in evidence), default=0)
+    max((e["matched"] for e in evidence), default=0)
     steps.append(f"Step 2 — found {len(evidence)} relevant items in my own knowledge.")
 
     # Extract only verbatim supporting sentences from the strongest evidence.
@@ -290,22 +394,28 @@ def reason(
             if len(picked) >= 5:
                 break
             if any(term in sentence.lower() for term in terms):
-                picked.append({
-                    "sentence": sentence,
-                    "title": item["title"],
-                    "source_type": item["source_type"],
-                    "source_id": item["source_id"],
-                    "score": item["score"],
-                })
+                picked.append(
+                    {
+                        "sentence": sentence,
+                        "title": item["title"],
+                        "source_type": item["source_type"],
+                        "source_id": item["source_id"],
+                        "score": item["score"],
+                    }
+                )
 
     if not picked:
-        steps.append("Step 3 — evidence matched keywords but no full supporting sentence was found; refusing to assemble an unverified answer.")
+        steps.append(
+            "Step 3 — evidence matched keywords but no full supporting sentence was found; refusing to assemble an unverified answer."  # noqa: E501
+        )
         return {
             "answer": (
                 "I found material that is only loosely related, but no verified sentence actually "
-                "answers that question — so I won't guess. Teach me a source that covers it and I'll answer it for certain."
+                "answers that question — so I won't guess. Teach me a source that covers it and I'll answer it for certain."  # noqa: E501
             ),
-            "sources": evidence[:3], "grounded": False, "confidence": 0.15,
+            "sources": evidence[:3],
+            "grounded": False,
+            "confidence": 0.15,
             "steps": steps,
             "reasoning": "No verbatim supporting sentence passed the grounding bar.",
         }
@@ -325,7 +435,7 @@ def reason(
         "Here's what I know for certain from my own knowledge base:\n\n"
         + "\n".join(lines)
         + "\n\nEvery statement above comes straight from a source I've actually learned — "
-          "I'm not guessing."
+        "I'm not guessing."
     )
 
     if used_titles:
@@ -333,13 +443,15 @@ def reason(
 
     sources = []
     for i, item in enumerate(picked, start=1):
-        sources.append({
-            "title": item["title"],
-            "content": item["sentence"],
-            "source_type": item["source_type"],
-            "source_id": item["source_id"],
-            "citation": i,
-        })
+        sources.append(
+            {
+                "title": item["title"],
+                "content": item["sentence"],
+                "source_type": item["source_type"],
+                "source_id": item["source_id"],
+                "citation": i,
+            }
+        )
 
     steps.append(f"Step 4 — assembled the answer with {len(sources)} citations; confidence {confidence:.0%}.")
     steps.append("Step 5 — grounding check passed: every sentence maps to a real source.")
@@ -354,13 +466,14 @@ def reason(
     }
 
 
-def answer_offline(db: Session, query: str, user_id: Optional[int] = None) -> dict[str, Any]:
+def answer_offline(db: Session, query: str, user_id: int | None = None) -> dict[str, Any]:
     """Public wrapper — returns a clean dict for APIs/UI.
 
     KUDOS's own world map answers first (deterministic, fact-only geo facts
     such as "where is Nairobi?"), then the offline brain reasoning is used."""
     try:
         from app.core.world_map import world_map_offline_answer
+
         geo = world_map_offline_answer(db, query, user_id=user_id)
         if geo:
             return geo
@@ -382,6 +495,7 @@ def answer_offline(db: Session, query: str, user_id: Optional[int] = None) -> di
 # HALLUCINATION GUARD — verify ANY answer
 # ──────────────────────────────────────────────
 
+
 def hallucination_guard(
     text: str,
     sources: list[dict],
@@ -399,7 +513,7 @@ def hallucination_guard(
     sentences = _extract_sentences(text or "")
     corpus = " ".join(s.get("content", "") or "" for s in (sources or []))
     corpus_lower = corpus.lower()
-    corpus_terms = set(brain_terms(corpus))
+    set(brain_terms(corpus))
 
     if not sentences:
         return {"score": 1.0, "passes": True, "ungrounded": [], "checked_sentences": 0}
@@ -432,6 +546,7 @@ def hallucination_guard(
 # LEARNING — fill the brain from real sources
 # ──────────────────────────────────────────────
 
+
 def _local_keywords(text: str, max_keywords: int = 12) -> str:
     words = brain_terms(text)
     freq: dict[str, int] = {}
@@ -445,12 +560,12 @@ def learn_fact(
     db: Session,
     content: str,
     source_type: str = "document",
-    source_id: Optional[int] = None,
+    source_id: int | None = None,
     source_title: str = "",
     category: str = "general",
-    user_id: Optional[int] = None,
+    user_id: int | None = None,
     confidence: float = 0.7,
-) -> Optional[KudosBrain]:
+) -> KudosBrain | None:
     """Persist a fact into the brain (deduped + reinforced on repeat)."""
     content = (content or "").strip()
     if len(content) < 15:
@@ -458,11 +573,7 @@ def learn_fact(
 
     summary = content if len(content) <= 160 else content[:157].rstrip() + "..."
 
-    existing = (
-        db.query(KudosBrain)
-        .filter(KudosBrain.content == content, KudosBrain.user_id == (user_id or 0))
-        .first()
-    )
+    existing = db.query(KudosBrain).filter(KudosBrain.content == content, KudosBrain.user_id == (user_id or 0)).first()
     if existing:
         existing.times_learned = (existing.times_learned or 1) + 1
         existing.confidence = min(1.0, (existing.confidence or 0.7) + 0.05)
@@ -495,7 +606,7 @@ def learn_fact(
 
 def consolidate_brain(
     db: Session,
-    user_id: Optional[int] = None,
+    user_id: int | None = None,
     limit: int = 300,
 ) -> dict[str, Any]:
     """Distill the knowledge base into brain facts (deterministic, verbatim).
@@ -523,9 +634,13 @@ def consolidate_brain(
                 scanned += 1
                 if _local_keywords(sentence) and sentence.count(" ") >= 4:
                     fact = learn_fact(
-                        db, sentence, source_type="document", source_id=doc.id,
+                        db,
+                        sentence,
+                        source_type="document",
+                        source_id=doc.id,
                         source_title=doc.title or doc.filename or "Document",
-                        category="knowledge", user_id=user_id,
+                        category="knowledge",
+                        user_id=user_id,
                     )
                     if fact:
                         learned += 1
@@ -554,9 +669,13 @@ def consolidate_brain(
                 scanned += 1
                 if sentence.count(" ") >= 4:
                     fact = learn_fact(
-                        db, sentence, source_type="web", source_id=item.id,
+                        db,
+                        sentence,
+                        source_type="web",
+                        source_id=item.id,
                         source_title=item.title or item.url or "Web page",
-                        category="web", user_id=user_id,
+                        category="web",
+                        user_id=user_id,
                     )
                     if fact:
                         learned += 1
@@ -580,6 +699,7 @@ def consolidate_brain(
 # STATUS & SEARCH
 # ──────────────────────────────────────────────
 
+
 def brain_stats(db: Session) -> dict[str, Any]:
     """Snapshot of the offline brain's health and contents."""
     try:
@@ -588,7 +708,7 @@ def brain_stats(db: Session) -> dict[str, Any]:
             .group_by(KudosBrain.source_type)
             .all()
         )
-        counts = {k: v for k, v in rows}
+        counts = dict(rows)
     except Exception:
         counts = {}
 
@@ -604,12 +724,12 @@ def brain_stats(db: Session) -> dict[str, Any]:
     # How much would the brain cover without any LLM?
     try:
         evidence_total = (
-            db.query(KudosDocument).filter(
-                KudosDocument.is_approved.is_(True), KudosDocument.is_active.is_(True)
-            ).count()
-            + db.query(KudosWebKnowledge).filter(
-                KudosWebKnowledge.is_approved.is_(True), KudosWebKnowledge.is_active.is_(True)
-            ).count()
+            db.query(KudosDocument)
+            .filter(KudosDocument.is_approved.is_(True), KudosDocument.is_active.is_(True))
+            .count()
+            + db.query(KudosWebKnowledge)
+            .filter(KudosWebKnowledge.is_approved.is_(True), KudosWebKnowledge.is_active.is_(True))
+            .count()
         )
     except Exception:
         evidence_total = 0
@@ -625,7 +745,7 @@ def brain_stats(db: Session) -> dict[str, Any]:
     }
 
 
-def brain_search(db: Session, query: str, user_id: Optional[int] = None, limit: int = 10) -> list[dict]:
+def brain_search(db: Session, query: str, user_id: int | None = None, limit: int = 10) -> list[dict]:
     """Search brain facts directly (read-only)."""
     terms = brain_terms(query)
     if not terms:
@@ -634,9 +754,11 @@ def brain_search(db: Session, query: str, user_id: Optional[int] = None, limit: 
     try:
         rows = (
             db.query(KudosBrain)
-            .filter((KudosBrain.user_id.is_(None)) | (KudosBrain.user_id == 0) |
-                    (KudosBrain.user_id == user_id) if user_id else
-                    (KudosBrain.user_id.is_(None)) | (KudosBrain.user_id == 0))
+            .filter(
+                (KudosBrain.user_id.is_(None)) | (KudosBrain.user_id == 0) | (KudosBrain.user_id == user_id)
+                if user_id
+                else (KudosBrain.user_id.is_(None)) | (KudosBrain.user_id == 0)
+            )
             .order_by(KudosBrain.confidence.desc())
             .limit(2000)
             .all()
@@ -644,33 +766,37 @@ def brain_search(db: Session, query: str, user_id: Optional[int] = None, limit: 
         for fact in rows:
             score, matched = _score_text(fact.content, fact.keywords, terms)
             if score > 0:
-                results.append({
-                    "id": fact.id,
-                    "content": fact.content,
-                    "summary": fact.summary or "",
-                    "category": fact.category,
-                    "source_type": fact.source_type,
-                    "source_title": fact.source_title,
-                    "confidence": float(fact.confidence or 0.5),
-                    "times_learned": fact.times_learned or 1,
-                    "score": score,
-                    "matched": matched,
-                    "created_at": fact.created_at.isoformat() if fact.created_at else None,
-                })
+                results.append(
+                    {
+                        "id": fact.id,
+                        "content": fact.content,
+                        "summary": fact.summary or "",
+                        "category": fact.category,
+                        "source_type": fact.source_type,
+                        "source_title": fact.source_title,
+                        "confidence": float(fact.confidence or 0.5),
+                        "times_learned": fact.times_learned or 1,
+                        "score": score,
+                        "matched": matched,
+                        "created_at": fact.created_at.isoformat() if fact.created_at else None,
+                    }
+                )
     except Exception:
         pass
     results.sort(key=lambda r: (-r["score"], -r["confidence"]))
     return results[:limit]
+
+
 # ──────────────────────────────────────────────
 # BRAIN STATE
 # ──────────────────────────────────────────────
 
 _brain_active = False
-_brain_thread: Optional[threading.Thread] = None
+_brain_thread: threading.Thread | None = None
 _brain_cycle_count = 0
 _brain_log: list[dict] = []
 _brain_thoughts: list[dict] = []
-_last_brain_cycle: Optional[datetime] = None
+_last_brain_cycle: datetime | None = None
 
 # KUDOS's learned knowledge about itself
 _self_knowledge = {
@@ -720,14 +846,14 @@ _self_knowledge = {
 }
 
 
-def _log_brain(action: str, thought: str, details: dict = None):
+def _log_brain(action: str, thought: str, details: dict | None = None):
     """Log a brain activity."""
     global _brain_log
     entry = {
         "action": action,
         "thought": thought,
         "details": details or {},
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }
     _brain_log.append(entry)
     if len(_brain_log) > 500:
@@ -740,7 +866,7 @@ def _think(thought: str, category: str = "general"):
     entry = {
         "thought": thought,
         "category": category,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }
     _brain_thoughts.append(entry)
     if len(_brain_thoughts) > 100:
@@ -750,6 +876,7 @@ def _think(thought: str, category: str = "general"):
 # ──────────────────────────────────────────────
 # BRAIN CYCLE — KUDOS thinks and improves
 # ──────────────────────────────────────────────
+
 
 def _brain_cycle():
     """One cycle of KUDOS's brain — think, learn, improve."""
@@ -779,11 +906,15 @@ def _brain_cycle():
         _think("Generating improvement ideas...", "improvement")
         _generate_improvements()
 
-        _last_brain_cycle = datetime.now(timezone.utc)
-        _log_brain("cycle_complete", f"Brain cycle #{_brain_cycle_count} complete", {
-            "capabilities": len(_self_knowledge["capabilities"]),
-            "knowledge_areas": len(_self_knowledge["knowledge_areas"]),
-        })
+        _last_brain_cycle = datetime.now(UTC)
+        _log_brain(
+            "cycle_complete",
+            f"Brain cycle #{_brain_cycle_count} complete",
+            {
+                "capabilities": len(_self_knowledge["capabilities"]),
+                "knowledge_areas": len(_self_knowledge["knowledge_areas"]),
+            },
+        )
 
     except Exception as e:
         _log_brain("error", f"Brain error: {str(e)[:200]}")
@@ -830,6 +961,7 @@ def _learn_something_new():
     ]
 
     import random
+
     topic, reason = random.choice(topics)
     _think(f"Learning about: {topic} — {reason}", "learning")
     _log_brain("learned", f"Studied: {topic}", {"reason": reason})
@@ -871,18 +1003,22 @@ def _generate_improvements():
     ]
 
     import random
+
     improvement = random.choice(improvements)
     _think(f"Improvement idea: {improvement}", "improvement")
-    _self_knowledge["improvements_made"].append({
-        "idea": improvement,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    })
+    _self_knowledge["improvements_made"].append(
+        {
+            "idea": improvement,
+            "timestamp": datetime.now(UTC).isoformat(),
+        }
+    )
     _log_brain("improvement_idea", improvement)
 
 
 # ──────────────────────────────────────────────
 # BRAIN CONTROL
 # ──────────────────────────────────────────────
+
 
 def start_brain():
     """Start KUDOS's autonomous brain."""

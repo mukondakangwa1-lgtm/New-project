@@ -2,17 +2,19 @@
 Digital Campus - KUDOS AI Assistant
 Document learning, web learning, retrieval-based chat, superadmin controls.
 """
+
 import base64
+import contextlib
 import io
 import json
 import re
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 from bs4 import BeautifulSoup
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
@@ -22,25 +24,131 @@ from app.core.database import get_db
 from app.core.deps import get_current_user, require_admin
 from app.core.kudos_guardian import self_improver
 from app.models import (
-    KudosChunk, KudosConversation, KudosDocument, KudosMessage, KudosTool, KudosWebKnowledge, User, Visit,
+    KudosChunk,
+    KudosConversation,
+    KudosDocument,
+    KudosMessage,
+    KudosWebKnowledge,
+    User,
+    Visit,
 )
 from app.schemas import (
-    GuestAskRequest, KudosAskRequest, KudosAskResponse, KudosConversationResponse, KudosDocumentResponse,
-    KudosDocumentUpdate, KudosMessageResponse, KudosStats, KudosWebKnowledgeResponse, KudosWebLearn,
-    ChatSendResponse, ToolRegisterRequest, ToolCallRequest, GuestProfileUpdate, GuestProfileResponse,
+    ChatSendResponse,
+    GuestAskRequest,
+    GuestProfileResponse,
+    GuestProfileUpdate,
+    KudosAskRequest,
+    KudosAskResponse,
+    KudosConversationResponse,
+    KudosDocumentResponse,
+    KudosDocumentUpdate,
+    KudosMessageResponse,
+    KudosStats,
+    KudosWebKnowledgeResponse,
+    KudosWebLearn,
+    ToolCallRequest,
+    ToolRegisterRequest,
 )
 
 router = APIRouter()
 
 CHUNK_SIZE = 500
 CHUNK_OVERLAP = 50
-STOP_WORDS = set(
-    "the a an and or but in on at to for of is it that this with from by as are was were be been "
-    "being have has had do does did will would shall should may might can could i me my we our you "
-    "your he she they them their its not no nor so if than too very just about above after again all "
-    "any because before between both each few more most other some such then there these through "
-    "under until when where which while who whom why how".split()
-)
+STOP_WORDS = {
+    "the",
+    "a",
+    "an",
+    "and",
+    "or",
+    "but",
+    "in",
+    "on",
+    "at",
+    "to",
+    "for",
+    "of",
+    "is",
+    "it",
+    "that",
+    "this",
+    "with",
+    "from",
+    "by",
+    "as",
+    "are",
+    "was",
+    "were",
+    "be",
+    "been",
+    "being",
+    "have",
+    "has",
+    "had",
+    "do",
+    "does",
+    "did",
+    "will",
+    "would",
+    "shall",
+    "should",
+    "may",
+    "might",
+    "can",
+    "could",
+    "i",
+    "me",
+    "my",
+    "we",
+    "our",
+    "you",
+    "your",
+    "he",
+    "she",
+    "they",
+    "them",
+    "their",
+    "its",
+    "not",
+    "no",
+    "nor",
+    "so",
+    "if",
+    "than",
+    "too",
+    "very",
+    "just",
+    "about",
+    "above",
+    "after",
+    "again",
+    "all",
+    "any",
+    "because",
+    "before",
+    "between",
+    "both",
+    "each",
+    "few",
+    "more",
+    "most",
+    "other",
+    "some",
+    "such",
+    "then",
+    "there",
+    "these",
+    "through",
+    "under",
+    "until",
+    "when",
+    "where",
+    "which",
+    "while",
+    "who",
+    "whom",
+    "why",
+    "how",
+}
 
 
 def extract_text_from_file(content: bytes, filename: str) -> str:
@@ -50,6 +158,7 @@ def extract_text_from_file(content: bytes, filename: str) -> str:
     if ext == "pdf":
         try:
             from PyPDF2 import PdfReader
+
             reader = PdfReader(io.BytesIO(content))
             return "".join(page.extract_text() or "" for page in reader.pages)
         except Exception:
@@ -57,6 +166,7 @@ def extract_text_from_file(content: bytes, filename: str) -> str:
     if ext in ("docx", "doc"):
         try:
             from docx import Document
+
             doc = Document(io.BytesIO(content))
             return "\n".join(p.text for p in doc.paragraphs)
         except Exception:
@@ -119,14 +229,16 @@ def search_chunks(db: Session, query: str, limit: int = 5) -> list[dict]:
                 )
                 if chunk:
                     distance = max(float(match.get("distance", 1.0)), 0.0)
-                    scored.append({
-                        "chunk_id": chunk.id,
-                        "document_id": chunk.document_id,
-                        "title": chunk.document.title,
-                        "content": chunk.content[:500],
-                        "score": max(0.1, 1.0 - distance),
-                        "retrieval": "semantic",
-                    })
+                    scored.append(
+                        {
+                            "chunk_id": chunk.id,
+                            "document_id": chunk.document_id,
+                            "title": chunk.document.title,
+                            "content": chunk.content[:500],
+                            "score": max(0.1, 1.0 - distance),
+                            "retrieval": "semantic",
+                        }
+                    )
         except Exception:
             # A missing provider/table should never disable keyword retrieval.
             pass
@@ -135,9 +247,9 @@ def search_chunks(db: Session, query: str, limit: int = 5) -> list[dict]:
     if not query_words:
         return scored[:limit]
     try:
-        chunks = db.query(KudosChunk).join(KudosDocument).filter(
-            KudosDocument.is_approved == True, KudosDocument.is_active == True
-        ).all()
+        chunks = (
+            db.query(KudosChunk).join(KudosDocument).filter(KudosDocument.is_approved, KudosDocument.is_active).all()
+        )
     except Exception:
         return scored[:limit]
 
@@ -146,19 +258,32 @@ def search_chunks(db: Session, query: str, limit: int = 5) -> list[dict]:
         keywords = set(chunk.keywords.split(",")) if chunk.keywords else set()
         score = sum(3 if w in keywords else 1 for w in query_words if w in content_lower)
         if score > 0:
-            scored.append({"chunk_id": chunk.id, "document_id": chunk.document_id,
-                           "title": chunk.document.title, "content": chunk.content[:500],
-                           "score": score})
+            scored.append(
+                {
+                    "chunk_id": chunk.id,
+                    "document_id": chunk.document_id,
+                    "title": chunk.document.title,
+                    "content": chunk.content[:500],
+                    "score": score,
+                }
+            )
 
     try:
-        web_items = db.query(KudosWebKnowledge).filter(
-            KudosWebKnowledge.is_approved == True, KudosWebKnowledge.is_active == True
-        ).all()
+        web_items = db.query(KudosWebKnowledge).filter(KudosWebKnowledge.is_approved, KudosWebKnowledge.is_active).all()
         for item in web_items:
             content_lower = (item.content or "").lower()
             score = sum(1 for w in query_words if w in content_lower)
             if score > 0:
-                scored.append({"chunk_id": None, "document_id": None, "web_id": item.id, "title": item.title, "content": (item.summary or item.content[:500])[:500], "score": score})
+                scored.append(
+                    {
+                        "chunk_id": None,
+                        "document_id": None,
+                        "web_id": item.id,
+                        "title": item.title,
+                        "content": (item.summary or item.content[:500])[:500],
+                        "score": score,
+                    }
+                )
     except Exception:
         pass
 
@@ -169,9 +294,10 @@ def search_chunks(db: Session, query: str, limit: int = 5) -> list[dict]:
 def generate_answer(query: str, sources: list[dict]) -> str:
     """Simple fallback answer — never used if conversation engine works."""
     if not sources:
-        return f"I don't have information about \"{query}\" yet. Try uploading a document or teaching me a web page about it."
+        return f'I don\'t have information about "{query}" yet. Try uploading a document or teaching me a web page about it.'  # noqa: E501
     # Extract relevant content
     import re
+
     query_words = set(re.findall(r"[a-zA-Z]{3,}", query.lower())) - STOP_WORDS
     best_content = ""
     best_score = 0
@@ -182,7 +308,7 @@ def generate_answer(query: str, sources: list[dict]) -> str:
             best_score = score
             best_content = content
     # Extract relevant sentences
-    sentences = re.split(r'[.!?\n]+', best_content)
+    sentences = re.split(r"[.!?\n]+", best_content)
     relevant = [s.strip() for s in sentences if len(s.strip()) > 20 and any(w in s.lower() for w in query_words)][:3]
     if relevant:
         return ". ".join(relevant) + "."
@@ -196,8 +322,11 @@ def generate_answer(query: str, sources: list[dict]) -> str:
 
 @router.post("/documents/upload", response_model=KudosDocumentResponse, status_code=201)
 async def upload_document(
-    title: str = Form(...), tags: str = Form(""), file: UploadFile = File(...),
-    db: Session = Depends(get_db), current_user: User = Depends(get_current_user),
+    title: str = Form(...),
+    tags: str = Form(""),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     content_bytes = await file.read()
     if len(content_bytes) > 10 * 1024 * 1024:
@@ -217,15 +346,28 @@ async def upload_document(
         storage_key = ""
 
     doc = KudosDocument(
-        uploaded_by=current_user.id, title=title, filename=file.filename or "unknown",
+        uploaded_by=current_user.id,
+        title=title,
+        filename=file.filename or "unknown",
         file_type=file.filename.rsplit(".", 1)[-1].lower() if "." in (file.filename or "") else "",
-        storage_key=storage_key, content=text, summary=simple_summarize(text), tags=tags,
+        storage_key=storage_key,
+        content=text,
+        summary=simple_summarize(text),
+        tags=tags,
         is_approved=current_user.is_admin,
     )
     db.add(doc)
     db.flush()
     for i, chunk_content in enumerate(chunk_text(text)):
-        db.add(KudosChunk(document_id=doc.id, chunk_index=i, content=chunk_content, word_count=len(chunk_content.split()), keywords=extract_keywords(chunk_content)))
+        db.add(
+            KudosChunk(
+                document_id=doc.id,
+                chunk_index=i,
+                content=chunk_content,
+                word_count=len(chunk_content.split()),
+                keywords=extract_keywords(chunk_content),
+            )
+        )
     doc.chunk_count = len(chunk_text(text))
     db.commit()
     db.refresh(doc)
@@ -234,6 +376,7 @@ async def upload_document(
     if settings.SEMANTIC_SEARCH_ENABLED:
         try:
             from app.tasks import index_document_embeddings
+
             index_document_embeddings.delay(doc.id)
         except Exception:
             # Keyword retrieval remains available if the worker or provider is
@@ -244,17 +387,21 @@ async def upload_document(
 
 
 @router.get("/documents", response_model=list[KudosDocumentResponse])
-def list_documents(show_all: bool = False, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def list_documents(
+    show_all: bool = False, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+):
     q = db.query(KudosDocument)
     if not current_user.is_admin:
-        q = q.filter(KudosDocument.is_approved == True, KudosDocument.is_active == True)
+        q = q.filter(KudosDocument.is_approved, KudosDocument.is_active)
     elif not show_all:
-        q = q.filter(KudosDocument.is_active == True)
+        q = q.filter(KudosDocument.is_active)
     return q.order_by(KudosDocument.created_at.desc()).all()
 
 
 @router.patch("/documents/{doc_id}", response_model=KudosDocumentResponse)
-def update_document(doc_id: int, body: KudosDocumentUpdate, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+def update_document(
+    doc_id: int, body: KudosDocumentUpdate, db: Session = Depends(get_db), admin: User = Depends(require_admin)
+):
     doc = db.query(KudosDocument).filter(KudosDocument.id == doc_id).first()
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -271,10 +418,8 @@ def delete_document(doc_id: int, db: Session = Depends(get_db), admin: User = De
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
     if doc.storage_key:
-        try:
+        with contextlib.suppress(Exception):
             storage.delete(doc.storage_key)
-        except Exception:
-            pass
     db.delete(doc)
     db.commit()
 
@@ -290,15 +435,21 @@ def download_original(doc_id: int, db: Session = Depends(get_db), current_user: 
     try:
         content = storage.download(doc.storage_key)
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="Original file missing")
+        raise HTTPException(status_code=404, detail="Original file missing") from None
     media_type = {
         "pdf": "application/pdf",
         "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "txt": "text/plain", "md": "text/markdown", "json": "application/json",
-        "py": "text/x-python", "js": "text/javascript", "html": "text/html", "css": "text/css",
+        "txt": "text/plain",
+        "md": "text/markdown",
+        "json": "application/json",
+        "py": "text/x-python",
+        "js": "text/javascript",
+        "html": "text/html",
+        "css": "text/css",
     }.get(doc.file_type, "application/octet-stream")
     return Response(
-        content=content, media_type=media_type,
+        content=content,
+        media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{doc.filename}"'},
     )
 
@@ -309,7 +460,9 @@ def download_original(doc_id: int, db: Session = Depends(get_db), current_user: 
 
 
 @router.post("/learn/web", response_model=KudosWebKnowledgeResponse, status_code=201)
-async def learn_web_page(body: KudosWebLearn, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def learn_web_page(
+    body: KudosWebLearn, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+):
     if not body.url.startswith(("http://", "https://")):
         raise HTTPException(status_code=400, detail="Invalid URL")
     try:
@@ -317,7 +470,7 @@ async def learn_web_page(body: KudosWebLearn, db: Session = Depends(get_db), cur
             response = await client.get(body.url)
             response.raise_for_status()
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to fetch URL: {e}")
+        raise HTTPException(status_code=400, detail=f"Failed to fetch URL: {e}") from e
     soup = BeautifulSoup(response.text, "html.parser")
     for tag in soup(["script", "style", "nav", "footer", "header"]):
         tag.decompose()
@@ -325,7 +478,14 @@ async def learn_web_page(body: KudosWebLearn, db: Session = Depends(get_db), cur
     text = soup.get_text(separator="\n", strip=True)
     if len(text) < 50:
         raise HTTPException(status_code=400, detail="Page has too little text content")
-    knowledge = KudosWebKnowledge(url=body.url, title=title[:255], content=text, summary=simple_summarize(text), is_approved=current_user.is_admin, learned_by=current_user.id)
+    knowledge = KudosWebKnowledge(
+        url=body.url,
+        title=title[:255],
+        content=text,
+        summary=simple_summarize(text),
+        is_approved=current_user.is_admin,
+        learned_by=current_user.id,
+    )
     db.add(knowledge)
     db.commit()
     db.refresh(knowledge)
@@ -336,12 +496,14 @@ async def learn_web_page(body: KudosWebLearn, db: Session = Depends(get_db), cur
 def list_web_knowledge(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     q = db.query(KudosWebKnowledge)
     if not current_user.is_admin:
-        q = q.filter(KudosWebKnowledge.is_approved == True, KudosWebKnowledge.is_active == True)
+        q = q.filter(KudosWebKnowledge.is_approved, KudosWebKnowledge.is_active)
     return q.order_by(KudosWebKnowledge.created_at.desc()).all()
 
 
 @router.patch("/learn/web/{item_id}", response_model=KudosWebKnowledgeResponse)
-def update_web_knowledge(item_id: int, body: KudosDocumentUpdate, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+def update_web_knowledge(
+    item_id: int, body: KudosDocumentUpdate, db: Session = Depends(get_db), admin: User = Depends(require_admin)
+):
     item = db.query(KudosWebKnowledge).filter(KudosWebKnowledge.id == item_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Web knowledge not found")
@@ -372,7 +534,7 @@ def _open_terminal_for_question(db: Session, current_user: User, question: str) 
         return ""
     from app.core.terminal import pick_session_for_user
 
-    session, created = pick_session_for_user(db, current_user.id, admin=current_user.is_admin)
+    session, _created = pick_session_for_user(db, current_user.id, admin=current_user.is_admin)
     where = "on your device" if session.kind == "device" else "online (server workspace)"
     return (
         f"- You have an open terminal session #{session.id} ({session.name}) {where}.\n"
@@ -386,17 +548,23 @@ def _open_terminal_for_question(db: Session, current_user: User, question: str) 
 
 
 @router.post("/ask", response_model=KudosAskResponse)
-async def ask_kudos(body: KudosAskRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def ask_kudos(
+    body: KudosAskRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+):
     """Ask KUDOS — always returns an answer, never crashes."""
     try:
         # Get or create conversation
         conv = None
         if body.conversation_id:
             try:
-                conv = db.query(KudosConversation).filter(
-                    KudosConversation.id == body.conversation_id,
-                    KudosConversation.user_id == current_user.id,
-                ).first()
+                conv = (
+                    db.query(KudosConversation)
+                    .filter(
+                        KudosConversation.id == body.conversation_id,
+                        KudosConversation.user_id == current_user.id,
+                    )
+                    .first()
+                )
             except Exception:
                 conv = None
         if not conv:
@@ -410,9 +578,12 @@ async def ask_kudos(body: KudosAskRequest, db: Session = Depends(get_db), curren
         # Fast path: short, casual, non-deep questions get a quick answer
         # without running the full retrieval + citation pipeline.
         from app.core.privacy_guard import scrub_response
-        from app.core.quick_answers import is_short_question, get_short_answer
+        from app.core.quick_answers import get_short_answer, is_short_question
+
         if is_short_question(body.question):
-            short = await get_short_answer(body.question, current_user.full_name.split()[0] if current_user.full_name else "")
+            short = await get_short_answer(
+                body.question, current_user.full_name.split()[0] if current_user.full_name else ""
+            )
             short = scrub_response(short, allow_emails=True)
             try:
                 db.add(KudosMessage(conversation_id=conv.id, role="kudos", content=short, sources="[]"))
@@ -423,10 +594,8 @@ async def ask_kudos(body: KudosAskRequest, db: Session = Depends(get_db), curren
 
         # Search knowledge base
         sources = []
-        try:
+        with contextlib.suppress(Exception):
             sources = search_chunks(db, body.question)
-        except Exception:
-            pass
 
         # Ask the internal MCP gateway for additional tool-backed sources when
         # enabled. The local database/search fallback remains authoritative when
@@ -434,6 +603,7 @@ async def ask_kudos(body: KudosAskRequest, db: Session = Depends(get_db), curren
         if settings.MCP_ENABLED:
             try:
                 from app.core.mcp_client import search_mcp_sources
+
                 mcp_sources = await search_mcp_sources(body.question)
                 sources = mcp_sources + sources
             except Exception:
@@ -450,6 +620,7 @@ async def ask_kudos(body: KudosAskRequest, db: Session = Depends(get_db), curren
         memory_context = ""
         try:
             from app.core.memory_store import build_memory_context
+
             memory_context = build_memory_context(db, current_user.id, query=body.question)
         except Exception:
             pass
@@ -458,6 +629,7 @@ async def ask_kudos(body: KudosAskRequest, db: Session = Depends(get_db), curren
         persona_instructions = ""
         try:
             from app.core.persona import build_persona_instructions, profile_dict
+
             persona_instructions = build_persona_instructions(profile_dict(db, current_user.id))
         except Exception:
             pass
@@ -466,6 +638,7 @@ async def ask_kudos(body: KudosAskRequest, db: Session = Depends(get_db), curren
         soul_context = ""
         try:
             from app.core.soul import build_soul_context
+
             soul_context = build_soul_context(db)
         except Exception:
             pass
@@ -474,6 +647,7 @@ async def ask_kudos(body: KudosAskRequest, db: Session = Depends(get_db), curren
         self_knowledge = ""
         try:
             from app.core.sandbox import build_sandbox_knowledge_context
+
             self_knowledge = build_sandbox_knowledge_context(db)
         except Exception:
             pass
@@ -485,6 +659,7 @@ async def ask_kudos(body: KudosAskRequest, db: Session = Depends(get_db), curren
             pass
         try:
             from app.core.world_map import maps_knowledge_context
+
             geo_note = maps_knowledge_context(db, body.question)
             if geo_note:
                 self_knowledge = f"{self_knowledge}\n{geo_note}"
@@ -492,30 +667,28 @@ async def ask_kudos(body: KudosAskRequest, db: Session = Depends(get_db), curren
             pass
         try:
             from app.core.network_mesh import network_note
+
             net_note = network_note(db, current_user)
             if net_note:
                 self_knowledge = f"{self_knowledge}\n{net_note}"
         except Exception:
             pass
-        try:
+        with contextlib.suppress(Exception):
             self_knowledge = f"{self_knowledge}\n{_connectors_note()}"
-        except Exception:
-            pass
 
         # KUDOS Terminal: when the question looks like code to write or test,
         # auto-open a session so KUDOS can act like an agent. The session id
         # is added to the prompt so the LLM knows its terminal is available.
         terminal_context = ""
         if settings.KUDOS_TERMINAL_AUTO_OPEN and current_user.is_admin:
-            try:
+            with contextlib.suppress(Exception):
                 terminal_context = _open_terminal_for_question(db, current_user, body.question)
-            except Exception:
-                pass
 
         # KUDOS's offline brain: answer from its own persistent knowledge
         # without any LLM when offline-first is enabled, or keep it as the
         # guaranteed-grounded fallback.
         from app.core.kudos_brain import answer_offline, hallucination_guard
+
         offline = None
         try:
             if settings.KUDOS_OFFLINE_FIRST:
@@ -528,11 +701,16 @@ async def ask_kudos(body: KudosAskRequest, db: Session = Depends(get_db), curren
         if not (offline and offline.get("grounded")):
             try:
                 from app.core.llm_engine import get_llm_response
+
                 conv_history = []
                 try:
-                    conv_history = db.query(KudosMessage).filter(
-                        KudosMessage.conversation_id == conv.id
-                    ).order_by(KudosMessage.created_at.desc()).limit(5).all()
+                    conv_history = (
+                        db.query(KudosMessage)
+                        .filter(KudosMessage.conversation_id == conv.id)
+                        .order_by(KudosMessage.created_at.desc())
+                        .limit(5)
+                        .all()
+                    )
                     conv_history = [{"role": m.role, "content": m.content} for m in conv_history]
                 except Exception:
                     pass
@@ -570,8 +748,11 @@ async def ask_kudos(body: KudosAskRequest, db: Session = Depends(get_db), curren
             used_fallback = True
             try:
                 from app.core.conversation_engine import generate_human_response
+
                 answer = generate_human_response(
-                    query=body.question, sources=sources, conv_id=conv.id,
+                    query=body.question,
+                    sources=sources,
+                    conv_id=conv.id,
                     user_name=current_user.full_name.split()[0] if current_user.full_name else None,
                 )
             except Exception:
@@ -592,9 +773,9 @@ async def ask_kudos(body: KudosAskRequest, db: Session = Depends(get_db), curren
                         used_fallback = True
                     else:
                         answer = (
-                            f"I don't have verified information about that. My brain and knowledge base "
-                            f"don't contain anything I can answer this from without guessing — and I "
-                            f"never guess. Teach me a source covering it and I'll answer for certain."
+                            "I don't have verified information about that. My brain and knowledge base "
+                            "don't contain anything I can answer this from without guessing — and I "
+                            "never guess. Teach me a source covering it and I'll answer for certain."
                         )
                         used_fallback = True
                 except Exception:
@@ -619,31 +800,33 @@ async def ask_kudos(body: KudosAskRequest, db: Session = Depends(get_db), curren
 
         # Parse inline [n] citations the LLM used
         from app.core.llm_engine import extract_citations
+
         cited = extract_citations(answer, sources[:3])
 
         # Execute generation/tool markers (IMAGE_PROMPT / VIDEO_PROMPT /
         # TOOL_CALL / REGISTER_TOOL) and attach any generated media.
         from app.core.privacy_guard import scrub_response
+
         answer = scrub_response(answer, allow_emails=True)
         media_gen: list[dict] = []
-        try:
+        with contextlib.suppress(Exception):
             answer, media_gen = await _apply_generation_markers(db, answer, current_user)
-        except Exception:
-            pass
 
         # Self-improvement logging
-        try:
+        with contextlib.suppress(Exception):
             self_improver.log_question(current_user.id, body.question, had_sources=bool(sources))
-        except Exception:
-            pass
 
         # Save KUDOS response
         try:
-            db.add(KudosMessage(
-                conversation_id=conv.id, role="kudos", content=answer,
-                sources=json.dumps(sources[:3]) if sources else "[]",
-                media=_media_json(media_gen),
-            ))
+            db.add(
+                KudosMessage(
+                    conversation_id=conv.id,
+                    role="kudos",
+                    content=answer,
+                    sources=json.dumps(sources[:3]) if sources else "[]",
+                    media=_media_json(media_gen),
+                )
+            )
             db.commit()
         except Exception:
             db.rollback()
@@ -651,23 +834,32 @@ async def ask_kudos(body: KudosAskRequest, db: Session = Depends(get_db), curren
         # Remember the exchange (short-term conversation memory)
         try:
             from app.core.memory_store import consolidate_memories, write_memory
+
             write_memory(
-                db, current_user.id,
+                db,
+                current_user.id,
                 content=f"User asked: {body.question[:200]}. I answered: {answer[:300]}",
-                layer="short_term", kind="context",
-                importance=0.4, source="conversation",
+                layer="short_term",
+                kind="context",
+                importance=0.4,
+                source="conversation",
             )
             consolidate_memories(db, current_user.id)
         except Exception:
-            try:
+            with contextlib.suppress(Exception):
                 db.rollback()
-            except Exception:
-                pass
 
         return KudosAskResponse(
             answer=answer,
-            sources=cited if cited else [
-                {"document_id": s.get("document_id"), "web_id": s.get("web_id"), "title": s.get("title", ""), "preview": s.get("content", "")[:200]}
+            sources=cited
+            if cited
+            else [
+                {
+                    "document_id": s.get("document_id"),
+                    "web_id": s.get("web_id"),
+                    "title": s.get("title", ""),
+                    "preview": s.get("content", "")[:200],
+                }
                 for s in (sources[:3] if sources else [])
             ],
             conversation_id=conv.id,
@@ -675,18 +867,19 @@ async def ask_kudos(body: KudosAskRequest, db: Session = Depends(get_db), curren
         )
 
     except Exception as e:
-        try:
+        with contextlib.suppress(Exception):
             db.rollback()
-        except Exception:
-            pass
         return KudosAskResponse(
             answer=f"I had trouble processing that. Please try again. ({str(e)[:100]})",
-            sources=[], conversation_id=body.conversation_id or 0,
+            sources=[],
+            conversation_id=body.conversation_id or 0,
         )
 
 
 @router.get("/conversations", response_model=list[KudosConversationResponse])
-def list_conversations(archived: bool = False, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def list_conversations(
+    archived: bool = False, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+):
     q = db.query(KudosConversation).filter(
         KudosConversation.user_id == current_user.id,
         KudosConversation.archived.is_(archived),
@@ -697,10 +890,14 @@ def list_conversations(archived: bool = False, db: Session = Depends(get_db), cu
 @router.post("/conversations/archive-all")
 def archive_all_conversations(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Move every active conversation to the archive (nothing is deleted)."""
-    count = db.query(KudosConversation).filter(
-        KudosConversation.user_id == current_user.id,
-        KudosConversation.archived.is_(False),
-    ).update({KudosConversation.archived: True})
+    count = (
+        db.query(KudosConversation)
+        .filter(
+            KudosConversation.user_id == current_user.id,
+            KudosConversation.archived.is_(False),
+        )
+        .update({KudosConversation.archived: True})
+    )
     db.commit()
     return {"archived": count}
 
@@ -708,9 +905,14 @@ def archive_all_conversations(db: Session = Depends(get_db), current_user: User 
 @router.post("/conversations/{conv_id}/unarchive", response_model=KudosConversationResponse)
 def unarchive_conversation(conv_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Restore an archived conversation as the active one."""
-    conv = db.query(KudosConversation).filter(
-        KudosConversation.id == conv_id, KudosConversation.user_id == current_user.id,
-    ).first()
+    conv = (
+        db.query(KudosConversation)
+        .filter(
+            KudosConversation.id == conv_id,
+            KudosConversation.user_id == current_user.id,
+        )
+        .first()
+    )
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
     conv.archived = False
@@ -720,16 +922,28 @@ def unarchive_conversation(conv_id: int, db: Session = Depends(get_db), current_
 
 
 @router.get("/conversations/{conv_id}/messages", response_model=list[KudosMessageResponse])
-def get_conversation_messages(conv_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    conv = db.query(KudosConversation).filter(KudosConversation.id == conv_id, KudosConversation.user_id == current_user.id).first()
+def get_conversation_messages(
+    conv_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+):
+    conv = (
+        db.query(KudosConversation)
+        .filter(KudosConversation.id == conv_id, KudosConversation.user_id == current_user.id)
+        .first()
+    )
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    return db.query(KudosMessage).filter(KudosMessage.conversation_id == conv_id).order_by(KudosMessage.created_at).all()
+    return (
+        db.query(KudosMessage).filter(KudosMessage.conversation_id == conv_id).order_by(KudosMessage.created_at).all()
+    )
 
 
 @router.delete("/conversations/{conv_id}", status_code=204)
 def delete_conversation(conv_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    conv = db.query(KudosConversation).filter(KudosConversation.id == conv_id, KudosConversation.user_id == current_user.id).first()
+    conv = (
+        db.query(KudosConversation)
+        .filter(KudosConversation.id == conv_id, KudosConversation.user_id == current_user.id)
+        .first()
+    )
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
     db.delete(conv)
@@ -745,7 +959,7 @@ def delete_conversation(conv_id: int, db: Session = Depends(get_db), current_use
 def kudos_stats(db: Session = Depends(get_db), admin: User = Depends(require_admin)):
     return KudosStats(
         total_documents=db.query(KudosDocument).count(),
-        approved_documents=db.query(KudosDocument).filter(KudosDocument.is_approved == True).count(),
+        approved_documents=db.query(KudosDocument).filter(KudosDocument.is_approved).count(),
         total_chunks=db.query(KudosChunk).count(),
         total_web_knowledge=db.query(KudosWebKnowledge).count(),
         total_conversations=db.query(KudosConversation).count(),
@@ -755,26 +969,30 @@ def kudos_stats(db: Session = Depends(get_db), admin: User = Depends(require_adm
 
 @router.post("/admin/approve-all-documents")
 def approve_all_documents(db: Session = Depends(get_db), admin: User = Depends(require_admin)):
-    count = db.query(KudosDocument).filter(KudosDocument.is_approved == False).update({"is_approved": True})
+    count = db.query(KudosDocument).filter(~KudosDocument.is_approved).update({"is_approved": True})
     db.commit()
     return {"approved": count}
 
 
 @router.post("/admin/approve-all-web")
 def approve_all_web(db: Session = Depends(get_db), admin: User = Depends(require_admin)):
-    count = db.query(KudosWebKnowledge).filter(KudosWebKnowledge.is_approved == False).update({"is_approved": True})
+    count = db.query(KudosWebKnowledge).filter(~KudosWebKnowledge.is_approved).update({"is_approved": True})
     db.commit()
     return {"approved": count}
 
 
 @router.post("/admin/pending")
 def list_pending(db: Session = Depends(get_db), admin: User = Depends(require_admin)):
-    docs = db.query(KudosDocument).filter(KudosDocument.is_approved == False).all()
-    web = db.query(KudosWebKnowledge).filter(KudosWebKnowledge.is_approved == False).all()
+    docs = db.query(KudosDocument).filter(~KudosDocument.is_approved).all()
+    web = db.query(KudosWebKnowledge).filter(~KudosWebKnowledge.is_approved).all()
     return {
-        "pending_documents": [{"id": d.id, "title": d.title, "uploaded_by": d.uploaded_by, "chunks": d.chunk_count} for d in docs],
+        "pending_documents": [
+            {"id": d.id, "title": d.title, "uploaded_by": d.uploaded_by, "chunks": d.chunk_count} for d in docs
+        ],
         "pending_web": [{"id": w.id, "url": w.url, "title": w.title, "learned_by": w.learned_by} for w in web],
     }
+
+
 # ──────────────────────────────────────────────────────────────
 # PUBLIC GUEST CHAT — anonymous visitors, no login required
 # ──────────────────────────────────────────────────────────────
@@ -785,8 +1003,8 @@ _GUEST_WELCOME = (
     "No account needed to chat; sign in (top right) to keep your history forever. \n\n"
     "What can I help you with?"
 )
-_GUEST_RATE_LIMIT = 15          # asks per guest per minute
-_GUEST_RATE_WINDOW = 60         # seconds
+_GUEST_RATE_LIMIT = 15  # asks per guest per minute
+_GUEST_RATE_WINDOW = 60  # seconds
 _guest_ask_times: dict[str, list[float]] = {}
 
 
@@ -836,7 +1054,7 @@ async def guest_ask_kudos(body: GuestAskRequest, db: Session = Depends(get_db)):
     if not _guest_rate_ok(body.guest_id):
         raise HTTPException(status_code=429, detail="You're asking a lot — please wait a minute")
 
-    guest = _get_or_create_guest_user(db)
+    _get_or_create_guest_user(db)
     conv, first_chat = _get_guest_conversation(db, body.guest_id)
     if first_chat:
         db.add(KudosMessage(conversation_id=conv.id, role="kudos", content=_GUEST_WELCOME))
@@ -847,7 +1065,8 @@ async def guest_ask_kudos(body: GuestAskRequest, db: Session = Depends(get_db)):
 
     # Fast path for short, casual guest questions.
     from app.core.privacy_guard import scrub_response
-    from app.core.quick_answers import is_short_question, get_short_answer
+    from app.core.quick_answers import get_short_answer, is_short_question
+
     if is_short_question(body.question):
         short = await get_short_answer(body.question)
         short = scrub_response(short, allow_emails=True)
@@ -859,26 +1078,24 @@ async def guest_ask_kudos(body: GuestAskRequest, db: Session = Depends(get_db)):
         return KudosAskResponse(answer=short, sources=[], conversation_id=conv.id, media=[])
 
     sources = []
-    try:
+    with contextlib.suppress(Exception):
         sources = search_chunks(db, body.question)
-    except Exception:
-        pass
 
     knowledge_context = ""
     if sources:
-        knowledge_context = "\n".join(
-            f"[{i}] {s.get('content', '')[:300]}" for i, s in enumerate(sources[:3], start=1)
-        )
+        knowledge_context = "\n".join(f"[{i}] {s.get('content', '')[:300]}" for i, s in enumerate(sources[:3], start=1))
 
     soul_context = ""
     self_knowledge = ""
     try:
         from app.core.soul import build_soul_context
+
         soul_context = build_soul_context(db)
     except Exception:
         pass
     try:
         from app.core.sandbox import build_sandbox_knowledge_context
+
         self_knowledge = build_sandbox_knowledge_context(db)
     except Exception:
         pass
@@ -886,11 +1103,16 @@ async def guest_ask_kudos(body: GuestAskRequest, db: Session = Depends(get_db)):
     answer = ""
     try:
         from app.core.llm_engine import get_llm_response
+
         conv_history = []
         try:
-            conv_history = db.query(KudosMessage).filter(
-                KudosMessage.conversation_id == conv.id
-            ).order_by(KudosMessage.created_at.desc()).limit(5).all()
+            conv_history = (
+                db.query(KudosMessage)
+                .filter(KudosMessage.conversation_id == conv.id)
+                .order_by(KudosMessage.created_at.desc())
+                .limit(5)
+                .all()
+            )
             conv_history = [{"role": m.role, "content": m.content} for m in conv_history]
         except Exception:
             pass
@@ -920,14 +1142,19 @@ async def guest_ask_kudos(body: GuestAskRequest, db: Session = Depends(get_db)):
     # guarantee — KUDOS never answers from unsupported claims.
     try:
         from app.core.kudos_brain import answer_offline, hallucination_guard
+
         offline = answer_offline(db, body.question, user_id=None)
         if settings.KUDOS_GROUNDED_ONLY and sources:
             guard = hallucination_guard(answer, sources, threshold=settings.KUDOS_BRAIN_MIN_SCORE)
             if not guard["passes"]:
-                answer = offline["answer"] if offline.get("grounded") else (
-                    "I don't have verified information about that. My brain and knowledge base "
-                    "don't contain anything I can answer this from without guessing — and I "
-                    "never guess. Teach me a source covering it and I'll answer for certain."
+                answer = (
+                    offline["answer"]
+                    if offline.get("grounded")
+                    else (
+                        "I don't have verified information about that. My brain and knowledge base "
+                        "don't contain anything I can answer this from without guessing — and I "
+                        "never guess. Teach me a source covering it and I'll answer for certain."
+                    )
                 )
         elif settings.KUDOS_OFFLINE_FIRST and offline.get("grounded"):
             answer = offline["answer"]
@@ -935,6 +1162,7 @@ async def guest_ask_kudos(body: GuestAskRequest, db: Session = Depends(get_db)):
         pass
 
     from app.core.llm_engine import extract_citations
+
     cited = []
     try:
         cited = extract_citations(answer, sources[:3])
@@ -942,19 +1170,29 @@ async def guest_ask_kudos(body: GuestAskRequest, db: Session = Depends(get_db)):
         cited = []
 
     try:
-        db.add(KudosMessage(
-            conversation_id=conv.id, role="kudos", content=answer,
-            sources=json.dumps(sources[:3]) if sources else "[]",
-        ))
+        db.add(
+            KudosMessage(
+                conversation_id=conv.id,
+                role="kudos",
+                content=answer,
+                sources=json.dumps(sources[:3]) if sources else "[]",
+            )
+        )
         db.commit()
     except Exception:
         db.rollback()
 
     return KudosAskResponse(
         answer=answer,
-        sources=cited if cited else [
-            {"document_id": s.get("document_id"), "web_id": s.get("web_id"),
-             "title": s.get("title", ""), "preview": s.get("content", "")[:200]}
+        sources=cited
+        if cited
+        else [
+            {
+                "document_id": s.get("document_id"),
+                "web_id": s.get("web_id"),
+                "title": s.get("title", ""),
+                "preview": s.get("content", "")[:200],
+            }
             for s in (sources[:3] if sources else [])
         ],
         conversation_id=conv.id,
@@ -967,14 +1205,15 @@ def guest_messages(guest_id: str, db: Session = Depends(get_db)):
     conv = db.query(KudosConversation).filter(KudosConversation.guest_key == guest_id).first()
     if not conv:
         return []
-    return db.query(KudosMessage).filter(
-        KudosMessage.conversation_id == conv.id
-    ).order_by(KudosMessage.created_at).all()
+    return (
+        db.query(KudosMessage).filter(KudosMessage.conversation_id == conv.id).order_by(KudosMessage.created_at).all()
+    )
 
 
 # ──────────────────────────────────────────────
 # GUEST PROFILE — KUDOS learns who clicked the link
 # ──────────────────────────────────────────────
+
 
 def _guest_profile_row(db: Session, guest_id: str):
     return db.query(Visit).filter(Visit.guest_key == guest_id).order_by(Visit.last_seen.desc()).first()
@@ -987,8 +1226,12 @@ def guest_profile(guest_id: str, db: Session = Depends(get_db)):
     if not row:
         return GuestProfileResponse(guest_id=guest_id)
     return GuestProfileResponse(
-        guest_id=guest_id, name=row.name or "", ai_name=row.ai_name or "",
-        visit_count=row.visit_count or 0, first_seen=row.first_seen, last_seen=row.last_seen,
+        guest_id=guest_id,
+        name=row.name or "",
+        ai_name=row.ai_name or "",
+        visit_count=row.visit_count or 0,
+        first_seen=row.first_seen,
+        last_seen=row.last_seen,
     )
 
 
@@ -1005,11 +1248,15 @@ def guest_profile_update(body: GuestProfileUpdate, db: Session = Depends(get_db)
         row.name = body.name.strip()[:120]
     if body.ai_name:
         row.ai_name = body.ai_name.strip()[:60]
-    row.last_seen = datetime.now(timezone.utc)
+    row.last_seen = datetime.now(UTC)
     db.commit()
     return GuestProfileResponse(
-        guest_id=body.guest_id, name=row.name or "", ai_name=row.ai_name or "",
-        visit_count=row.visit_count or 0, first_seen=row.first_seen, last_seen=row.last_seen,
+        guest_id=body.guest_id,
+        name=row.name or "",
+        ai_name=row.ai_name or "",
+        visit_count=row.visit_count or 0,
+        first_seen=row.first_seen,
+        last_seen=row.last_seen,
     )
 
 
@@ -1018,11 +1265,26 @@ def guest_profile_update(body: GuestProfileUpdate, db: Session = Depends(get_db)
 # ──────────────────────────────────────────────
 
 _MEDIA_MIME = {
-    "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "gif": "image/gif",
-    "webp": "image/webp", "bmp": "image/bmp", "svg": "image/svg+xml", "ico": "image/x-icon",
-    "mp4": "video/mp4", "webm": "video/webm", "mov": "video/quicktime", "m4v": "video/mp4",
-    "mp3": "audio/mpeg", "wav": "audio/wav", "ogg": "audio/ogg", "oga": "audio/ogg",
-    "m4a": "audio/mp4", "aac": "audio/aac", "flac": "audio/flac", "opus": "audio/opus",
+    "png": "image/png",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "gif": "image/gif",
+    "webp": "image/webp",
+    "bmp": "image/bmp",
+    "svg": "image/svg+xml",
+    "ico": "image/x-icon",
+    "mp4": "video/mp4",
+    "webm": "video/webm",
+    "mov": "video/quicktime",
+    "m4v": "video/mp4",
+    "mp3": "audio/mpeg",
+    "wav": "audio/wav",
+    "ogg": "audio/ogg",
+    "oga": "audio/ogg",
+    "m4a": "audio/mp4",
+    "aac": "audio/aac",
+    "flac": "audio/flac",
+    "opus": "audio/opus",
     "weba": "audio/webm",
 }
 
@@ -1043,10 +1305,19 @@ def _looks_binary(content: bytes) -> bool:
 def _store_media(data_b64: str, mime: str, prefix: str = "media") -> str:
     content = base64.b64decode(data_b64)
     ext = {
-        "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp",
-        "video/mp4": "mp4", "video/webm": "webm",
-        "audio/mpeg": "mp3", "audio/wav": "wav", "audio/ogg": "ogg", "audio/mp4": "m4a",
-        "audio/aac": "aac", "audio/flac": "flac", "audio/opus": "opus", "audio/webm": "weba",
+        "image/png": "png",
+        "image/jpeg": "jpg",
+        "image/webp": "webp",
+        "video/mp4": "mp4",
+        "video/webm": "webm",
+        "audio/mpeg": "mp3",
+        "audio/wav": "wav",
+        "audio/ogg": "ogg",
+        "audio/mp4": "m4a",
+        "audio/aac": "aac",
+        "audio/flac": "flac",
+        "audio/opus": "opus",
+        "audio/webm": "weba",
     }.get(mime, "bin")
     key = storage.new_key(f"{prefix}/", f"{uuid.uuid4().hex}.{ext}")
     storage.upload_bytes(key, content, content_type=mime)
@@ -1070,7 +1341,7 @@ def get_media(key: str, db: Session = Depends(get_db), current_user: User = Depe
     try:
         content = storage.download(key)
     except Exception:
-        raise HTTPException(status_code=404, detail="Media not found")
+        raise HTTPException(status_code=404, detail="Media not found") from None
     ext = key.rsplit(".", 1)[-1].lower() if "." in key else ""
     mime = _MEDIA_MIME.get(ext, "application/octet-stream")
     return Response(content=content, media_type=mime)
@@ -1081,19 +1352,23 @@ def get_transient(token: str, dl: int = 0):
     """Stream a short-lived generated video (short clips only) from Redis.
     Nothing is ever written to object storage — the bytes expire on their own
     after ~15 minutes. `?dl=1` forces a download."""
-    from app.core.transient import get
     import base64 as _b64
+
+    from app.core.transient import get
+
     payload = get(token)
     if not payload:
         raise HTTPException(status_code=404, detail="This clip has expired or was already downloaded")
     content = _b64.b64decode(payload.get("data", ""))
     headers = {}
     if dl:
-        headers["Content-Disposition"] = f'attachment; filename="kudos-clip.mp4"'
+        headers["Content-Disposition"] = 'attachment; filename="kudos-clip.mp4"'
     return Response(content=content, media_type=payload.get("mime", "video/mp4"), headers=headers)
 
 
-async def _apply_generation_markers(db: Session, text: str, current_user: User, prefix: str = "generated") -> tuple[str, list[dict]]:
+async def _apply_generation_markers(
+    db: Session, text: str, current_user: User, prefix: str = "generated"
+) -> tuple[str, list[dict]]:
     """Execute IMAGE_PROMPT/VIDEO_PROMPT/TOOL_CALL/REGISTER_TOOL markers in an
     answer. Returns (final_text, media_items_to_render)."""
     media_items: list[dict] = []
@@ -1104,16 +1379,25 @@ async def _apply_generation_markers(db: Session, text: str, current_user: User, 
         if stripped.upper().startswith("IMAGE_PROMPT:"):
             prompt = stripped.partition(":")[2].strip()
             from app.core.llm_engine import generate_image
+
             result = await generate_image(prompt)
             if result.get("error"):
                 out.append(f"(Could not create that image: {result['error']})")
                 continue
             key = _store_media(result["data"], result.get("mime_type", "image/png"), prefix)
-            media_items.append({"kind": "image", "url": _media_url(key), "mime": result.get("mime_type", "image/png"), "caption": prompt})
+            media_items.append(
+                {
+                    "kind": "image",
+                    "url": _media_url(key),
+                    "mime": result.get("mime_type", "image/png"),
+                    "caption": prompt,
+                }
+            )
             out.append("Here's the image I created for you! 🖼️")
         elif stripped.upper().startswith("VIDEO_PROMPT:"):
             prompt = stripped.partition(":")[2].strip()
             from app.core.video_gen import generate_video
+
             # Chat videos are SHORT clips only (never full-length), served as a
             # single-use download and NEVER saved to object storage.
             result = await generate_video(prompt, settings.MAX_CHAT_VIDEO_SECONDS)
@@ -1121,21 +1405,30 @@ async def _apply_generation_markers(db: Session, text: str, current_user: User, 
                 out.append(f"(Could not create that video: {result['error']})")
                 continue
             from app.core.transient import put, transient_url
+
             token = put(result["data"], result.get("mime_type", "video/mp4"))
             if not token:
                 out.append("(Could not host that video right now — please try again.)")
                 continue
-            media_items.append({
-                "kind": "video", "url": transient_url(token), "download_url": transient_url(token),
-                "mime": result.get("mime_type", "video/mp4"), "caption": prompt, "transient": True,
-            })
+            media_items.append(
+                {
+                    "kind": "video",
+                    "url": transient_url(token),
+                    "download_url": transient_url(token),
+                    "mime": result.get("mime_type", "video/mp4"),
+                    "caption": prompt,
+                    "transient": True,
+                }
+            )
             out.append("Here's the short video I created for you! 🎬 (single-use download — not stored on the server)")
         elif stripped.upper().startswith("TOOL_CALL:"):
             from app.core.kudos_tools import handle_tool_marker
+
             res = await handle_tool_marker(db, stripped, current_user)
             out.append(res.get("reply", ""))
         elif stripped.upper().startswith("REGISTER_TOOL:"):
             from app.core.kudos_tools import register_tool
+
             _, _, rest = stripped.partition(":")
             parts = [p.strip() for p in rest.split("|")]
             if len(parts) >= 3:
@@ -1165,12 +1458,18 @@ async def chat_send(
     executed. This is the single entry point for the redesigned chat."""
     conv = None
     if conversation_id:
-        conv = db.query(KudosConversation).filter(
-            KudosConversation.id == conversation_id,
-            KudosConversation.user_id == current_user.id,
-        ).first()
+        conv = (
+            db.query(KudosConversation)
+            .filter(
+                KudosConversation.id == conversation_id,
+                KudosConversation.user_id == current_user.id,
+            )
+            .first()
+        )
     if not conv or conv.archived:
-        conv = KudosConversation(user_id=current_user.id, title=(message or "New Conversation")[:100] or "New Conversation")
+        conv = KudosConversation(
+            user_id=current_user.id, title=(message or "New Conversation")[:100] or "New Conversation"
+        )
         db.add(conv)
         db.flush()
 
@@ -1186,12 +1485,14 @@ async def chat_send(
         ctype = f.content_type or ""
         ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
         mime = ctype or _MEDIA_MIME.get(ext, "application/octet-stream")
-        if (not mime.startswith(("image/", "video/", "audio/")) and ext in _MEDIA_MIME):
+        if not mime.startswith(("image/", "video/", "audio/")) and ext in _MEDIA_MIME:
             mime = _MEDIA_MIME[ext]
 
-        if mime.startswith("image/") or mime.startswith("video/") or mime.startswith("audio/"):
+        if mime.startswith(("image/", "video/", "audio/")):
             key = _store_media(base64.b64encode(content).decode(), mime, "media")
-            attach_media.append({"kind": "media", "url": _media_url(key), "mime": mime, "caption": filename, "key": key})
+            attach_media.append(
+                {"kind": "media", "url": _media_url(key), "mime": mime, "caption": filename, "key": key}
+            )
             if not mime.startswith("audio/"):
                 vision_media.append({"key": key, "mime_type": mime})
         else:
@@ -1200,20 +1501,40 @@ async def chat_send(
                 raise HTTPException(status_code=400, detail=f"Could not extract text from {filename}")
             if _looks_binary(content):
                 key = _store_media(base64.b64encode(content).decode(), mime or "application/octet-stream", "media")
-                attach_media.append({"kind": "media", "url": _media_url(key), "mime": mime or "application/octet-stream", "caption": filename, "key": key})
+                attach_media.append(
+                    {
+                        "kind": "media",
+                        "url": _media_url(key),
+                        "mime": mime or "application/octet-stream",
+                        "caption": filename,
+                        "key": key,
+                    }
+                )
                 continue
             doc = KudosDocument(
-                uploaded_by=current_user.id, title=filename, filename=filename,
-                file_type=ext, storage_key="", content=text,
-                summary=simple_summarize(text), tags="chat",
+                uploaded_by=current_user.id,
+                title=filename,
+                filename=filename,
+                file_type=ext,
+                storage_key="",
+                content=text,
+                summary=simple_summarize(text),
+                tags="chat",
                 is_approved=current_user.is_admin,
             )
             db.add(doc)
             db.flush()
             chunks = chunk_text(text)
             for i, chunk_content in enumerate(chunks):
-                db.add(KudosChunk(document_id=doc.id, chunk_index=i, content=chunk_content,
-                                  word_count=len(chunk_content.split()), keywords=extract_keywords(chunk_content)))
+                db.add(
+                    KudosChunk(
+                        document_id=doc.id,
+                        chunk_index=i,
+                        content=chunk_content,
+                        word_count=len(chunk_content.split()),
+                        keywords=extract_keywords(chunk_content),
+                    )
+                )
             doc.chunk_count = len(chunks)
             db.commit()
             db.refresh(doc)
@@ -1222,20 +1543,38 @@ async def chat_send(
     # See + ingest photos/videos via vision.
     if vision_media:
         from app.core.vision import describe_and_ingest
+
         for item in vision_media:
-            title = item.get("mime_type", "").startswith("video/") and f"video-{uuid.uuid4().hex[:8]}" or f"photo-{uuid.uuid4().hex[:8]}"
+            title = (
+                item.get("mime_type", "").startswith("video/") and f"video-{uuid.uuid4().hex[:8]}"
+            ) or f"photo-{uuid.uuid4().hex[:8]}"
             res = await describe_and_ingest(db, [item], current_user.id, title, current_user.is_admin)
             if res.get("learned"):
-                learned.append({"type": "media", "title": title, "description": res["description"], "document_id": res["document_id"]})
+                learned.append(
+                    {
+                        "type": "media",
+                        "title": title,
+                        "description": res["description"],
+                        "document_id": res["document_id"],
+                    }
+                )
 
-    db.add(KudosMessage(conversation_id=conv.id, role="user", content=message or "(sent an attachment)", sources="[]",
-                        media=_media_json(attach_media)))
+    db.add(
+        KudosMessage(
+            conversation_id=conv.id,
+            role="user",
+            content=message or "(sent an attachment)",
+            sources="[]",
+            media=_media_json(attach_media),
+        )
+    )
     db.flush()
 
     # Fast path: short, casual text-only questions in the redesigned chat.
     if message and not attach_media:
         from app.core.privacy_guard import scrub_response
-        from app.core.quick_answers import is_short_question, get_short_answer
+        from app.core.quick_answers import get_short_answer, is_short_question
+
         if is_short_question(message):
             short = await get_short_answer(message, current_user.full_name.split()[0] if current_user.full_name else "")
             short = scrub_response(short, allow_emails=True)
@@ -1248,62 +1587,75 @@ async def chat_send(
 
     # Build knowledge context from what was just learned + retrieval.
     sources = []
-    try:
-        sources = search_chunks(db, message or " ".join(l.get("description", "") for l in learned))
-    except Exception:
-        pass
-    knowledge_context = "\n".join(
-        f"[{i}] {s.get('content', '')[:300]}" for i, s in enumerate(sources[:3], start=1)
-    )
+    with contextlib.suppress(Exception):
+        sources = search_chunks(db, message or " ".join(item.get("description", "") for item in learned))
+    knowledge_context = "\n".join(f"[{i}] {s.get('content', '')[:300]}" for i, s in enumerate(sources[:3], start=1))
     if learned:
         learned_note = "\n".join(
-            f"- {l.get('title')}: {l.get('description', '')[:200] if 'description' in l else str(l.get('chunk_count', 0)) + ' chunks learned'}"
-            for l in learned
+            f"- {item.get('title')}: {item.get('description', '')[:200] if 'description' in item else str(item.get('chunk_count', 0)) + ' chunks learned'}"  # noqa: E501
+            for item in learned
         )
         knowledge_context += f"\n\nJust learned from attachments:\n{learned_note}"
 
     memory_context = ""
     try:
         from app.core.memory_store import build_memory_context
+
         memory_context = build_memory_context(db, current_user.id, query=message)
     except Exception:
         pass
     persona_instructions = ""
     try:
         from app.core.persona import build_persona_instructions, profile_dict
+
         persona_instructions = build_persona_instructions(profile_dict(db, current_user.id))
     except Exception:
         pass
     soul_context = ""
     try:
         from app.core.soul import build_soul_context
+
         soul_context = build_soul_context(db)
     except Exception:
         pass
     self_knowledge = ""
     try:
         from app.core.sandbox import build_sandbox_knowledge_context
+
         self_knowledge = build_sandbox_knowledge_context(db)
     except Exception:
         pass
-    try:
+    with contextlib.suppress(Exception):
         self_knowledge = f"{self_knowledge}\n{_connectors_note()}"
-    except Exception:
-        pass
 
     question = message or "I sent you an attachment. Tell me what you learned from it."
     answer = ""
     try:
         from app.core.llm_engine import get_llm_response
-        conv_history = db.query(KudosMessage).filter(KudosMessage.conversation_id == conv.id).order_by(KudosMessage.created_at.desc()).limit(5).all()
+
+        conv_history = (
+            db.query(KudosMessage)
+            .filter(KudosMessage.conversation_id == conv.id)
+            .order_by(KudosMessage.created_at.desc())
+            .limit(5)
+            .all()
+        )
         conv_history = [{"role": m.role, "content": m.content} for m in conv_history]
-        llm_media = [{"mime_type": m["mime"], "data": base64.b64encode(storage.download(m["key"])).decode()} for m in attach_media if m.get("key") and not m["mime"].startswith("audio/")]
+        llm_media = [
+            {"mime_type": m["mime"], "data": base64.b64encode(storage.download(m["key"])).decode()}
+            for m in attach_media
+            if m.get("key") and not m["mime"].startswith("audio/")
+        ]
         llm_answer = await get_llm_response(
-            question=question, knowledge_context=knowledge_context,
+            question=question,
+            knowledge_context=knowledge_context,
             conversation_history=conv_history,
             user_name=current_user.full_name.split()[0] if current_user.full_name else "",
-            memory_context=memory_context, persona_instructions=persona_instructions,
-            soul_context=soul_context, self_knowledge=self_knowledge, media=llm_media or None,
+            memory_context=memory_context,
+            persona_instructions=persona_instructions,
+            soul_context=soul_context,
+            self_knowledge=self_knowledge,
+            media=llm_media or None,
         )
         if llm_answer and len(llm_answer) > 10:
             answer = llm_answer
@@ -1317,14 +1669,19 @@ async def chat_send(
     # honest refusal) when the LLM's answer can't be backed by evidence.
     try:
         from app.core.kudos_brain import answer_offline, hallucination_guard
+
         offline = answer_offline(db, question, user_id=current_user.id)
         if settings.KUDOS_GROUNDED_ONLY and sources:
             guard = hallucination_guard(answer, sources, threshold=settings.KUDOS_BRAIN_MIN_SCORE)
             if not guard["passes"]:
-                answer = offline["answer"] if offline.get("grounded") else (
-                    "I don't have verified information about that. My brain and knowledge base "
-                    "don't contain anything I can answer this from without guessing — and I "
-                    "never guess. Teach me a source covering it and I'll answer for certain."
+                answer = (
+                    offline["answer"]
+                    if offline.get("grounded")
+                    else (
+                        "I don't have verified information about that. My brain and knowledge base "
+                        "don't contain anything I can answer this from without guessing — and I "
+                        "never guess. Teach me a source covering it and I'll answer for certain."
+                    )
                 )
         elif settings.KUDOS_OFFLINE_FIRST and offline.get("grounded"):
             answer = offline["answer"]
@@ -1332,15 +1689,22 @@ async def chat_send(
         pass
 
     from app.core.privacy_guard import scrub_response
+
     answer = scrub_response(answer, allow_emails=True)
 
     final_text, gen_media = await _apply_generation_markers(db, answer, current_user)
     if final_text:
         answer = final_text
 
-    db.add(KudosMessage(conversation_id=conv.id, role="kudos", content=answer,
-                        sources=json.dumps(sources[:3]) if sources else "[]",
-                        media=_media_json(gen_media)))
+    db.add(
+        KudosMessage(
+            conversation_id=conv.id,
+            role="kudos",
+            content=answer,
+            sources=json.dumps(sources[:3]) if sources else "[]",
+            media=_media_json(gen_media),
+        )
+    )
     db.commit()
 
     return ChatSendResponse(answer=answer, conversation_id=conv.id, learned=learned, media=gen_media)
@@ -1350,20 +1714,32 @@ async def chat_send(
 # TOOL REGISTRY — auto-collected APIs KUDOS can call
 # ──────────────────────────────────────────────
 
+
 @router.get("/tools")
 def list_tools(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Registered tools KUDOS can invoke (public-safe, no secrets)."""
     from app.core.kudos_tools import list_tools_public
+
     return list_tools_public(db)
 
 
 @router.post("/tools/register")
-def register_tool_endpoint(body: ToolRegisterRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def register_tool_endpoint(
+    body: ToolRegisterRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+):
     """Register a new API/tool for KUDOS (auto-collected via REGISTER_TOOL too)."""
     from app.core.kudos_tools import register_tool
+
     result = register_tool(
-        db, body.name, body.method, body.url, headers=body.headers, body_schema=body.body_schema,
-        auth_type=body.auth_type, auth_value=body.auth_value, auth_header_name=body.auth_header_name,
+        db,
+        body.name,
+        body.method,
+        body.url,
+        headers=body.headers,
+        body_schema=body.body_schema,
+        auth_type=body.auth_type,
+        auth_value=body.auth_value,
+        auth_header_name=body.auth_header_name,
         description=body.description,
     )
     if result.get("error"):
@@ -1372,9 +1748,12 @@ def register_tool_endpoint(body: ToolRegisterRequest, db: Session = Depends(get_
 
 
 @router.post("/tools/{tool_id}/call")
-async def call_tool_endpoint(tool_id: int, body: ToolCallRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def call_tool_endpoint(
+    tool_id: int, body: ToolCallRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+):
     """Execute a registered tool with args (SSRF-guarded, secrets scrubbed)."""
     from app.core.kudos_tools import call_tool
+
     result = await call_tool(db, tool_id, body.args)
     if result.get("error"):
         raise HTTPException(status_code=400, detail=result["error"])
@@ -1385,10 +1764,12 @@ async def call_tool_endpoint(tool_id: int, body: ToolCallRequest, db: Session = 
 # RADIO GARDEN — KUDOS maps the world's radio towers
 # ──────────────────────────────────────────────
 
+
 def _radio_context(db: Session) -> str:
     """Short self-knowledge note so KUDOS knows it can navigate the world."""
     try:
         from app.core.radio_garden import overview
+
         o = overview(db)
         if not o["total_places"]:
             return ""
@@ -1417,13 +1798,17 @@ def _connectors_note() -> str:
 def radio_overview(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """The world as KUDOS sees it: continents, places and live radio towers."""
     from app.core.radio_garden import overview
+
     return overview(db)
 
 
 @router.get("/radio/search")
-def radio_search(q: str = "", limit: int = 20, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def radio_search(
+    q: str = "", limit: int = 20, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+):
     """Search the world's radio places/stations."""
     from app.core.radio_garden import search
+
     return search(db, q, limit)
 
 
@@ -1431,13 +1816,21 @@ def radio_search(q: str = "", limit: int = 20, db: Session = Depends(get_db), cu
 async def radio_place(place_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Live radio towers broadcasting from a specific place on the globe."""
     from app.core.radio_garden import scan_place
+
     return await scan_place(db, place_id)
 
 
 @router.get("/radio/near")
-def radio_near(lat: float, lon: float, radius_km: float = 250, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def radio_near(
+    lat: float,
+    lon: float,
+    radius_km: float = 250,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """Places within a radius of coordinates (the nearest radio towers)."""
     from app.core.radio_garden import near
+
     return near(db, lat, lon, radius_km)
 
 
@@ -1451,6 +1844,7 @@ async def radio_scan(db: Session = Depends(get_db), current_user: User = Depends
         return {"error": "Already scanned recently — try again in a few minutes"}
     _radio_scan_state[cache_key] = time.time()
     from app.core.radio_garden import scan_world
+
     result = await scan_world(db)
     return result
 
@@ -1462,10 +1856,12 @@ _radio_scan_state: dict = {}
 # OFFLINE BRAIN — KUDOS's persistent self-knowledge
 # ──────────────────────────────────────────────
 
+
 @router.get("/brain/status")
 def brain_status(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Health of KUDOS's offline brain (persistent, LLM-independent)."""
     from app.core.kudos_brain import brain_stats
+
     return brain_stats(db)
 
 
@@ -1473,6 +1869,7 @@ def brain_status(db: Session = Depends(get_db), current_user: User = Depends(get
 def brain_search(q: str = "", db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Search facts KUDOS has stored in its own brain."""
     from app.core.kudos_brain import brain_search
+
     return {"results": brain_search(db, q, user_id=current_user.id)}
 
 
@@ -1480,14 +1877,17 @@ def brain_search(q: str = "", db: Session = Depends(get_db), current_user: User 
 def brain_consolidate(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Distill the knowledge base into brain facts (deterministic, verbatim)."""
     from app.core.kudos_brain import consolidate_brain
-    return consolidate_brain(db, user_id=current_user.id if not current_user.is_admin else None,
-                             limit=settings.KUDOS_BRAIN_CONSOLIDATE_LIMIT)
+
+    return consolidate_brain(
+        db, user_id=current_user.id if not current_user.is_admin else None, limit=settings.KUDOS_BRAIN_CONSOLIDATE_LIMIT
+    )
 
 
 @router.delete("/brain/facts/{fact_id}")
 def brain_delete_fact(fact_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Remove a brain fact (admins may remove any; users only their own)."""
     from app.models import KudosBrain as BrainRow
+
     fact = db.get(BrainRow, fact_id)
     if not fact:
         raise HTTPException(status_code=404, detail="Brain fact not found")
@@ -1502,6 +1902,7 @@ def brain_delete_fact(fact_id: int, db: Session = Depends(get_db), current_user:
 # ESSAYS & SUMMARIZATION
 # ──────────────────────────────────────────────
 
+
 @router.post("/essay")
 async def write_essay_endpoint(
     topic: str = Form(""),
@@ -1512,7 +1913,8 @@ async def write_essay_endpoint(
 ):
     """Write a long-form essay — up to 50 pages. If the LLM can't reach the
     requested length, KUDOS exhausts all the information it has on the topic."""
-    from app.core.essay_writer import write_essay, MAX_PAGES
+    from app.core.essay_writer import MAX_PAGES, write_essay
+
     if not topic.strip():
         raise HTTPException(status_code=422, detail="topic is required")
     pages = max(1, min(int(pages or 1), MAX_PAGES))
@@ -1520,10 +1922,14 @@ async def write_essay_endpoint(
     conv = None
     if conversation_id:
         try:
-            conv = db.query(KudosConversation).filter(
-                KudosConversation.id == conversation_id,
-                KudosConversation.user_id == current_user.id,
-            ).first()
+            conv = (
+                db.query(KudosConversation)
+                .filter(
+                    KudosConversation.id == conversation_id,
+                    KudosConversation.user_id == current_user.id,
+                )
+                .first()
+            )
         except Exception:
             conv = None
     if not conv:
@@ -1535,34 +1941,46 @@ async def write_essay_endpoint(
 
     # Gather knowledge: retrieval + MCP + radio context for the topic.
     sources = []
-    try:
+    with contextlib.suppress(Exception):
         sources = search_chunks(db, topic)
-    except Exception:
-        pass
     if settings.MCP_ENABLED:
         try:
             from app.core.mcp_client import search_mcp_sources
+
             mcp_sources = await search_mcp_sources(topic)
             sources = mcp_sources + sources
         except Exception:
             pass
-    knowledge = "\n".join(
-        f"[{i}] {s.get('content', '')[:800]}" for i, s in enumerate(sources[:40], start=1)
-    ) or f"(KUDOS has no stored knowledge on \"{topic}\" yet — the essay will rely on general knowledge and clearly note gaps.)"
+    knowledge = (
+        "\n".join(f"[{i}] {s.get('content', '')[:800]}" for i, s in enumerate(sources[:40], start=1))
+        or f'(KUDOS has no stored knowledge on "{topic}" yet — the essay will rely on general knowledge and clearly note gaps.)'  # noqa: E501
+    )
 
     result = await write_essay(topic, pages, knowledge)
     from app.core.privacy_guard import scrub_response
+
     essay = scrub_response(result["essay"], allow_emails=True)
 
-    db.add(KudosMessage(
-        conversation_id=conv.id, role="kudos", content=essay,
-        sources=json.dumps([{"document_id": s.get("document_id"), "web_id": s.get("web_id"),
-                             "title": s.get("title", ""), "preview": s.get("content", "")[:200]} for s in sources[:5]]),
-    ))
-    try:
+    db.add(
+        KudosMessage(
+            conversation_id=conv.id,
+            role="kudos",
+            content=essay,
+            sources=json.dumps(
+                [
+                    {
+                        "document_id": s.get("document_id"),
+                        "web_id": s.get("web_id"),
+                        "title": s.get("title", ""),
+                        "preview": s.get("content", "")[:200],
+                    }
+                    for s in sources[:5]
+                ]
+            ),
+        )
+    )
+    with contextlib.suppress(Exception):
         self_improver.log_question(current_user.id, topic, had_sources=bool(sources))
-    except Exception:
-        pass
     db.commit()
 
     result["essay"] = essay
@@ -1581,6 +1999,7 @@ async def summarize_endpoint(
 ):
     """Summarize pasted text or a document KUDOS has learned."""
     from app.core.quick_answers import summarize_text
+
     content = text or ""
     title = "Pasted text"
     if document_id:
@@ -1591,18 +2010,31 @@ async def summarize_endpoint(
         title = doc.title or title
     if not content.strip():
         raise HTTPException(status_code=422, detail="Provide text or a document_id to summarize")
-    summary = await summarize_text(content, max_sentences=max_sentences,
-                                   user_name=current_user.full_name.split()[0] if current_user.full_name else "")
-    return {"title": title, "summary": summary, "original_words": len(content.split()), "source_document_id": document_id or None}
+    summary = await summarize_text(
+        content,
+        max_sentences=max_sentences,
+        user_name=current_user.full_name.split()[0] if current_user.full_name else "",
+    )
+    return {
+        "title": title,
+        "summary": summary,
+        "original_words": len(content.split()),
+        "source_document_id": document_id or None,
+    }
 
 
 @router.post("/summarize/document/{document_id}")
-async def summarize_document_endpoint(document_id: int, max_sentences: int = 5, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def summarize_document_endpoint(
+    document_id: int,
+    max_sentences: int = 5,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """Summarize a stored document by id (shortcut endpoint)."""
     from app.core.quick_answers import summarize_text
+
     doc = db.query(KudosDocument).filter(KudosDocument.id == document_id).first()
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
     summary = await summarize_text(doc.content or "", max_sentences=max_sentences)
     return {"title": doc.title, "summary": summary, "original_words": len((doc.content or "").split())}
-

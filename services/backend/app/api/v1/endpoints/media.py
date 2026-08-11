@@ -27,35 +27,85 @@ FREE_SOURCES = {
         {"name": "Kanopy", "url": "https://kanopy.com", "description": "Free with library card", "icon": "📚"},
         {"name": "Hoopla", "url": "https://hoopladigital.com", "description": "Free with library card", "icon": "📖"},
         {"name": "Vudu Free", "url": "https://vudu.com", "description": "Free section with ads", "icon": "🎭"},
-        {"name": "YouTube Movies", "url": "https://youtube.com/feed/storefront?bp=ogUCKAQ%3D", "description": "Free movies on YouTube", "icon": "▶️"},
-        {"name": "Internet Archive Movies", "url": "https://archive.org/details/moviesandfilms", "description": "Public domain films", "icon": "🕰️"},
-        {"name": "Open Culture", "url": "https://openculture.com/free-movies-online", "description": "Curated free movies list", "icon": "🎓"},
+        {
+            "name": "YouTube Movies",
+            "url": "https://youtube.com/feed/storefront?bp=ogUCKAQ%3D",
+            "description": "Free movies on YouTube",
+            "icon": "▶️",
+        },
+        {
+            "name": "Internet Archive Movies",
+            "url": "https://archive.org/details/moviesandfilms",
+            "description": "Public domain films",
+            "icon": "🕰️",
+        },
+        {
+            "name": "Open Culture",
+            "url": "https://openculture.com/free-movies-online",
+            "description": "Curated free movies list",
+            "icon": "🎓",
+        },
     ],
     "tv": [
         {"name": "Tubi TV", "url": "https://tubitv.com/category/tv", "description": "Free TV shows", "icon": "📺"},
         {"name": "Pluto TV", "url": "https://pluto.tv/live-tv", "description": "Live TV channels", "icon": "📡"},
         {"name": "Samsung TV Plus", "url": "https://samsungtvplus.com", "description": "Free live TV", "icon": "📱"},
-        {"name": "Roku Channel", "url": "https://therokuchannel.roku.com", "description": "Free movies & TV", "icon": "📺"},
+        {
+            "name": "Roku Channel",
+            "url": "https://therokuchannel.roku.com",
+            "description": "Free movies & TV",
+            "icon": "📺",
+        },
         {"name": "Peacock Free", "url": "https://peacocktv.com", "description": "Free tier available", "icon": "🦚"},
     ],
     "anime": [
-        {"name": "Crunchyroll Free", "url": "https://crunchyroll.com", "description": "Free anime with ads", "icon": "🎌"},
+        {
+            "name": "Crunchyroll Free",
+            "url": "https://crunchyroll.com",
+            "description": "Free anime with ads",
+            "icon": "🎌",
+        },
         {"name": "Anime-Planet", "url": "https://anime-planet.com", "description": "Free anime streaming", "icon": "⛩️"},
-        {"name": "9anime (via FMHY)", "url": "https://fmhy.net", "description": "Check FMHY for current links", "icon": "🗡️"},
+        {
+            "name": "9anime (via FMHY)",
+            "url": "https://fmhy.net",
+            "description": "Check FMHY for current links",
+            "icon": "🗡️",
+        },
     ],
     "music": [
         {"name": "Spotify Free", "url": "https://open.spotify.com", "description": "Free with ads", "icon": "🎵"},
         {"name": "YouTube Music", "url": "https://music.youtube.com", "description": "Free with ads", "icon": "🎶"},
         {"name": "SoundCloud", "url": "https://soundcloud.com", "description": "Free music streaming", "icon": "🔊"},
         {"name": "Bandcamp", "url": "https://bandcamp.com", "description": "Free & paid music", "icon": "🎸"},
-        {"name": "Free Music Archive", "url": "https://freemusicarchive.org", "description": "CC-licensed music", "icon": "🎼"},
-        {"name": "Internet Archive Audio", "url": "https://archive.org/details/audio", "description": "Public domain audio", "icon": "🕰️"},
+        {
+            "name": "Free Music Archive",
+            "url": "https://freemusicarchive.org",
+            "description": "CC-licensed music",
+            "icon": "🎼",
+        },
+        {
+            "name": "Internet Archive Audio",
+            "url": "https://archive.org/details/audio",
+            "description": "Public domain audio",
+            "icon": "🕰️",
+        },
     ],
     "educational": [
-        {"name": "Khan Academy", "url": "https://khanacademy.org", "description": "Free courses & videos", "icon": "🎓"},
+        {
+            "name": "Khan Academy",
+            "url": "https://khanacademy.org",
+            "description": "Free courses & videos",
+            "icon": "🎓",
+        },
         {"name": "MIT OpenCourseWare", "url": "https://ocw.mit.edu", "description": "Free MIT lectures", "icon": "🏛️"},
         {"name": "Coursera Free", "url": "https://coursera.org", "description": "Free audit mode", "icon": "📚"},
-        {"name": "YouTube Edu", "url": "https://youtube.com/education", "description": "Educational videos", "icon": "▶️"},
+        {
+            "name": "YouTube Edu",
+            "url": "https://youtube.com/education",
+            "description": "Educational videos",
+            "icon": "▶️",
+        },
         {"name": "TED Talks", "url": "https://ted.com", "description": "Free talks on everything", "icon": "🎤"},
     ],
 }
@@ -64,6 +114,7 @@ FREE_SOURCES = {
 # ──────────────────────────────────────────────
 # MEDIA SEARCH & DISCOVERY
 # ──────────────────────────────────────────────
+
 
 async def _duckduckgo_search(query: str, limit: int = 5) -> tuple[list[dict], str | None]:
     """Search DuckDuckGo HTML. Returns (results, warning_or_None)."""
@@ -87,6 +138,7 @@ async def _duckduckgo_search(query: str, limit: int = 5) -> tuple[list[dict], st
                     continue
                 if "uddg=" in href:
                     import urllib.parse
+
                     href = urllib.parse.parse_qs(urllib.parse.urlparse(href).query).get("uddg", [href])[0]
                 results.append({"title": title, "url": href})
     except Exception as exc:
@@ -116,12 +168,14 @@ async def search_media(
     fmhy_results, fmhy_warning = await _duckduckgo_search(f"site:fmhy.net {query}", limit=5)
     for r in fmhy_results:
         if "fmhy" in r["url"].lower():
-            results.append({
-                "title": r["title"],
-                "url": r["url"],
-                "source": "FMHY",
-                "icon": "📚",
-            })
+            results.append(
+                {
+                    "title": r["title"],
+                    "url": r["url"],
+                    "source": "FMHY",
+                    "icon": "📚",
+                }
+            )
     if fmhy_warning:
         warning = fmhy_warning
 
@@ -131,13 +185,15 @@ async def search_media(
             continue
         for source in sources:
             if query.lower() in source["name"].lower() or query.lower() in source["description"].lower():
-                results.append({
-                    "title": source["name"],
-                    "url": source["url"],
-                    "source": cat,
-                    "icon": source["icon"],
-                    "description": source["description"],
-                })
+                results.append(
+                    {
+                        "title": source["name"],
+                        "url": source["url"],
+                        "source": cat,
+                        "icon": source["icon"],
+                        "description": source["description"],
+                    }
+                )
 
     return {"query": query, "results": results[:20], "count": len(results), "warning": warning}
 
@@ -145,6 +201,7 @@ async def search_media(
 # ──────────────────────────────────────────────
 # VLC INTEGRATION
 # ──────────────────────────────────────────────
+
 
 @router.get("/vlc-link")
 def get_vlc_link(url: str, title: str = ""):
@@ -172,6 +229,7 @@ def play_in_vlc(url: str, title: str = "", user: User = Depends(get_current_user
 # ──────────────────────────────────────────────
 # FMHY RESOURCE FINDER
 # ──────────────────────────────────────────────
+
 
 @router.get("/fmhy")
 async def search_fmhy(query: str):

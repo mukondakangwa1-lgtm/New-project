@@ -1,5 +1,6 @@
 """Personal KUDOS API — per-user style, tone, interests, and avatar."""
 
+import contextlib
 import os
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
@@ -46,7 +47,7 @@ def update_profile_endpoint(
     try:
         save_profile(db, current_user.id, updates)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return ProfileResponse(**profile_dict(db, current_user.id))
 
 
@@ -56,9 +57,7 @@ def reset_profile_endpoint(
     current_user: User = Depends(get_current_user),
 ):
     """Revert to platform defaults."""
-    profile = (
-        db.query(UserProfile).filter(UserProfile.user_id == current_user.id).first()
-    )
+    profile = db.query(UserProfile).filter(UserProfile.user_id == current_user.id).first()
     if profile:
         db.delete(profile)
         db.commit()
@@ -75,42 +74,30 @@ async def upload_avatar(
     ext = os.path.splitext(file.filename or "")[1].lower().lstrip(".")
     media_type = IMAGE_TYPES.get(ext)
     if not media_type:
-        raise HTTPException(
-            status_code=400, detail="Avatar must be PNG, JPG, GIF or WebP"
-        )
+        raise HTTPException(status_code=400, detail="Avatar must be PNG, JPG, GIF or WebP")
     content = await file.read()
     if len(content) > MAX_AVATAR_BYTES:
         raise HTTPException(status_code=400, detail="Avatar too large (max 5MB)")
 
-    key = storage.new_key(
-        AVATAR_PREFIX, f"user{current_user.id}_{file.filename or 'avatar.png'}"
-    )
+    key = storage.new_key(AVATAR_PREFIX, f"user{current_user.id}_{file.filename or 'avatar.png'}")
     try:
         storage.upload_bytes(key, content, content_type=media_type)
     except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"Storage unavailable: {exc}")
+        raise HTTPException(status_code=503, detail=f"Storage unavailable: {exc}") from exc
 
     # Garbage-collect the previous avatar, then persist the new key.
-    profile = (
-        db.query(UserProfile).filter(UserProfile.user_id == current_user.id).first()
-    )
+    profile = db.query(UserProfile).filter(UserProfile.user_id == current_user.id).first()
     if profile and profile.avatar_url:
-        try:
+        with contextlib.suppress(Exception):
             storage.delete(profile.avatar_url)
-        except Exception:
-            pass
     save_profile(db, current_user.id, {"avatar_url": key})
     return ProfileResponse(**profile_dict(db, current_user.id))
 
 
 @router.get("/avatar")
-def get_avatar(
-    db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
-):
+def get_avatar(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Stream the user's avatar (fallback 404 when none is set)."""
-    profile = (
-        db.query(UserProfile).filter(UserProfile.user_id == current_user.id).first()
-    )
+    profile = db.query(UserProfile).filter(UserProfile.user_id == current_user.id).first()
     key = profile.avatar_url if profile and profile.avatar_url else ""
     if not key:
         raise HTTPException(status_code=404, detail="No avatar set")
@@ -123,7 +110,7 @@ def get_avatar(
     try:
         return StreamingResponse(storage.stream(key), media_type=media_type)
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="Avatar missing")
+        raise HTTPException(status_code=404, detail="Avatar missing") from None
 
 
 def _media_type_for(key: str) -> str:

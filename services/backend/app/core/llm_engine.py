@@ -2,15 +2,15 @@
 KUDOS LLM Engine — Connect to external AI models (Google Gemini, OpenAI, etc.)
 KUDOS queries multiple LLMs and picks the best response.
 """
+# ruff: noqa: E501
+
 import os
 import time
-from typing import Optional
 
 import httpx
 
 from app.core.config import settings
 from app.core.privacy_guard import GUARD_SYSTEM_NOTE as _PRIVACY_NOTE
-
 
 # ──────────────────────────────────────────────
 # LLM PROVIDER CONFIGS
@@ -63,9 +63,9 @@ def set_api_key(provider: str, api_key: str):
         LLM_CONFIGS[provider]["enabled"] = True
 
 
-def get_api_key(provider: str) -> Optional[str]:
+def get_api_key(provider: str) -> str | None:
     """Get a provider key from process memory or the environment."""
-    if provider in _api_keys and _api_keys[provider]:
+    if _api_keys.get(provider):
         return _api_keys[provider]
 
     config = LLM_CONFIGS.get(provider, {})
@@ -95,10 +95,7 @@ def provider_is_configured(provider: str) -> bool:
         base_url = settings.OLLAMA_BASE_URL.rstrip("/")
         requires_key = base_url.startswith("https://ollama.com")
         return bool(
-            settings.OLLAMA_ENABLED
-            and base_url
-            and get_model(provider)
-            and (not requires_key or get_api_key(provider))
+            settings.OLLAMA_ENABLED and base_url and get_model(provider) and (not requires_key or get_api_key(provider))
         )
     return bool(get_api_key(provider))
 
@@ -108,14 +105,16 @@ def get_llm_status() -> list[dict]:
     status = []
     for key, config in LLM_CONFIGS.items():
         configured = provider_is_configured(key)
-        status.append({
-            "id": key,
-            "name": config["name"],
-            "icon": config["icon"],
-            "model": get_model(key),
-            "enabled": configured,
-            "configured": configured,
-        })
+        status.append(
+            {
+                "id": key,
+                "name": config["name"],
+                "icon": config["icon"],
+                "model": get_model(key),
+                "enabled": configured,
+                "configured": configured,
+            }
+        )
     return status
 
 
@@ -123,7 +122,8 @@ def get_llm_status() -> list[dict]:
 # LLM QUERY FUNCTIONS
 # ──────────────────────────────────────────────
 
-async def query_google_gemini(prompt: str, system_prompt: str = "", media: Optional[list] = None) -> Optional[str]:
+
+async def query_google_gemini(prompt: str, system_prompt: str = "", media: list | None = None) -> str | None:
     """Query Google Gemini API. `media` is a list of {"mime_type", "data"}
     base64 payloads (images and/or video) for multimodal understanding."""
     api_key = get_api_key("google_gemini")
@@ -131,7 +131,7 @@ async def query_google_gemini(prompt: str, system_prompt: str = "", media: Optio
         return None
 
     parts = [{"text": prompt}]
-    for m in (media or []):
+    for m in media or []:
         if m.get("data"):
             parts.append({"inline_data": {"mime_type": m.get("mime_type", "image/jpeg"), "data": m["data"]}})
 
@@ -143,12 +143,18 @@ async def query_google_gemini(prompt: str, system_prompt: str = "", media: Optio
                 json={
                     "contents": [{"parts": parts}],
                     "systemInstruction": {
-                        "parts": [{"text": system_prompt}] if system_prompt else [{"text": "You are KUDOS, a helpful AI assistant for a university Digital Campus. Be friendly, concise, and helpful. Respond like a knowledgeable friend."}]
+                        "parts": [{"text": system_prompt}]
+                        if system_prompt
+                        else [
+                            {
+                                "text": "You are KUDOS, a helpful AI assistant for a university Digital Campus. Be friendly, concise, and helpful. Respond like a knowledgeable friend."
+                            }
+                        ]
                     },
                     "generationConfig": {
                         "temperature": 0.7,
                         "maxOutputTokens": 1024,
-                    }
+                    },
                 },
                 headers={"Content-Type": "application/json"},
             )
@@ -164,7 +170,7 @@ async def query_google_gemini(prompt: str, system_prompt: str = "", media: Optio
     return None
 
 
-async def query_openai(prompt: str, system_prompt: str = "", media: Optional[list] = None) -> Optional[str]:
+async def query_openai(prompt: str, system_prompt: str = "", media: list | None = None) -> str | None:
     """Query OpenAI API. `media` supports image_url content parts for vision."""
     api_key = get_api_key("openai")
     if not api_key:
@@ -172,12 +178,14 @@ async def query_openai(prompt: str, system_prompt: str = "", media: Optional[lis
 
     try:
         user_content: list = [{"type": "text", "text": prompt}]
-        for m in (media or []):
+        for m in media or []:
             if m.get("data") and m.get("mime_type", "").startswith("image/"):
-                user_content.append({
-                    "type": "image_url",
-                    "image_url": {"url": f"data:{m['mime_type']};base64,{m['data']}"},
-                })
+                user_content.append(
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{m['mime_type']};base64,{m['data']}"},
+                    }
+                )
 
         async with httpx.AsyncClient(timeout=settings.LLM_TIMEOUT_SECONDS) as client:
             res = await client.post(
@@ -185,7 +193,11 @@ async def query_openai(prompt: str, system_prompt: str = "", media: Optional[lis
                 json={
                     "model": get_model("openai"),
                     "messages": [
-                        {"role": "system", "content": system_prompt or "You are KUDOS, a helpful AI assistant for a university Digital Campus. Be friendly, concise, and helpful."},
+                        {
+                            "role": "system",
+                            "content": system_prompt
+                            or "You are KUDOS, a helpful AI assistant for a university Digital Campus. Be friendly, concise, and helpful.",
+                        },
                         {"role": "user", "content": user_content},
                     ],
                     "temperature": 0.7,
@@ -206,7 +218,7 @@ async def query_openai(prompt: str, system_prompt: str = "", media: Optional[lis
     return None
 
 
-async def query_groq(prompt: str, system_prompt: str = "") -> Optional[str]:
+async def query_groq(prompt: str, system_prompt: str = "") -> str | None:
     """Query Groq API (fast inference)."""
     api_key = get_api_key("groq")
     if not api_key:
@@ -219,7 +231,11 @@ async def query_groq(prompt: str, system_prompt: str = "") -> Optional[str]:
                 json={
                     "model": get_model("groq"),
                     "messages": [
-                        {"role": "system", "content": system_prompt or "You are KUDOS, a helpful AI assistant for a university Digital Campus. Be friendly, concise, and helpful. Respond like a knowledgeable friend."},
+                        {
+                            "role": "system",
+                            "content": system_prompt
+                            or "You are KUDOS, a helpful AI assistant for a university Digital Campus. Be friendly, concise, and helpful. Respond like a knowledgeable friend.",
+                        },
                         {"role": "user", "content": prompt},
                     ],
                     "temperature": 0.7,
@@ -240,12 +256,11 @@ async def query_groq(prompt: str, system_prompt: str = "") -> Optional[str]:
     return None
 
 
-async def query_ollama(prompt: str, system_prompt: str = "") -> Optional[str]:
+async def query_ollama(prompt: str, system_prompt: str = "") -> str | None:
     """Query local Ollama instance."""
     try:
         base_url = settings.OLLAMA_BASE_URL.rstrip("/")
-        if base_url.endswith("/api"):
-            base_url = base_url[:-4]
+        base_url = base_url.removesuffix("/api")
         endpoint = f"{base_url}/api/generate"
         headers = {}
         api_key = get_api_key("ollama")
@@ -280,10 +295,16 @@ CONSECUTIVE_FAILURE_LIMIT = 3
 
 def router_record_result(provider: str, ok: bool, latency_ms: int) -> None:
     """Update the in-memory health registry for one provider call."""
-    entry = ROUTER_HEALTH.setdefault(provider, {
-        "consecutive_failures": 0, "cooldown_until": 0.0,
-        "failures_total": 0, "successes_total": 0, "last_latency_ms": 0,
-    })
+    entry = ROUTER_HEALTH.setdefault(
+        provider,
+        {
+            "consecutive_failures": 0,
+            "cooldown_until": 0.0,
+            "failures_total": 0,
+            "successes_total": 0,
+            "last_latency_ms": 0,
+        },
+    )
     entry["last_latency_ms"] = latency_ms
     if ok:
         entry["successes_total"] += 1
@@ -297,10 +318,7 @@ def router_record_result(provider: str, ok: bool, latency_ms: int) -> None:
 
 def router_health() -> list[dict]:
     """Snapshot of every provider's routing health."""
-    return [
-        {"provider": provider, **entry}
-        for provider, entry in sorted(ROUTER_HEALTH.items())
-    ]
+    return [{"provider": provider, **entry} for provider, entry in sorted(ROUTER_HEALTH.items())]
 
 
 def _router_failures(provider: str) -> int:
@@ -316,7 +334,7 @@ async def query_best_llm(
     prompt: str,
     system_prompt: str = "",
     provider: str | None = None,
-    media: Optional[list] = None,
+    media: list | None = None,
 ) -> dict:
     """
     Route a prompt to the best LLM provider.
@@ -351,22 +369,23 @@ async def query_best_llm(
 
     active = [p for p in provider_order if provider_is_configured(p)]
     if not active:
-        return {"response": None, "provider": "none", "message": "No LLM configured. Set an API key in the admin panel."}
+        return {
+            "response": None,
+            "provider": "none",
+            "message": "No LLM configured. Set an API key in the admin panel.",
+        }
 
     timeout = max(settings.LLM_TIMEOUT_SECONDS, 1)
     details: list[dict] = []
 
-    async def _call(name: str) -> None | dict:
+    async def _call(name: str) -> dict | None:
         started = time.monotonic()
         try:
-            result = await asyncio.wait_for(
-                provider_functions[name](prompt, system_prompt, media), timeout=timeout
-            )
+            result = await asyncio.wait_for(provider_functions[name](prompt, system_prompt, media), timeout=timeout)
         except Exception as exc:
             latency_ms = int((time.monotonic() - started) * 1000)
             router_record_result(name, ok=False, latency_ms=latency_ms)
-            details.append({"provider": name, "ok": False, "latency_ms": latency_ms,
-                            "error": str(exc)[:200]})
+            details.append({"provider": name, "ok": False, "latency_ms": latency_ms, "error": str(exc)[:200]})
             return None
         latency_ms = int((time.monotonic() - started) * 1000)
         if result:
@@ -374,8 +393,7 @@ async def query_best_llm(
             details.append({"provider": name, "ok": True, "latency_ms": latency_ms})
             return {"provider": name, "response": result}
         router_record_result(name, ok=False, latency_ms=latency_ms)
-        details.append({"provider": name, "ok": False, "latency_ms": latency_ms,
-                        "error": "empty response"})
+        details.append({"provider": name, "ok": False, "latency_ms": latency_ms, "error": "empty response"})
         return None
 
     # Health-aware ordering keeps a degraded provider from blocking healthy ones
@@ -390,8 +408,7 @@ async def query_best_llm(
         for r in results:
             if isinstance(r, dict) and r.get("response"):
                 return {"details": details, **r}
-        return {"response": None, "provider": "none", "details": details,
-                "message": "All LLMs failed to respond."}
+        return {"response": None, "provider": "none", "details": details, "message": "All LLMs failed to respond."}
 
     attempts = 0
     for name in active:
@@ -399,9 +416,7 @@ async def query_best_llm(
             break
         # Skip providers cooling down — unless every candidate is cooling down
         # (then probe the first so a lone degraded provider can recover).
-        if attempts > 0 and not _router_ready(name) and any(
-            _router_ready(other) for other in active
-        ):
+        if attempts > 0 and not _router_ready(name) and any(_router_ready(other) for other in active):
             details.append({"provider": name, "ok": False, "skipped": "cooldown"})
             continue
         attempts += 1
@@ -409,18 +424,18 @@ async def query_best_llm(
         if result and result.get("response"):
             return {"details": details, **result}
 
-    return {"response": None, "provider": "none", "details": details,
-            "message": "All LLMs failed to respond."}
+    return {"response": None, "provider": "none", "details": details, "message": "All LLMs failed to respond."}
 
 
 # ──────────────────────────────────────────────
 # HUMAN-LIKE PROMPT BUILDER
 # ──────────────────────────────────────────────
 
+
 def build_human_prompt(
     question: str,
     knowledge_context: str = "",
-    conversation_history: list = [],
+    conversation_history: list | None = None,
     user_name: str = "",
     memory_context: str = "",
     persona_instructions: str = "",
@@ -433,6 +448,8 @@ def build_human_prompt(
     Build a prompt that makes the LLM respond like a human.
     Returns (user_prompt, system_prompt).
     """
+    if conversation_history is None:
+        conversation_history = []
     system_prompt = f"""You are KUDOS, an AI assistant for Digital Campus university platform.
 
 PERSONALITY:
@@ -509,19 +526,21 @@ LONG-FORM WRITING:
 async def get_llm_response(
     question: str,
     knowledge_context: str = "",
-    conversation_history: list = [],
+    conversation_history: list | None = None,
     user_name: str = "",
     memory_context: str = "",
     persona_instructions: str = "",
     soul_context: str = "",
     self_knowledge: str = "",
     terminal_context: str = "",
-    media: Optional[list] = None,
-) -> Optional[str]:
+    media: list | None = None,
+) -> str | None:
     """
     Get a human-like response from the best available LLM.
     `media` = [{"mime_type":..., "data": base64}] for images/video understanding.
     """
+    if conversation_history is None:
+        conversation_history = []
     user_prompt, system_prompt = build_human_prompt(
         question=question,
         knowledge_context=knowledge_context,
@@ -599,7 +618,11 @@ async def generate_image(prompt: str) -> dict:
                     if item.get("url"):
                         img = await client.get(item["url"])
                         if img.status_code == 200:
-                            return {"mime_type": "image/png", "data": _b64.b64encode(img.content).decode(), "provider": "openai"}
+                            return {
+                                "mime_type": "image/png",
+                                "data": _b64.b64encode(img.content).decode(),
+                                "provider": "openai",
+                            }
                     return {"error": "OpenAI returned no image"}
                 return {"error": f"OpenAI image failed ({res.status_code}): {res.text[:200]}"}
         except Exception as e:

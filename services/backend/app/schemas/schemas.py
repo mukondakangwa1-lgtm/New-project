@@ -1,9 +1,10 @@
 """
 Digital Campus - Pydantic Schemas
 """
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
-from typing import Optional
+
 from datetime import date, datetime, time
+
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 # --- User Schemas ---
@@ -38,7 +39,7 @@ class Token(BaseModel):
 
 
 class TokenData(BaseModel):
-    email: Optional[str] = None
+    email: str | None = None
 
 
 # --- Course Schemas ---
@@ -55,10 +56,10 @@ class CourseCreate(CourseBase):
 
 
 class CourseUpdate(BaseModel):
-    title: Optional[str] = None
-    description: Optional[str] = None
-    instructor: Optional[str] = None
-    credits: Optional[int] = None
+    title: str | None = None
+    description: str | None = None
+    instructor: str | None = None
+    credits: int | None = None
 
 
 class CourseResponse(CourseBase):
@@ -98,11 +99,11 @@ class TimetableEntryCreate(TimetableEntryBase):
 
 
 class TimetableEntryUpdate(BaseModel):
-    day_of_week: Optional[int] = None
-    start_time: Optional[time] = None
-    end_time: Optional[time] = None
-    room: Optional[str] = None
-    is_active: Optional[bool] = None
+    day_of_week: int | None = None
+    start_time: time | None = None
+    end_time: time | None = None
+    room: str | None = None
+    is_active: bool | None = None
 
 
 class TimetableEntryResponse(TimetableEntryBase):
@@ -114,7 +115,7 @@ class TimetableEntryResponse(TimetableEntryBase):
 
 
 class TimetableEntryWithCourse(TimetableEntryResponse):
-    course: Optional[CourseResponse] = None
+    course: CourseResponse | None = None
 
 
 # --- Session Schemas ---
@@ -134,7 +135,7 @@ class SessionResponse(BaseModel):
 
 
 class SessionWithCourse(SessionResponse):
-    course: Optional[CourseResponse] = None
+    course: CourseResponse | None = None
 
 
 class SessionOpenClose(BaseModel):
@@ -143,9 +144,10 @@ class SessionOpenClose(BaseModel):
 
 class SessionBulkGenerate(BaseModel):
     """Generate sessions for a date range."""
+
     start_date: date
     end_date: date
-    course_id: Optional[int] = None  # None = all courses
+    course_id: int | None = None  # None = all courses
 
 
 class SessionBulkGenerateResponse(BaseModel):
@@ -173,11 +175,12 @@ class AttendanceResponse(BaseModel):
 
 
 class AttendanceWithStudent(AttendanceResponse):
-    student: Optional[UserResponse] = None
+    student: UserResponse | None = None
 
 
 class AttendanceMark(BaseModel):
     """Admin marks attendance for a student."""
+
     student_id: int
     status: str = "present"  # present, late, absent, excused
     notes: str = ""
@@ -185,6 +188,7 @@ class AttendanceMark(BaseModel):
 
 class AttendanceReport(BaseModel):
     """Summary for a student in a course."""
+
     student: UserResponse
     course: CourseResponse
     total_sessions: int
@@ -223,14 +227,14 @@ class PostCreate(PostBase):
 
 
 class PostUpdate(BaseModel):
-    title: Optional[str] = None
-    description: Optional[str] = None
-    storage_url: Optional[str] = None
-    storage_type: Optional[str] = None
-    content_type: Optional[str] = None
-    thumbnail_url: Optional[str] = None
-    is_public: Optional[bool] = None
-    tags: Optional[str] = None
+    title: str | None = None
+    description: str | None = None
+    storage_url: str | None = None
+    storage_type: str | None = None
+    content_type: str | None = None
+    thumbnail_url: str | None = None
+    is_public: bool | None = None
+    tags: str | None = None
 
 
 class PostResponse(PostBase):
@@ -244,7 +248,7 @@ class PostResponse(PostBase):
 
 
 class PostWithAuthor(PostResponse):
-    author: Optional[UserResponse] = None
+    author: UserResponse | None = None
     reaction_count: int = 0
     comment_count: int = 0
 
@@ -264,7 +268,7 @@ class CommentResponse(BaseModel):
 
 
 class CommentWithAuthor(CommentResponse):
-    user: Optional[UserResponse] = None
+    user: UserResponse | None = None
 
 
 class ReactionCreate(BaseModel):
@@ -325,11 +329,12 @@ class ChatMessageResponse(BaseModel):
 
 
 class ChatMessageWithUser(ChatMessageResponse):
-    user: Optional[UserResponse] = None
+    user: UserResponse | None = None
 
 
 class ChatSyncPayload(BaseModel):
     """For syncing offline messages when coming back online."""
+
     messages: list[ChatMessageCreate]
     room_id: int
 
@@ -356,10 +361,10 @@ class KudosDocumentResponse(BaseModel):
 
 
 class KudosDocumentUpdate(BaseModel):
-    title: Optional[str] = None
-    tags: Optional[str] = None
-    is_approved: Optional[bool] = None
-    is_active: Optional[bool] = None
+    title: str | None = None
+    tags: str | None = None
+    is_approved: bool | None = None
+    is_active: bool | None = None
 
 
 class KudosWebLearn(BaseModel):
@@ -382,11 +387,12 @@ class KudosWebKnowledgeResponse(BaseModel):
 
 class KudosAskRequest(BaseModel):
     question: str
-    conversation_id: Optional[int] = None
+    conversation_id: int | None = None
 
 
 class GuestAskRequest(BaseModel):
     """Public ask from an anonymous visitor (no login required)."""
+
     question: str
     guest_id: str = Field(min_length=8, max_length=64, description="Browser-generated anonymous id (UUID)")
 
@@ -440,19 +446,20 @@ class GuestProfileResponse(BaseModel):
     name: str = ""
     ai_name: str = ""
     visit_count: int = 0
-    first_seen: Optional[datetime] = None
-    last_seen: Optional[datetime] = None
+    first_seen: datetime | None = None
+    last_seen: datetime | None = None
 
 
 class MemoryCreate(BaseModel):
     """Write a memory KUDOS should keep."""
+
     content: str = Field(min_length=1, max_length=5000)
     layer: str = "short_term"  # short_term | long_term | knowledge | system
     kind: str = "fact"  # fact | preference | concept | event | rule | error | success | context
     importance: float = 0.5
     tags: list[str] = []
     source: str = Field(default="", max_length=120)
-    expires_at: Optional[datetime] = None
+    expires_at: datetime | None = None
 
 
 class MemoryResponse(BaseModel):
@@ -465,8 +472,8 @@ class MemoryResponse(BaseModel):
     tags: list[str] = []
     source: str = ""
     access_count: int = 0
-    expires_at: Optional[datetime] = None
-    created_at: Optional[datetime] = None
+    expires_at: datetime | None = None
+    created_at: datetime | None = None
     replicas: list[dict] = []
 
 
@@ -492,14 +499,14 @@ class DeviceResponse(BaseModel):
     status: str
     storage_bytes: int
     used_storage_bytes: int
-    last_seen_at: Optional[datetime] = None
+    last_seen_at: datetime | None = None
     api_token: str = ""
 
 
 class DeviceUpdate(BaseModel):
-    name: Optional[str] = Field(default=None, max_length=120)
-    status: Optional[str] = Field(default=None, max_length=20)  # online | offline
-    used_storage_bytes: Optional[int] = Field(default=None, ge=0)
+    name: str | None = Field(default=None, max_length=120)
+    status: str | None = Field(default=None, max_length=20)  # online | offline
+    used_storage_bytes: int | None = Field(default=None, ge=0)
 
 
 class SyncAckRequest(BaseModel):
@@ -519,10 +526,10 @@ class SyncEntry(BaseModel):
     tags: str = "[]"
     source: str = ""
     summary: str = ""
-    expires_at: Optional[datetime] = None
+    expires_at: datetime | None = None
     device_role: str = "replica"
     device_status: str = "pending"
-    embedding: Optional[list] = None
+    embedding: list | None = None
 
 
 class SyncManifestResponse(BaseModel):
@@ -538,12 +545,12 @@ class SyncStatusResponse(BaseModel):
 
 
 class ProfileUpdate(BaseModel):
-    tone: Optional[str] = Field(default=None, max_length=20)
-    verbosity: Optional[str] = Field(default=None, max_length=20)
-    emoji_enabled: Optional[bool] = None
-    interests: Optional[list[str]] = None
-    greeting: Optional[str] = Field(default=None, max_length=120)
-    avatar_url: Optional[str] = Field(default=None, max_length=255)
+    tone: str | None = Field(default=None, max_length=20)
+    verbosity: str | None = Field(default=None, max_length=20)
+    emoji_enabled: bool | None = None
+    interests: list[str] | None = None
+    greeting: str | None = Field(default=None, max_length=120)
+    avatar_url: str | None = Field(default=None, max_length=255)
 
 
 class ProfileResponse(BaseModel):
@@ -556,12 +563,12 @@ class ProfileResponse(BaseModel):
 
 
 class SoulUpdate(BaseModel):
-    name: Optional[str] = Field(default=None, max_length=60)
-    personality: Optional[list[str]] = None
-    values: Optional[list[str]] = None
-    desires: Optional[list[str]] = None
-    dreams: Optional[list[str]] = None
-    goals: Optional[list[dict]] = None
+    name: str | None = Field(default=None, max_length=60)
+    personality: list[str] | None = None
+    values: list[str] | None = None
+    desires: list[str] | None = None
+    dreams: list[str] | None = None
+    goals: list[dict] | None = None
 
 
 class SoulResponse(BaseModel):
@@ -640,7 +647,7 @@ class KudosConnectorResponse(BaseModel):
     source_url: str
     config: str
     status: str
-    last_synced_at: Optional[datetime] = None
+    last_synced_at: datetime | None = None
     items_learned: int
     error_message: str
     is_approved: bool

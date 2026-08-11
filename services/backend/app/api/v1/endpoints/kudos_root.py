@@ -2,6 +2,7 @@
 Digital Campus - KUDOS Root Access & Identity
 Superadmin-only root terminal, identity management, guidelines, self-improvement.
 """
+
 import os
 
 from fastapi import APIRouter, Depends
@@ -38,6 +39,7 @@ REPO_PATH = str(project_root(__file__))
 # IDENTITY
 # ──────────────────────────────────────────────
 
+
 @router.get("/identity")
 def get_kudos_identity(admin: User = Depends(require_admin)):
     """Get KUDOS's full identity."""
@@ -66,6 +68,7 @@ def update_body(part: str, updates: dict, admin: User = Depends(require_admin)):
 # GUIDELINES
 # ──────────────────────────────────────────────
 
+
 @router.get("/guidelines")
 def list_guidelines(admin: User = Depends(require_admin)):
     """Get all KUDOS guidelines."""
@@ -92,7 +95,7 @@ def edit_rule(index: int, new_text: str, admin: User = Depends(require_admin)):
     except ValueError as exc:
         from fastapi import HTTPException
 
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.delete("/guidelines/{index}")
@@ -103,12 +106,13 @@ def delete_rule(index: int, admin: User = Depends(require_admin)):
     except ValueError as exc:
         from fastapi import HTTPException
 
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 # ──────────────────────────────────────────────
 # ROOT TERMINAL
 # ──────────────────────────────────────────────
+
 
 class RootCommand(BaseModel):
     command: str
@@ -153,12 +157,17 @@ def root_execute(body: RootCommand, admin: User = Depends(require_admin), db: Se
 def _selfheal_command(db: Session) -> dict:
     """Self-heal plan shown in the terminal."""
     from app.core.kudos_governance import self_heal_plan
+
     return self_heal_plan(db)
 
 
 def _governance_command(db: Session, admin: User, args: str) -> dict:
     """Check governance: identity, rotation, succession, or rotate the UID."""
-    from app.core.kudos_governance import governance_status, rotate_uid, self_heal_bootstrap
+    from app.core.kudos_governance import (
+        governance_status,
+        rotate_uid,
+        self_heal_bootstrap,
+    )
 
     parts = args.split(" ", 1)
     sub = parts[0].lower() if args else ""
@@ -185,8 +194,7 @@ def _guidelines_command(args: str) -> dict:
 
     if not sub:
         rules = get_guidelines()
-        return {"guidelines": rules, "count": len(rules),
-                "usage": "guidelines add|edit <n>|delete <n>|clear"}
+        return {"guidelines": rules, "count": len(rules), "usage": "guidelines add|edit <n>|delete <n>|clear"}
 
     if sub == "add":
         if not rest:
@@ -244,11 +252,13 @@ def _list_files(path: str = "") -> dict:
         if item.startswith("."):
             continue
         full = os.path.join(target, item)
-        items.append({
-            "name": item,
-            "type": "dir" if os.path.isdir(full) else "file",
-            "size": os.path.getsize(full) if os.path.isfile(full) else 0,
-        })
+        items.append(
+            {
+                "name": item,
+                "type": "dir" if os.path.isdir(full) else "file",
+                "size": os.path.getsize(full) if os.path.isfile(full) else 0,
+            }
+        )
     return {"path": path or ".", "items": items}
 
 
@@ -260,7 +270,7 @@ def _read_file(path: str) -> dict:
     if os.path.getsize(target) > 50000:
         return {"error": "File too large (>50KB)"}
     try:
-        with open(target, "r") as f:
+        with open(target) as f:
             content = f.read()
         return {"path": path, "content": content, "lines": len(content.split("\n"))}
     except Exception as e:
@@ -282,7 +292,7 @@ def _get_stats() -> dict:
                 try:
                     with open(os.path.join(root, f)) as fh:
                         total_lines += len(fh.readlines())
-                except:
+                except OSError:
                     pass
     for root, dirs, files in os.walk(os.path.join(REPO_PATH, "frontend", "pages")):
         dirs[:] = [d for d in dirs if d not in (".git", "node_modules", ".next")]
@@ -294,7 +304,7 @@ def _get_stats() -> dict:
                 try:
                     with open(os.path.join(root, f)) as fh:
                         total_lines += len(fh.readlines())
-                except:
+                except OSError:
                     pass
     return {"files": total_files, "lines": total_lines, "by_type": file_types}
 
@@ -302,6 +312,7 @@ def _get_stats() -> dict:
 # ──────────────────────────────────────────────
 # SELF-IMPROVEMENT
 # ──────────────────────────────────────────────
+
 
 @router.get("/status")
 def full_status(admin: User = Depends(require_admin)):
@@ -331,10 +342,12 @@ def gaps(admin: User = Depends(require_admin)):
 # GOVERNANCE & CONTINUITY
 # ──────────────────────────────────────────────
 
+
 @router.get("/governance")
 def governance(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
     """Rotating superadmin identity + transparent succession state."""
     from app.core.kudos_governance import governance_status
+
     return governance_status(db)
 
 
@@ -342,6 +355,7 @@ def governance(admin: User = Depends(require_admin), db: Session = Depends(get_d
 def rotate_uid(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
     """Force an immediate rotation of the superadmin's unique ID."""
     from app.core.kudos_governance import rotate_uid as _rotate_uid
+
     return {"rotated": _rotate_uid(db, admin)}
 
 
@@ -349,6 +363,7 @@ def rotate_uid(admin: User = Depends(require_admin), db: Session = Depends(get_d
 def continuity(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
     """Everything KUDOS needs to rebuild anywhere + the host bootstrap script."""
     from app.core.kudos_governance import revival_bundle, self_heal_bootstrap
+
     return {
         "bundle": revival_bundle(db),
         "bootstrap": self_heal_bootstrap(db),
@@ -359,4 +374,5 @@ def continuity(admin: User = Depends(require_admin), db: Session = Depends(get_d
 def self_heal(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
     """Plan (not execution — it runs on the host) to rebuild the whole stack."""
     from app.core.kudos_governance import self_heal_plan
+
     return self_heal_plan(db)

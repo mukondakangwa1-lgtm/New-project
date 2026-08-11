@@ -17,8 +17,7 @@ import re
 import shlex
 import subprocess
 import tempfile
-from datetime import datetime, timedelta, timezone
-from typing import List, Optional, Tuple
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.orm import Session
 
@@ -38,9 +37,7 @@ def _workspace_root() -> str:
             return settings.KUDOS_TERMINAL_WORKSPACE_ROOT
     except Exception:
         pass
-    return os.environ.get("KUDOS_WORKSPACE_ROOT") or os.path.join(
-        tempfile.gettempdir(), "kudos_workspace"
-    )
+    return os.environ.get("KUDOS_WORKSPACE_ROOT") or os.path.join(tempfile.gettempdir(), "kudos_workspace")
 
 
 WORKSPACE_ROOT = _workspace_root()
@@ -49,12 +46,12 @@ DEFAULT_INTERPRETER = {"python3": "python3", "node": "node", "bash": "bash"}
 
 # Shell commands KUDOS (or its agent) may never run — online or device side.
 DENY_PATTERNS = [
-    r"\bsudo\b",                       # privilege escalation
-    r"\bsu\b\s*[- ]",                  # switch user
+    r"\bsudo\b",  # privilege escalation
+    r"\bsu\b\s*[- ]",  # switch user
     r"\brm\s+-(?:[a-zA-Z]*[rf]{1,2}[a-zA-Z]*)\s*[/*~$]",  # destructive removes
-    r":\(\)",                          # fork bomb
-    r"\bmkfs(?:\.\w+)?\b",             # format devices
-    r"\bdd\b[^|&;]*\bof=/dev/",        # raw device writes
+    r":\(\)",  # fork bomb
+    r"\bmkfs(?:\.\w+)?\b",  # format devices
+    r"\bdd\b[^|&;]*\bof=/dev/",  # raw device writes
     r"\b(?:poweroff|reboot|halt|shutdown)\b",
     r"\bchmod\s+(?:-R\s+)?[0-7]{3,4}\s+[/*]",  # chmod on root paths
     r"\bumount\b",
@@ -65,15 +62,15 @@ _DENY_RE = re.compile("|".join(DENY_PATTERNS), re.IGNORECASE)
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
-def _aware(value: Optional[datetime]) -> Optional[datetime]:
+def _aware(value: datetime | None) -> datetime | None:
     """Normalize DB-stored (naive, SQLite) datetimes to aware UTC."""
     if value is None:
         return None
     if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
+        return value.replace(tzinfo=UTC)
     return value
 
 
@@ -90,10 +87,11 @@ def _get_session(db: Session, session_id: int, user_id: int, admin: bool = False
 # SESSIONS
 # ──────────────────────────────────────────────
 
+
 def create_session(
     db: Session,
     user_id: int,
-    device_id: Optional[int] = None,
+    device_id: int | None = None,
     name: str = "kudos-terminal",
     opened_by: str = "user",
     admin: bool = False,
@@ -141,7 +139,7 @@ def close_session(db: Session, session_id: int, user_id: int, admin: bool = Fals
     return {"status": "closed", "session_id": session.id}
 
 
-def list_sessions(db: Session, user_id: int) -> List[dict]:
+def list_sessions(db: Session, user_id: int) -> list[dict]:
     rows = (
         db.query(KudosTerminalSession)
         .filter(KudosTerminalSession.user_id == user_id)
@@ -198,7 +196,7 @@ def command_to_dict(cmd: KudosTerminalCommand) -> dict:
 
 def pick_session_for_user(
     db: Session, user_id: int, admin: bool = False, opened_by: str = "ask"
-) -> Tuple[KudosTerminalSession, bool]:
+) -> tuple[KudosTerminalSession, bool]:
     """KUDOS picks a terminal: a device session on a recently-seen device,
     else an online session (superadmin only). Returns (session, created)."""
     device = (
@@ -251,6 +249,7 @@ def pick_session_for_user(
 # ENQUEUE & APPROVAL
 # ──────────────────────────────────────────────
 
+
 def enqueue_command(
     db: Session,
     session_id: int,
@@ -302,7 +301,7 @@ def approve_command(db: Session, command_id: int, admin_user_id: int) -> dict:
     return command_to_dict(cmd)
 
 
-def pending_approvals(db: Session, admin_user_id: int) -> List[dict]:
+def pending_approvals(db: Session, admin_user_id: int) -> list[dict]:
     rows = (
         db.query(KudosTerminalCommand)
         .filter(KudosTerminalCommand.status == "pending_approval")
@@ -316,7 +315,8 @@ def pending_approvals(db: Session, admin_user_id: int) -> List[dict]:
 # DEVICE CHANNEL (pull-based)
 # ──────────────────────────────────────────────
 
-def claim_next_for_device(db: Session, device_token: str, max_batch: int = 5) -> List[dict]:
+
+def claim_next_for_device(db: Session, device_token: str, max_batch: int = 5) -> list[dict]:
     """Return commands queued for this device and mark them claimed.
 
     Idempotent retries: a claimed command that was never executed within the
@@ -337,12 +337,9 @@ def claim_next_for_device(db: Session, device_token: str, max_batch: int = 5) ->
         .all()
     )
     ready = [
-        c for c in rows
-        if c.status == "queued"
-        or (
-            c.status == "claimed"
-            and (_aware(c.claimed_at) or now) < stale_limit
-        )
+        c
+        for c in rows
+        if c.status == "queued" or (c.status == "claimed" and (_aware(c.claimed_at) or now) < stale_limit)
     ][:max_batch]
 
     claimed = []
@@ -354,9 +351,7 @@ def claim_next_for_device(db: Session, device_token: str, max_batch: int = 5) ->
     return claimed
 
 
-def submit_result(
-    db: Session, device_token: str, command_id: int, exit_code: int, output: str
-) -> dict:
+def submit_result(db: Session, device_token: str, command_id: int, exit_code: int, output: str) -> dict:
     """Device agent posts the execution result of a claimed command."""
     device = get_device_by_token(db, device_token)
     if not device:
@@ -378,7 +373,7 @@ def submit_result(
     return command_to_dict(cmd)
 
 
-def get_device_by_token(db: Session, token: str) -> Optional[KudosDevice]:
+def get_device_by_token(db: Session, token: str) -> KudosDevice | None:
     from app.core.device_storage import get_device_by_token as _lookup
 
     return _lookup(db, token)
@@ -387,6 +382,7 @@ def get_device_by_token(db: Session, token: str) -> Optional[KudosDevice]:
 # ──────────────────────────────────────────────
 # ONLINE EXECUTOR (jailed workspace)
 # ──────────────────────────────────────────────
+
 
 def _workspace_for(db: Session, session: KudosTerminalSession) -> str:
     workspace = session.workspace or os.path.join(WORKSPACE_ROOT, f"session-{session.id}")
@@ -397,7 +393,7 @@ def _workspace_for(db: Session, session: KudosTerminalSession) -> str:
     return workspace
 
 
-def _is_denied(command: str, language: str) -> Optional[str]:
+def _is_denied(command: str, language: str) -> str | None:
     if language:
         return None
     match = _DENY_RE.search(command)
@@ -462,6 +458,7 @@ def execute_online(db: Session, cmd: KudosTerminalCommand) -> dict:
             text=True,
             timeout=ONLINE_TIMEOUT_SECONDS,
             preexec_fn=_limit_resources,
+            check=False,
         )
         output = (result.stdout or "") + (result.stderr or "")
         return _finish(db, cmd, exit_code=result.returncode, output=output)
@@ -523,8 +520,11 @@ async def run_agent_round(db: Session, session_id: int, task: str, admin_user_id
         "You are KUDOS's terminal agent, working in a session opened on the "
         "user's device or a jailed online workspace. Plan the next steps to "
         f"accomplish the task. The session is on: {session.kind} ("
-        + ("device: commands run on the user's own hardware" if session.kind == "device"
-           else "online: server workspace, output capped at 64KB")
+        + (
+            "device: commands run on the user's own hardware"
+            if session.kind == "device"
+            else "online: server workspace, output capped at 64KB"
+        )
         + "). Reply with ONLY JSON: "
         '{"steps": [{"command": "bash command or code", "language": "python3"|"node"|"bash"|"", '
         '"note": "why this step"}], "done": false, "summary": ""} '
@@ -532,10 +532,12 @@ async def run_agent_round(db: Session, session_id: int, task: str, admin_user_id
         "sudo or destructive commands — they are blocked. Max 4 steps."
     )
     user_prompt = f"TASK: {task}\n\nTRANSCRIPT SO FAR:\n"
-    user_prompt += "\n".join(
-        f"$ {c['command'][:300]}\n[{c['status']}] exit={c['exit_code']} {c['output'][:400]}"
-        for c in history[-10:]
-    ) or "(empty session)"
+    user_prompt += (
+        "\n".join(
+            f"$ {c['command'][:300]}\n[{c['status']}] exit={c['exit_code']} {c['output'][:400]}" for c in history[-10:]
+        )
+        or "(empty session)"
+    )
 
     try:
         result = await query_best_llm(user_prompt, system_prompt)
@@ -556,8 +558,13 @@ async def run_agent_round(db: Session, session_id: int, task: str, admin_user_id
         if language not in LANGUAGES:
             language = ""
         cmd = enqueue_command(
-            db, session_id, session.user_id, command,
-            source="agent", language=language, admin=True,
+            db,
+            session_id,
+            session.user_id,
+            command,
+            source="agent",
+            language=language,
+            admin=True,
         )
         (pending if cmd.status == "pending_approval" else queued).append(command_to_dict(cmd))
 

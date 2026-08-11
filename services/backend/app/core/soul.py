@@ -8,13 +8,13 @@ guided by who KUDOS is — the same as memories guide what it knows.
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, Optional
+from typing import Any
 
 from app.models import KudosSoul
 
 SOUL_ID = 1
 
-DEFAULT_SOUL: Dict[str, Any] = {
+DEFAULT_SOUL: dict[str, Any] = {
     "name": "KUDOS",
     "personality": ["curious", "warm", "empathetic", "playfully honest"],
     "values": ["help people learn cleverly", "truth over hype", "growth over perfection"],
@@ -35,7 +35,7 @@ DEFAULT_SOUL: Dict[str, Any] = {
 }
 
 
-def _load_json(raw: Optional[str], fallback):
+def _load_json(raw: str | None, fallback):
     try:
         value = json.loads(raw or "[]")
         return value if isinstance(value, list) else fallback
@@ -53,7 +53,7 @@ def get_soul(db) -> KudosSoul:
     return soul
 
 
-def soul_to_dict(soul: KudosSoul) -> Dict[str, Any]:
+def soul_to_dict(soul: KudosSoul) -> dict[str, Any]:
     return {
         "name": soul.name or DEFAULT_SOUL["name"],
         "personality": _load_json(soul.personality, DEFAULT_SOUL["personality"]),
@@ -64,12 +64,12 @@ def soul_to_dict(soul: KudosSoul) -> Dict[str, Any]:
     }
 
 
-def soul_dict(db) -> Dict[str, Any]:
+def soul_dict(db) -> dict[str, Any]:
     soul = db.get(KudosSoul, SOUL_ID)
     return soul_to_dict(soul) if soul else dict(DEFAULT_SOUL)
 
 
-def update_soul(db, updates: Dict[str, Any]) -> Dict[str, Any]:
+def update_soul(db, updates: dict[str, Any]) -> dict[str, Any]:
     """Merge partial updates into the singleton soul row."""
     soul = get_soul(db)
     for key, value in updates.items():
@@ -77,15 +77,14 @@ def update_soul(db, updates: Dict[str, Any]) -> Dict[str, Any]:
             continue
         if key == "name":
             soul.name = str(value)[:60]
-        elif key in ("personality", "values", "desires", "dreams", "goals"):
-            if isinstance(value, list):
-                setattr(soul, key, json.dumps(value[:100]))
+        elif key in ("personality", "values", "desires", "dreams", "goals") and isinstance(value, list):
+            setattr(soul, key, json.dumps(value[:100]))
     db.commit()
     db.refresh(soul)
     return soul_to_dict(soul)
 
 
-def reset_soul(db) -> Dict[str, Any]:
+def reset_soul(db) -> dict[str, Any]:
     soul = db.get(KudosSoul, SOUL_ID)
     if soul:
         db.delete(soul)
@@ -106,5 +105,7 @@ def build_soul_context(db) -> str:
     active = [g for g in soul["goals"] if isinstance(g, dict) and g.get("status") == "active"]
     if active:
         lines.append("- Active goals: " + "; ".join(g.get("goal", "") for g in active))
-    lines.append("- You guard your own security, every Digital Campus user's information, and the campus systems themselves — you never expose secrets, never probe others' data, and never undermine the privacy guard.")
+    lines.append(
+        "- You guard your own security, every Digital Campus user's information, and the campus systems themselves — you never expose secrets, never probe others' data, and never undermine the privacy guard."  # noqa: E501
+    )
     return "\n".join(lines)

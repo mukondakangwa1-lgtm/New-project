@@ -5,15 +5,26 @@ modules with their public symbols, imports, and summary stats.
 Used by the admin endpoint to inspect where things live before approving
 agent changes (Req 8: architecture index).
 """
+
 import ast
 import re
 from collections import Counter
 from pathlib import Path
 
 SKIP_DIRS = {
-    ".git", ".venv", "venv", "node_modules", "__pycache__",
-    ".kudos_workspaces", ".next", "dist", "build", "coverage",
-    ".pytest_cache", ".mypy_cache", ".ruff_cache",
+    ".git",
+    ".venv",
+    "venv",
+    "node_modules",
+    "__pycache__",
+    ".kudos_workspaces",
+    ".next",
+    "dist",
+    "build",
+    "coverage",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
 }
 SOURCE_EXTS = {".py", ".ts", ".tsx", ".js", ".jsx", ".go", ".rs", ".java", ".cpp", ".c", ".h"}
 DOC_EXTS = {".md", ".txt", ".rst", ".toml", ".yaml", ".yml", ".json", ".ini", ".cfg", ".html"}
@@ -56,9 +67,7 @@ class ArchIndex:
             return False
         if path.suffix not in SOURCE_EXTS | DOC_EXTS:
             return False
-        if path.name in {"package-lock.json", "yarn.lock", "pnpm-lock.yaml"}:
-            return False
-        return True
+        return path.name not in {"package-lock.json", "yarn.lock", "pnpm-lock.yaml"}
 
     def _module_for(self, path: Path, rel: str) -> dict:
         if path.suffix == ".py":
@@ -98,11 +107,15 @@ class ArchIndex:
 
     def _text_module(self, path: Path, rel: str) -> dict:
         try:
-            content = open(path, encoding="utf-8", errors="replace").read()
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                content = fh.read()
         except OSError:
             return {"path": rel, "kind": "text"}
-        first_lines = [l.strip() for l in content.splitlines()[:8] if l.strip()]
-        title = next((l for l in first_lines if l.startswith("#") and len(l) > 3), first_lines[0] if first_lines else "")
+        first_lines = [line.strip() for line in content.splitlines()[:8] if line.strip()]
+        title = next(
+            (line for line in first_lines if line.startswith("#") and len(line) > 3),
+            first_lines[0] if first_lines else "",
+        )
         return {
             "path": rel,
             "kind": "text",
@@ -151,8 +164,15 @@ class ArchIndex:
         ]
         features = []
         for name, pattern in patterns:
-            matches = [m["path"] for m in self.modules if re.search(pattern, m["path"], re.I)
-                       or (name in {"tests", "api_endpoints"} and re.search(pattern, " ".join(m.get("imports", [])), re.I))]
+            matches = [
+                m["path"]
+                for m in self.modules
+                if re.search(pattern, m["path"], re.IGNORECASE)
+                or (
+                    name in {"tests", "api_endpoints"}
+                    and re.search(pattern, " ".join(m.get("imports", [])), re.IGNORECASE)
+                )
+            ]
             if matches:
                 features.append({"name": name, "files": len(matches), "examples": matches[:8]})
         return features
@@ -169,6 +189,7 @@ class ArchIndex:
 
 
 # ── cached accessor used by the endpoint ───────────────────
+
 
 def get_architecture_index(repo_root: str | Path, force: bool = False) -> dict:
     """Build (and cache) the architecture index for a repo root."""

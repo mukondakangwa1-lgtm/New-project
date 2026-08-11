@@ -2,15 +2,16 @@
 Digital Campus - KUDOS Auto-Learner API
 Automated learning from all sources.
 """
+
 from fastapi import APIRouter, Depends
 
-from app.core.deps import require_admin
 from app.core.auto_learner import (
     get_auto_learner_status,
     start_auto_learner,
     stop_auto_learner,
     trigger_learning_cycle,
 )
+from app.core.deps import require_admin
 from app.models import User
 
 router = APIRouter()

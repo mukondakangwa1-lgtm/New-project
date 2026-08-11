@@ -97,10 +97,14 @@ def update_device_endpoint(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    device = db.query(KudosDevice).filter(
-        KudosDevice.id == device_id,
-        KudosDevice.user_id == current_user.id,
-    ).first()
+    device = (
+        db.query(KudosDevice)
+        .filter(
+            KudosDevice.id == device_id,
+            KudosDevice.user_id == current_user.id,
+        )
+        .first()
+    )
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
     if body.name is not None:
@@ -128,10 +132,14 @@ def delete_device_endpoint(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    device = db.query(KudosDevice).filter(
-        KudosDevice.id == device_id,
-        KudosDevice.user_id == current_user.id,
-    ).first()
+    device = (
+        db.query(KudosDevice)
+        .filter(
+            KudosDevice.id == device_id,
+            KudosDevice.user_id == current_user.id,
+        )
+        .first()
+    )
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
     released = retire_device(db, device)

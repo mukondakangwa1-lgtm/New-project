@@ -18,9 +18,10 @@ Satellite links are bandwidth-constrained (Android NET_CAPABILITY
 NOT_BANDWIDTH_CONSTRAINED is absent), so KUDOS adapts: answers from the
 offline brain, concise replies, deferred media uploads, compressed audio.
 """
+
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -42,11 +43,11 @@ _VALID_TRANSPORTS = {"wifi", "cellular", "satellite", "ethernet", "unknown"}
 
 # How KUDOS plays a task on each link tier: the data strategy.
 _STRATEGY = {
-    "chat":      {"satellite": "text-priority", "cellular": "normal", "wifi": "normal", "ethernet": "normal"},
-    "voice":     {"satellite": "compressed-opus", "cellular": "normal", "wifi": "normal", "ethernet": "normal"},
-    "media":     {"satellite": "defer", "cellular": "normal", "wifi": "normal", "ethernet": "normal"},
-    "video":     {"satellite": "defer", "cellular": "slow", "wifi": "normal", "ethernet": "normal"},
-    "sync":      {"satellite": "defer", "cellular": "chunked", "wifi": "normal", "ethernet": "normal"},
+    "chat": {"satellite": "text-priority", "cellular": "normal", "wifi": "normal", "ethernet": "normal"},
+    "voice": {"satellite": "compressed-opus", "cellular": "normal", "wifi": "normal", "ethernet": "normal"},
+    "media": {"satellite": "defer", "cellular": "normal", "wifi": "normal", "ethernet": "normal"},
+    "video": {"satellite": "defer", "cellular": "slow", "wifi": "normal", "ethernet": "normal"},
+    "sync": {"satellite": "defer", "cellular": "chunked", "wifi": "normal", "ethernet": "normal"},
     "emergency": {"satellite": "always", "cellular": "always", "wifi": "always", "ethernet": "always"},
 }
 
@@ -61,7 +62,7 @@ def tier_label(tier: str) -> str:
 
 
 def _primary_of(payload: dict) -> str:
-    t = ((payload.get("primary_transport") or payload.get("primary") or "unknown")).lower().strip()
+    t = (payload.get("primary_transport") or payload.get("primary") or "unknown").lower().strip()
     return t if t in _VALID_TRANSPORTS else "unknown"
 
 
@@ -103,9 +104,7 @@ def choose_link(db: Session, device_id: int, requested_mode: str = "") -> dict:
     primary = _primary_of(vars(state) if state else {})
 
     if mode == "satellite":
-        if state and (state.satellite or state.primary_transport == "satellite"):
-            chosen = "satellite"
-        elif "satellite" in transports:
+        if (state and (state.satellite or state.primary_transport == "satellite")) or "satellite" in transports:
             chosen = "satellite"
         elif not transports:
             chosen = "unknown"
@@ -113,7 +112,11 @@ def choose_link(db: Session, device_id: int, requested_mode: str = "") -> dict:
             chosen = primary
     elif mode == "terrestrial":
         terrestrial = [t for t in transports if t in ("wifi", "cellular", "ethernet")]
-        chosen = max(terrestrial, key=rank_transport) if terrestrial else ("satellite" if state and state.satellite else "unknown")
+        chosen = (
+            max(terrestrial, key=rank_transport)
+            if terrestrial
+            else ("satellite" if state and state.satellite else "unknown")
+        )
         if chosen == "satellite":
             chosen = "satellite"
     else:  # auto
@@ -138,7 +141,7 @@ def choose_link(db: Session, device_id: int, requested_mode: str = "") -> dict:
 
 
 def strategy_for(link: str, task: str = "chat") -> str:
-    return (_STRATEGY.get(task, _STRATEGY["chat"]).get(link, "normal"))
+    return _STRATEGY.get(task, _STRATEGY["chat"]).get(link, "normal")
 
 
 def record_state(
@@ -169,7 +172,7 @@ def record_state(
     except (TypeError, ValueError):
         rtt_ms = 0.0
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     state = KudosNetworkState(
         device_id=device.id,
         user_id=user_id or device.user_id,
@@ -207,7 +210,7 @@ def set_mode(db: Session, device: KudosDevice, mode: str, reason: str = "") -> d
         db.add(setting)
     setting.mode = mode
     setting.reason = (reason or "")[:200]
-    setting.updated_at = datetime.now(timezone.utc)
+    setting.updated_at = datetime.now(UTC)
     db.commit()
     choice = choose_link(db, device.id)
     choice["io"] = True
@@ -225,26 +228,30 @@ def status_for_user(db: Session, user_id: int) -> dict:
             .first()
         )
         setting = db.query(KudosNetworkSetting).filter(KudosNetworkSetting.device_id == d.id).first()
-        out.append({
-            "device_id": d.id,
-            "device_name": d.name,
-            "platform": d.platform,
-            "status": d.status,
-            "mode": (setting.mode if setting else "auto"),
-            "latest": {
-                "primary_transport": latest.primary_transport if latest else "unknown",
-                "transports": latest.transports if latest else "",
-                "signal_dbm": latest.signal_dbm,
-                "metered": latest.metered,
-                "satellite": latest.satellite,
-                "satellite_backhaul": latest.satellite_backhaul,
-                "bandwidth_kbps": latest.bandwidth_kbps,
-                "rtt_ms": latest.rtt_ms,
-                "provider": latest.provider,
-                "reported_at": latest.reported_at.isoformat() if latest and latest.reported_at else None,
-            } if latest else None,
-            "choice": choose_link(db, d.id),
-        })
+        out.append(
+            {
+                "device_id": d.id,
+                "device_name": d.name,
+                "platform": d.platform,
+                "status": d.status,
+                "mode": (setting.mode if setting else "auto"),
+                "latest": {
+                    "primary_transport": latest.primary_transport if latest else "unknown",
+                    "transports": latest.transports if latest else "",
+                    "signal_dbm": latest.signal_dbm,
+                    "metered": latest.metered,
+                    "satellite": latest.satellite,
+                    "satellite_backhaul": latest.satellite_backhaul,
+                    "bandwidth_kbps": latest.bandwidth_kbps,
+                    "rtt_ms": latest.rtt_ms,
+                    "provider": latest.provider,
+                    "reported_at": latest.reported_at.isoformat() if latest and latest.reported_at else None,
+                }
+                if latest
+                else None,
+                "choice": choose_link(db, d.id),
+            }
+        )
     return {"devices": out}
 
 
@@ -262,9 +269,7 @@ def links_summary(db: Session) -> dict:
     by_transport = {t: {"count": c, "last_reported": ts.isoformat() if ts else None} for t, c, ts in rows}
     device_count = db.query(func.count(KudosDevice.id)).filter(KudosDevice.status == "online").scalar() or 0
     satellite_devices = (
-        db.query(func.count(KudosNetworkState.id))
-        .filter(KudosNetworkState.satellite.is_(True))
-        .scalar() or 0
+        db.query(func.count(KudosNetworkState.id)).filter(KudosNetworkState.satellite.is_(True)).scalar() or 0
     )
     return {
         "device_count": device_count,
@@ -297,7 +302,9 @@ def network_note(db: Session, user: User) -> str:
 def probe_rtt(host: str = "1.1.1.1", timeout_s: float = 4.0) -> float | None:
     """Optional live RTT check KUDOS can run against any host (honest measure)."""
     import time
+
     import httpx
+
     try:
         t0 = time.perf_counter()
         with httpx.Client(timeout=timeout_s) as c:

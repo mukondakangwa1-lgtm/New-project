@@ -12,6 +12,7 @@ Endpoints:
   POST /network/mode    — set the switch mode (auto / terrestrial / satellite)
   POST /network/probe   — live RTT probe to any host (honest measurement)
 """
+
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -75,10 +76,7 @@ def network_links(
     """The aggregate connectivity world KUDOS sees across its devices."""
     return {
         "mesh": network_mesh.links_summary(db),
-        "tiers": {
-            t: network_mesh.tier_label(t)
-            for t in ("ethernet", "wifi", "cellular", "satellite", "unknown")
-        },
+        "tiers": {t: network_mesh.tier_label(t) for t in ("ethernet", "wifi", "cellular", "satellite", "unknown")},
     }
 
 
@@ -135,6 +133,5 @@ def network_probe(
     """Live RTT probe KUDOS runs to measure a link honestly."""
     rtt = network_mesh.probe_rtt(host)
     if rtt is None:
-        return {"measured": False, "host": host, "rtt_ms": None,
-                "detail": "unreachable — switch link or try again"}
+        return {"measured": False, "host": host, "rtt_ms": None, "detail": "unreachable — switch link or try again"}
     return {"measured": True, "host": host, "rtt_ms": rtt, "tier_hint": "satellite" if rtt > 60 else "terrestrial"}

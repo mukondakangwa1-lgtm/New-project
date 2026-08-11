@@ -2,6 +2,7 @@
 KUDOS Deployment Engine — Deploy to Render, Cloudflare, Vercel, Railway, Fly.io
 KUDOS can help the superadmin take the app live and generate public links.
 """
+
 import os
 import subprocess
 
@@ -203,12 +204,17 @@ def create_env_file(vars_dict: dict) -> dict:
 # GIT OPERATIONS
 # ──────────────────────────────────────────────
 
+
 def _run_git(args: list[str]) -> tuple[int, str]:
     """Run a git command."""
     try:
         result = subprocess.run(
-            ["git"] + args, cwd=REPO_PATH,
-            capture_output=True, text=True, timeout=30,
+            ["git", *args],
+            cwd=REPO_PATH,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
         )
         return result.returncode, result.stdout + result.stderr
     except Exception as e:
@@ -271,6 +277,7 @@ def git_pull(branch: str = "") -> dict:
 # ──────────────────────────────────────────────
 # DEPLOYMENT GENERATION
 # ──────────────────────────────────────────────
+
 
 def generate_render_yaml() -> str:
     """Generate render.yaml for Render deployment."""

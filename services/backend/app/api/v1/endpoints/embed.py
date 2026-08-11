@@ -2,19 +2,28 @@
 Digital Campus - Embed & Sandbox API
 Embeddable widgets for any website + KUDOS sandbox for testing.
 """
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from typing import Optional
 
 from app.core.deps import require_admin
 from app.core.embed_engine import (
-    generate_embed_code, register_embed, list_embeds, get_embed_types,
     EMBED_TYPES,
+    generate_embed_code,
+    get_embed_types,
+    list_embeds,
+    register_embed,
 )
 from app.core.sandbox import (
-    create_proposal, list_proposals, get_proposal, test_proposal,
-    approve_proposal, reject_proposal, deploy_proposal,
-    get_sandbox_status, get_sandbox_log,
+    approve_proposal,
+    create_proposal,
+    deploy_proposal,
+    get_proposal,
+    get_sandbox_log,
+    get_sandbox_status,
+    list_proposals,
+    reject_proposal,
+    test_proposal,
 )
 from app.models import User
 
@@ -24,6 +33,7 @@ router = APIRouter()
 # ──────────────────────────────────────────────
 # EMBED ENDPOINTS
 # ──────────────────────────────────────────────
+
 
 @router.get("/embed/types")
 def embed_types():
@@ -79,13 +89,14 @@ def get_widget_page(embed_type: str, base_url: str = ""):
         "type": embed_type,
         "name": EMBED_TYPES[embed_type]["name"],
         "url": f"{base_url}/{embed_type.replace('_', '/')}",
-        "iframe_code": f'<iframe src="{base_url}/{embed_type.replace("_", "/")}" width="100%" height="600" frameborder="0"></iframe>',
+        "iframe_code": f'<iframe src="{base_url}/{embed_type.replace("_", "/")}" width="100%" height="600" frameborder="0"></iframe>',  # noqa: E501
     }
 
 
 # ──────────────────────────────────────────────
 # SANDBOX ENDPOINTS
 # ──────────────────────────────────────────────
+
 
 class ProposalCreate(BaseModel):
     title: str
@@ -108,7 +119,7 @@ def propose_change(body: ProposalCreate, admin: User = Depends(require_admin)):
 
 
 @router.get("/sandbox/proposals")
-def get_proposals(status: Optional[str] = None, admin: User = Depends(require_admin)):
+def get_proposals(status: str | None = None, admin: User = Depends(require_admin)):
     """List all proposals."""
     return {"proposals": list_proposals(status)}
 

@@ -2,13 +2,13 @@
 KUDOS Device Analyzer — Analyze connecting devices, learn, and protect
 Fingerprints devices, monitors connections, learns patterns, blocks threats.
 """
+
 import hashlib
 import os
 import platform
 import socket
 import subprocess
-from datetime import datetime, timezone
-
+from datetime import UTC, datetime
 
 # ──────────────────────────────────────────────
 # DEVICE REGISTRY
@@ -22,12 +22,14 @@ _device_fingerprints: dict[str, str] = {}
 
 
 def _log(category: str, message: str, severity: str = "info"):
-    _connection_log.append({
-        "category": category,
-        "message": message,
-        "severity": severity,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    })
+    _connection_log.append(
+        {
+            "category": category,
+            "message": message,
+            "severity": severity,
+            "timestamp": datetime.now(UTC).isoformat(),
+        }
+    )
     if len(_connection_log) > 1000:
         _connection_log[:] = _connection_log[-500:]
 
@@ -35,6 +37,7 @@ def _log(category: str, message: str, severity: str = "info"):
 # ──────────────────────────────────────────────
 # DEVICE FINGERPRINTING
 # ──────────────────────────────────────────────
+
 
 def fingerprint_request(request_data: dict) -> dict:
     """Create a fingerprint from an incoming request."""
@@ -51,8 +54,8 @@ def fingerprint_request(request_data: dict) -> dict:
         "ip": request_data.get("ip", "unknown"),
         "user_agent": request_data.get("user_agent", "unknown"),
         "accept_language": request_data.get("accept_language", "unknown"),
-        "first_seen": datetime.now(timezone.utc).isoformat(),
-        "last_seen": datetime.now(timezone.utc).isoformat(),
+        "first_seen": datetime.now(UTC).isoformat(),
+        "last_seen": datetime.now(UTC).isoformat(),
         "request_count": 1,
         "pages_visited": [],
         "is_bot": _detect_bot(request_data.get("user_agent", "")),
@@ -63,7 +66,7 @@ def fingerprint_request(request_data: dict) -> dict:
 
     if fingerprint in _connected_devices:
         existing = _connected_devices[fingerprint]
-        existing["last_seen"] = datetime.now(timezone.utc).isoformat()
+        existing["last_seen"] = datetime.now(UTC).isoformat()
         existing["request_count"] += 1
         return existing
 
@@ -119,6 +122,7 @@ def _detect_browser(user_agent: str) -> str:
 # NETWORK ANALYSIS
 # ──────────────────────────────────────────────
 
+
 def get_system_info() -> dict:
     """Get information about the system KUDOS is running on."""
     info = {
@@ -138,6 +142,7 @@ def get_system_info() -> dict:
 
     try:
         import shutil
+
         disk = shutil.disk_usage("/")
         info["disk_total_gb"] = round(disk.total / (1024**3), 1)
         info["disk_free_gb"] = round(disk.free / (1024**3), 1)
@@ -163,14 +168,14 @@ def get_network_info() -> dict:
     info = {"interfaces": [], "connections": []}
 
     try:
-        result = subprocess.run(["ip", "addr"], capture_output=True, text=True, timeout=5)
+        result = subprocess.run(["ip", "addr"], capture_output=True, text=True, timeout=5, check=False)
         if result.returncode == 0:
             info["interfaces_raw"] = result.stdout[:2000]
     except Exception:
         pass
 
     try:
-        result = subprocess.run(["ss", "-tuln"], capture_output=True, text=True, timeout=5)
+        result = subprocess.run(["ss", "-tuln"], capture_output=True, text=True, timeout=5, check=False)
         if result.returncode == 0:
             info["listening_ports"] = result.stdout[:2000]
     except Exception:
@@ -179,7 +184,7 @@ def get_network_info() -> dict:
     return info
 
 
-def scan_open_ports(host: str = "127.0.0.1", ports: list[int] = None) -> list[dict]:
+def scan_open_ports(host: str = "127.0.0.1", ports: list[int] | None = None) -> list[dict]:
     """Scan common ports on a host."""
     if ports is None:
         ports = [22, 80, 443, 3000, 3306, 5432, 8000, 8080, 8443]
@@ -203,10 +208,19 @@ def scan_open_ports(host: str = "127.0.0.1", ports: list[int] = None) -> list[di
 def _guess_service(port: int) -> str:
     """Guess service name from port number."""
     services = {
-        22: "SSH", 80: "HTTP", 443: "HTTPS", 3000: "Dev Server",
-        3306: "MySQL", 5432: "PostgreSQL", 6379: "Redis",
-        8000: "Python Server", 8080: "HTTP Alt", 8443: "HTTPS Alt",
-        27017: "MongoDB", 5672: "RabbitMQ", 9200: "Elasticsearch",
+        22: "SSH",
+        80: "HTTP",
+        443: "HTTPS",
+        3000: "Dev Server",
+        3306: "MySQL",
+        5432: "PostgreSQL",
+        6379: "Redis",
+        8000: "Python Server",
+        8080: "HTTP Alt",
+        8443: "HTTPS Alt",
+        27017: "MongoDB",
+        5672: "RabbitMQ",
+        9200: "Elasticsearch",
     }
     return services.get(port, "Unknown")
 
@@ -214,6 +228,7 @@ def _guess_service(port: int) -> str:
 # ──────────────────────────────────────────────
 # THREAT DETECTION
 # ──────────────────────────────────────────────
+
 
 def analyze_threat(device: dict) -> str:
     """Analyze threat level of a device."""
@@ -261,6 +276,7 @@ def is_device_blocked(fingerprint: str) -> bool:
 # DEVICE REPORT
 # ──────────────────────────────────────────────
 
+
 def get_device_report() -> dict:
     """Generate a device connection report."""
     devices = list(_connected_devices.values())
@@ -280,7 +296,7 @@ def _is_active(device: dict) -> bool:
     """Check if device was active in last 30 minutes."""
     try:
         last = datetime.fromisoformat(device.get("last_seen", ""))
-        return (datetime.now(timezone.utc) - last).total_seconds() < 1800
+        return (datetime.now(UTC) - last).total_seconds() < 1800
     except Exception:
         return False
 

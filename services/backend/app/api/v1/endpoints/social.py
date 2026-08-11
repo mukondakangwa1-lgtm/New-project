@@ -2,9 +2,9 @@
 Digital Campus - Social Hub Endpoints
 External storage linking, public posts, preview cache, comments, reactions.
 """
+
 from collections import OrderedDict
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
@@ -36,7 +36,7 @@ _PREVIEW_CACHE_MAX = 500
 _preview_cache: OrderedDict = OrderedDict()  # post_id → cached_preview_data
 
 
-def _get_cached_preview(post_id: int) -> Optional[dict]:
+def _get_cached_preview(post_id: int) -> dict | None:
     if post_id in _preview_cache:
         _preview_cache.move_to_end(post_id)
         return _preview_cache[post_id]
@@ -61,7 +61,7 @@ def _build_preview_data(post: Post) -> dict:
         "storage_type": post.storage_type,
         "content_type": post.content_type,
         "thumbnail_url": post.thumbnail_url,
-        "cached_at": datetime.now(timezone.utc).isoformat(),
+        "cached_at": datetime.now(UTC).isoformat(),
     }
 
 
@@ -74,16 +74,12 @@ def _build_preview_data(post: Post) -> dict:
 def public_feed(
     skip: int = 0,
     limit: int = 20,
-    tag: Optional[str] = None,
-    storage_type: Optional[str] = None,
+    tag: str | None = None,
+    storage_type: str | None = None,
     db: Session = Depends(get_db),
 ):
     """Public feed — all public posts (no auth required)."""
-    q = (
-        db.query(Post)
-        .options(joinedload(Post.user))
-        .filter(Post.is_public == True)
-    )
+    q = db.query(Post).options(joinedload(Post.user)).filter(Post.is_public)
     if tag:
         q = q.filter(Post.tags.contains(tag))
     if storage_type:
@@ -110,12 +106,7 @@ def my_posts(
     current_user: User = Depends(get_current_user),
 ):
     """Get current user's posts (including private)."""
-    return (
-        db.query(Post)
-        .filter(Post.user_id == current_user.id)
-        .order_by(Post.created_at.desc())
-        .all()
-    )
+    return db.query(Post).filter(Post.user_id == current_user.id).order_by(Post.created_at.desc()).all()
 
 
 @router.get("/{post_id}", response_model=PostWithAuthor)

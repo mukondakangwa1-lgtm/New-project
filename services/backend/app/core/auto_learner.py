@@ -3,13 +3,13 @@ KUDOS Auto-Learner — Autonomous learning engine
 Automatically learns from all sources: connectors, web, archive, social, search queries.
 Runs as a background process, self-improves continuously.
 """
+
 import asyncio
 import json
 import os
 import threading
 import time
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 import httpx
 
@@ -17,10 +17,10 @@ import httpx
 # AUTO-LEARNER STATE
 # ──────────────────────────────────────────────
 
-_auto_learner_thread: Optional[threading.Thread] = None
+_auto_learner_thread: threading.Thread | None = None
 _auto_learner_running = False
 _auto_learner_interval = 1800  # 30 minutes default
-_last_auto_learner_run: Optional[datetime] = None
+_last_auto_learner_run: datetime | None = None
 _auto_learner_log: list[dict] = []
 _cycle_active = False
 _auto_learner_stats = {
@@ -45,7 +45,7 @@ _LEARNER_STATE_FILE = os.path.join(_KUDOS_STATE_DIR, "auto_learner.json")
 
 def _load_state() -> dict:
     try:
-        with open(_LEARNER_STATE_FILE, "r") as fh:
+        with open(_LEARNER_STATE_FILE) as fh:
             return json.load(fh)
     except Exception:
         return {}
@@ -59,34 +59,70 @@ def _save_state(data: dict) -> None:
     except Exception:
         pass
 
+
 # Topics to auto-learn from various sources
 AUTO_LEARN_TOPICS = [
     # Technology
-    "artificial intelligence", "machine learning", "deep learning",
-    "web development", "cloud computing", "cybersecurity",
-    "blockchain", "quantum computing", "data science",
-    "python programming", "javascript", "react", "node.js",
-    "database design", "api design", "devops",
+    "artificial intelligence",
+    "machine learning",
+    "deep learning",
+    "web development",
+    "cloud computing",
+    "cybersecurity",
+    "blockchain",
+    "quantum computing",
+    "data science",
+    "python programming",
+    "javascript",
+    "react",
+    "node.js",
+    "database design",
+    "api design",
+    "devops",
     # Science
-    "physics", "chemistry", "biology", "mathematics",
-    "astronomy", "environmental science", "neuroscience",
+    "physics",
+    "chemistry",
+    "biology",
+    "mathematics",
+    "astronomy",
+    "environmental science",
+    "neuroscience",
     # Business
-    "entrepreneurship", "marketing", "finance",
-    "project management", "leadership", "innovation",
+    "entrepreneurship",
+    "marketing",
+    "finance",
+    "project management",
+    "leadership",
+    "innovation",
     # Life Skills
-    "study skills", "time management", "critical thinking",
-    "communication", "public speaking", "writing",
-    "health and wellness", "nutrition", "exercise",
+    "study skills",
+    "time management",
+    "critical thinking",
+    "communication",
+    "public speaking",
+    "writing",
+    "health and wellness",
+    "nutrition",
+    "exercise",
     # Current Affairs
-    "technology trends", "education reform", "climate change",
-    "space exploration", "renewable energy",
+    "technology trends",
+    "education reform",
+    "climate change",
+    "space exploration",
+    "renewable energy",
 ]
 
 # Popular subreddits for social learning
 AUTO_LEARN_SUBREDDITS = [
-    "todayilearned", "LifeProTips", "explainlikeimfive",
-    "science", "technology", "programming",
-    "AskReddit", "personalfinance", "GetMotivated",
+    "todayilearned",
+    "LifeProTips",
+    "explainlikeimfive",
+    "science",
+    "technology",
+    "programming",
+    "AskReddit",
+    "personalfinance",
+    "GetMotivated",
 ]
 
 # Websites to auto-crawl
@@ -99,8 +135,11 @@ AUTO_CRAWL_SITES = [
 
 # Archive.org popular collections
 ARCHIVE_COLLECTIONS = [
-    "opensource", "texts", "computersandtech",
-    "scienceandtechnology", "education",
+    "opensource",
+    "texts",
+    "computersandtech",
+    "scienceandtechnology",
+    "education",
 ]
 
 
@@ -111,7 +150,7 @@ def _log(action: str, details: str, items: int = 0):
         "action": action,
         "details": details,
         "items": items,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }
     _auto_learner_log.append(entry)
     if len(_auto_learner_log) > 200:
@@ -121,6 +160,7 @@ def _log(action: str, details: str, items: int = 0):
 # ──────────────────────────────────────────────
 # AUTO-LEARN CYCLE
 # ──────────────────────────────────────────────
+
 
 def _run_auto_learner():
     """Main auto-learner loop — runs continuously in background."""
@@ -163,7 +203,7 @@ def _run_auto_learner():
             # Phase 7: Learn social/emotional skills
             _learn_social_skills(db_session, admin)
 
-            _last_auto_learner_run = datetime.now(timezone.utc)
+            _last_auto_learner_run = datetime.now(UTC)
             _log("cycle_complete", f"Cycle complete. Total items learned: {_auto_learner_stats['total_items_learned']}")
 
             db_session.close()
@@ -180,28 +220,29 @@ def _run_auto_learner():
 def _get_db_session():
     """Get a database session."""
     from app.core.database import SessionLocal
+
     return SessionLocal()
 
 
 def _get_admin_user(db):
     """Get the admin user."""
     from app.models import User
-    return db.query(User).filter(User.is_admin == True).first()
+
+    return db.query(User).filter(User.is_admin).first()
 
 
 # ──────────────────────────────────────────────
 # LEARNING FUNCTIONS
 # ──────────────────────────────────────────────
 
+
 def _sync_all_connectors(db, admin):
     """Sync all approved connectors."""
-    from app.models import KudosConnector, KudosSyncLog
     import json as json_mod
 
-    connectors = db.query(KudosConnector).filter(
-        KudosConnector.is_approved == True,
-        KudosConnector.status != "paused"
-    ).all()
+    from app.models import KudosConnector, KudosSyncLog
+
+    connectors = db.query(KudosConnector).filter(KudosConnector.is_approved, KudosConnector.status != "paused").all()
 
     for conn in connectors:
         try:
@@ -209,14 +250,23 @@ def _sync_all_connectors(db, admin):
 
             # Import and run sync
             from app.api.v1.endpoints.connectors import (
-                _sync_github, _sync_gitlab, _sync_website,
-                _sync_api, _sync_rss, _sync_npm, _sync_pypi,
+                _sync_api,
+                _sync_github,
+                _sync_gitlab,
+                _sync_npm,
+                _sync_pypi,
+                _sync_rss,
+                _sync_website,
             )
 
             sync_fn = {
-                "github": _sync_github, "gitlab": _sync_gitlab,
-                "website": _sync_website, "api": _sync_api,
-                "rss": _sync_rss, "npm": _sync_npm, "pypi": _sync_pypi,
+                "github": _sync_github,
+                "gitlab": _sync_gitlab,
+                "website": _sync_website,
+                "api": _sync_api,
+                "rss": _sync_rss,
+                "npm": _sync_npm,
+                "pypi": _sync_pypi,
             }.get(conn.connector_type)
 
             if not sync_fn:
@@ -228,16 +278,21 @@ def _sync_all_connectors(db, admin):
             finally:
                 loop.close()
 
-            conn.last_synced_at = datetime.now(timezone.utc)
+            conn.last_synced_at = datetime.now(UTC)
             conn.items_learned += result["items_new"]
             conn.status = "active"
             conn.error_message = ""
 
-            db.add(KudosSyncLog(
-                connector_id=conn.id, action="auto-learn",
-                items_found=result["items_found"], items_new=result["items_new"],
-                items_updated=result["items_updated"], details=result["details"],
-            ))
+            db.add(
+                KudosSyncLog(
+                    connector_id=conn.id,
+                    action="auto-learn",
+                    items_found=result["items_found"],
+                    items_new=result["items_new"],
+                    items_updated=result["items_updated"],
+                    details=result["details"],
+                )
+            )
 
             _auto_learner_stats["connectors_synced"] += 1
             _auto_learner_stats["total_items_learned"] += result["items_new"]
@@ -253,26 +308,32 @@ def _sync_all_connectors(db, admin):
 
 def _learn_from_search(db, admin):
     """Learn from web searches on trending topics."""
-    from app.models import KudosWebKnowledge
-    from app.api.v1.endpoints.kudos import simple_summarize
-
     # Pick a few random topics each cycle
     import random
+
+    from app.api.v1.endpoints.kudos import simple_summarize
+    from app.models import KudosWebKnowledge
+
     topics = random.sample(AUTO_LEARN_TOPICS, min(3, len(AUTO_LEARN_TOPICS)))
 
     for topic in topics:
         try:
             # Check if we already know about this topic recently
-            existing = db.query(KudosWebKnowledge).filter(
-                KudosWebKnowledge.title.contains(topic.title()),
-                KudosWebKnowledge.is_approved == True,
-            ).first()
+            existing = (
+                db.query(KudosWebKnowledge)
+                .filter(
+                    KudosWebKnowledge.title.contains(topic.title()),
+                    KudosWebKnowledge.is_approved,
+                )
+                .first()
+            )
             if existing:
                 continue
 
             loop = asyncio.new_event_loop()
             try:
-                async def _search():
+
+                async def _search(topic=topic):
                     async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
                         res = await client.get(
                             "https://html.duckduckgo.com/html/",
@@ -280,12 +341,14 @@ def _learn_from_search(db, admin):
                             headers={"User-Agent": "Mozilla/5.0 (compatible; KUDOS/1.0)"},
                         )
                         from bs4 import BeautifulSoup
+
                         soup = BeautifulSoup(res.text, "html.parser")
                         links = soup.find_all("a", class_="result__a")
                         if links:
                             href = links[0].get("href", "")
                             if "uddg=" in href:
                                 import urllib.parse
+
                                 href = urllib.parse.parse_qs(urllib.parse.urlparse(href).query).get("uddg", [href])[0]
                             page = await client.get(href, timeout=8, follow_redirects=True)
                             if page.status_code == 200:
@@ -300,14 +363,16 @@ def _learn_from_search(db, admin):
                 loop.close()
 
             if text and len(text) > 200:
-                db.add(KudosWebKnowledge(
-                    url=f"auto-learn://search/{topic.replace(' ', '-')}",
-                    title=f"[Auto-Learn] {topic.title()}"[:255],
-                    content=text[:50000],
-                    summary=simple_summarize(text),
-                    is_approved=True,
-                    learned_by=admin.id,
-                ))
+                db.add(
+                    KudosWebKnowledge(
+                        url=f"auto-learn://search/{topic.replace(' ', '-')}",
+                        title=f"[Auto-Learn] {topic.title()}"[:255],
+                        content=text[:50000],
+                        summary=simple_summarize(text),
+                        is_approved=True,
+                        learned_by=admin.id,
+                    )
+                )
                 _auto_learner_stats["web_pages"] += 1
                 _auto_learner_stats["total_items_learned"] += 1
                 _log("search_learn", f"Learned about: {topic}", 1)
@@ -320,21 +385,29 @@ def _learn_from_search(db, admin):
 
 def _learn_from_wikipedia(db, admin):
     """Learn from Wikipedia featured content."""
-    from app.models import KudosWebKnowledge
-    from app.api.v1.endpoints.kudos import simple_summarize
-
     import random
+
+    from app.api.v1.endpoints.kudos import simple_summarize
+    from app.models import KudosWebKnowledge
+
     topics = random.sample(AUTO_LEARN_TOPICS, min(2, len(AUTO_LEARN_TOPICS)))
 
     for topic in topics:
         try:
             loop = asyncio.new_event_loop()
             try:
-                async def _wiki():
+
+                async def _wiki(topic=topic):
                     async with httpx.AsyncClient(timeout=10) as client:
                         res = await client.get(
                             "https://en.wikipedia.org/w/api.php",
-                            params={"action": "query", "list": "search", "srsearch": topic, "format": "json", "srlimit": 1},
+                            params={
+                                "action": "query",
+                                "list": "search",
+                                "srsearch": topic,
+                                "format": "json",
+                                "srlimit": 1,
+                            },
                         )
                         data = res.json()
                         results = data.get("query", {}).get("search", [])
@@ -342,7 +415,13 @@ def _learn_from_wikipedia(db, admin):
                             title = results[0]["title"]
                             article = await client.get(
                                 "https://en.wikipedia.org/w/api.php",
-                                params={"action": "query", "titles": title, "prop": "extracts", "explaintext": True, "format": "json"},
+                                params={
+                                    "action": "query",
+                                    "titles": title,
+                                    "prop": "extracts",
+                                    "explaintext": True,
+                                    "format": "json",
+                                },
                             )
                             pages = article.json().get("query", {}).get("pages", {})
                             for _, page in pages.items():
@@ -357,20 +436,20 @@ def _learn_from_wikipedia(db, admin):
 
             if title and extract:
                 # Check if already exists
-                existing = db.query(KudosWebKnowledge).filter(
-                    KudosWebKnowledge.title.contains(title)
-                ).first()
+                existing = db.query(KudosWebKnowledge).filter(KudosWebKnowledge.title.contains(title)).first()
                 if existing:
                     continue
 
-                db.add(KudosWebKnowledge(
-                    url=f"https://en.wikipedia.org/wiki/{title.replace(' ', '_')}",
-                    title=f"[Wikipedia] {title}",
-                    content=extract[:50000],
-                    summary=simple_summarize(extract),
-                    is_approved=True,
-                    learned_by=admin.id,
-                ))
+                db.add(
+                    KudosWebKnowledge(
+                        url=f"https://en.wikipedia.org/wiki/{title.replace(' ', '_')}",
+                        title=f"[Wikipedia] {title}",
+                        content=extract[:50000],
+                        summary=simple_summarize(extract),
+                        is_approved=True,
+                        learned_by=admin.id,
+                    )
+                )
                 _auto_learner_stats["total_items_learned"] += 1
                 _log("wikipedia", f"Learned: {title}", 1)
 
@@ -382,15 +461,17 @@ def _learn_from_wikipedia(db, admin):
 
 def _learn_from_reddit(db, admin):
     """Learn from popular Reddit posts."""
-    from app.models import KudosWebKnowledge
-    from app.api.v1.endpoints.kudos import simple_summarize
-
     import random
+
+    from app.api.v1.endpoints.kudos import simple_summarize
+    from app.models import KudosWebKnowledge
+
     subreddit = random.choice(AUTO_LEARN_SUBREDDITS)
 
     try:
         loop = asyncio.new_event_loop()
         try:
+
             async def _reddit():
                 async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
                     res = await client.get(
@@ -406,7 +487,13 @@ def _learn_from_reddit(db, admin):
                             title = d.get("title", "")
                             text = d.get("selftext", "")[:2000]
                             if title and len(title) > 10:
-                                items.append({"title": title, "content": f"{title}\n\n{text}", "url": f"https://reddit.com{d.get('permalink', '')}"})
+                                items.append(
+                                    {
+                                        "title": title,
+                                        "content": f"{title}\n\n{text}",
+                                        "url": f"https://reddit.com{d.get('permalink', '')}",
+                                    }
+                                )
                         return items
                     return []
 
@@ -415,20 +502,20 @@ def _learn_from_reddit(db, admin):
             loop.close()
 
         for item in items:
-            existing = db.query(KudosWebKnowledge).filter(
-                KudosWebKnowledge.title.contains(item["title"][:50])
-            ).first()
+            existing = db.query(KudosWebKnowledge).filter(KudosWebKnowledge.title.contains(item["title"][:50])).first()
             if existing:
                 continue
 
-            db.add(KudosWebKnowledge(
-                url=item["url"],
-                title=f"[Reddit r/{subreddit}] {item['title']}"[:255],
-                content=item["content"][:50000],
-                summary=simple_summarize(item["content"]),
-                is_approved=True,
-                learned_by=admin.id,
-            ))
+            db.add(
+                KudosWebKnowledge(
+                    url=item["url"],
+                    title=f"[Reddit r/{subreddit}] {item['title']}"[:255],
+                    content=item["content"][:50000],
+                    summary=simple_summarize(item["content"]),
+                    is_approved=True,
+                    learned_by=admin.id,
+                )
+            )
             _auto_learner_stats["social_items"] += 1
             _auto_learner_stats["total_items_learned"] += 1
 
@@ -441,20 +528,23 @@ def _learn_from_reddit(db, admin):
 
 def _learn_from_crawls(db, admin):
     """Crawl popular websites."""
-    from app.models import KudosWebKnowledge
-    from app.api.v1.endpoints.kudos import simple_summarize
-
     import random
+
+    from app.api.v1.endpoints.kudos import simple_summarize
+    from app.models import KudosWebKnowledge
+
     site = random.choice(AUTO_CRAWL_SITES)
 
     try:
         loop = asyncio.new_event_loop()
         try:
+
             async def _crawl():
                 async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
                     res = await client.get(site["url"], headers={"User-Agent": "Mozilla/5.0 (compatible; KUDOS/1.0)"})
                     if res.status_code == 200:
                         from bs4 import BeautifulSoup
+
                         soup = BeautifulSoup(res.text, "html.parser")
                         for tag in soup(["script", "style", "nav", "footer", "header"]):
                             tag.decompose()
@@ -468,14 +558,16 @@ def _learn_from_crawls(db, admin):
             loop.close()
 
         if text and len(text) > 500:
-            db.add(KudosWebKnowledge(
-                url=site["url"],
-                title=f"[Auto-Crawl] {site['name']}"[:255],
-                content=text,
-                summary=simple_summarize(text),
-                is_approved=True,
-                learned_by=admin.id,
-            ))
+            db.add(
+                KudosWebKnowledge(
+                    url=site["url"],
+                    title=f"[Auto-Crawl] {site['name']}"[:255],
+                    content=text,
+                    summary=simple_summarize(text),
+                    is_approved=True,
+                    learned_by=admin.id,
+                )
+            )
             _auto_learner_stats["web_pages"] += 1
             _auto_learner_stats["total_items_learned"] += 1
             _log("crawl", f"Crawled: {site['name']}", 1)
@@ -487,15 +579,17 @@ def _learn_from_crawls(db, admin):
 
 def _learn_from_archive(db, admin):
     """Learn from Internet Archive popular items."""
-    from app.models import KudosWebKnowledge
-    from app.api.v1.endpoints.kudos import simple_summarize
-
     import random
+
+    from app.api.v1.endpoints.kudos import simple_summarize
+    from app.models import KudosWebKnowledge
+
     topic = random.choice(AUTO_LEARN_TOPICS[:10])
 
     try:
         loop = asyncio.new_event_loop()
         try:
+
             async def _archive():
                 async with httpx.AsyncClient(timeout=15) as client:
                     res = await client.get(
@@ -517,12 +611,14 @@ def _learn_from_archive(db, admin):
                             desc = doc.get("description", "")
                             if isinstance(desc, list):
                                 desc = " ".join(desc)
-                            items.append({
-                                "identifier": identifier,
-                                "title": title,
-                                "content": f"{title}\n\n{desc}",
-                                "url": f"https://archive.org/details/{identifier}",
-                            })
+                            items.append(
+                                {
+                                    "identifier": identifier,
+                                    "title": title,
+                                    "content": f"{title}\n\n{desc}",
+                                    "url": f"https://archive.org/details/{identifier}",
+                                }
+                            )
                         return items
                     return []
 
@@ -531,20 +627,20 @@ def _learn_from_archive(db, admin):
             loop.close()
 
         for item in items:
-            existing = db.query(KudosWebKnowledge).filter(
-                KudosWebKnowledge.url == item["url"]
-            ).first()
+            existing = db.query(KudosWebKnowledge).filter(KudosWebKnowledge.url == item["url"]).first()
             if existing:
                 continue
 
-            db.add(KudosWebKnowledge(
-                url=item["url"],
-                title=f"[Archive] {item['title']}"[:255],
-                content=item["content"][:50000],
-                summary=simple_summarize(item["content"]),
-                is_approved=True,
-                learned_by=admin.id,
-            ))
+            db.add(
+                KudosWebKnowledge(
+                    url=item["url"],
+                    title=f"[Archive] {item['title']}"[:255],
+                    content=item["content"][:50000],
+                    summary=simple_summarize(item["content"]),
+                    is_approved=True,
+                    learned_by=admin.id,
+                )
+            )
             _auto_learner_stats["archive_items"] += 1
             _auto_learner_stats["total_items_learned"] += 1
 
@@ -557,10 +653,11 @@ def _learn_from_archive(db, admin):
 
 def _learn_social_skills(db, admin):
     """Learn social and emotional intelligence."""
-    from app.models import KudosWebKnowledge
-    from app.api.v1.endpoints.kudos import simple_summarize
-
     import random
+
+    from app.api.v1.endpoints.kudos import simple_summarize
+    from app.models import KudosWebKnowledge
+
     topics = [
         "how to have a good conversation",
         "active listening techniques",
@@ -574,14 +671,13 @@ def _learn_social_skills(db, admin):
     topic = random.choice(topics)
 
     try:
-        existing = db.query(KudosWebKnowledge).filter(
-            KudosWebKnowledge.title.contains(topic.title()[:30])
-        ).first()
+        existing = db.query(KudosWebKnowledge).filter(KudosWebKnowledge.title.contains(topic.title()[:30])).first()
         if existing:
             return
 
         loop = asyncio.new_event_loop()
         try:
+
             async def _social():
                 async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
                     res = await client.get(
@@ -590,12 +686,14 @@ def _learn_social_skills(db, admin):
                         headers={"User-Agent": "Mozilla/5.0 (compatible; KUDOS/1.0)"},
                     )
                     from bs4 import BeautifulSoup
+
                     soup = BeautifulSoup(res.text, "html.parser")
                     links = soup.find_all("a", class_="result__a")
                     if links:
                         href = links[0].get("href", "")
                         if "uddg=" in href:
                             import urllib.parse
+
                             href = urllib.parse.parse_qs(urllib.parse.urlparse(href).query).get("uddg", [href])[0]
                         page = await client.get(href, timeout=8, follow_redirects=True)
                         if page.status_code == 200:
@@ -610,14 +708,16 @@ def _learn_social_skills(db, admin):
             loop.close()
 
         if text and len(text) > 200:
-            db.add(KudosWebKnowledge(
-                url=f"auto-learn://social/{topic.replace(' ', '-')}",
-                title=f"[Social Skills] {topic.title()}"[:255],
-                content=text[:50000],
-                summary=simple_summarize(text),
-                is_approved=True,
-                learned_by=admin.id,
-            ))
+            db.add(
+                KudosWebKnowledge(
+                    url=f"auto-learn://social/{topic.replace(' ', '-')}",
+                    title=f"[Social Skills] {topic.title()}"[:255],
+                    content=text[:50000],
+                    summary=simple_summarize(text),
+                    is_approved=True,
+                    learned_by=admin.id,
+                )
+            )
             _auto_learner_stats["social_items"] += 1
             _auto_learner_stats["total_items_learned"] += 1
             _log("social", f"Learned: {topic}", 1)
@@ -630,6 +730,7 @@ def _learn_social_skills(db, admin):
 # ──────────────────────────────────────────────
 # PUBLIC API
 # ──────────────────────────────────────────────
+
 
 def get_auto_learner_status() -> dict:
     """Get auto-learner status and stats."""
@@ -697,8 +798,7 @@ def start_learning_on_visit() -> dict:
     interval = settings.KUDOS_LEARN_INTERVAL_MINUTES
     result = start_auto_learner(interval)
     result["message"] = (
-        f"KUDOS has started continuous learning — improving every {interval} "
-        "minutes, forever (until an admin stops it)"
+        f"KUDOS has started continuous learning — improving every {interval} minutes, forever (until an admin stops it)"
     )
     return result
 

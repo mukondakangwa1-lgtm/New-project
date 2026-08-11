@@ -1,15 +1,15 @@
 """
 Digital Campus - Study Groups & Forums
 """
+
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session, joinedload
 from pydantic import BaseModel
-from typing import Optional
+from sqlalchemy.orm import Session, joinedload
 
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models import User
-from app.models_extended import StudyGroup, StudyGroupMember, ForumThread, ForumReply
+from app.models_extended import ForumReply, ForumThread, StudyGroup, StudyGroupMember
 
 router = APIRouter()
 
@@ -17,7 +17,7 @@ router = APIRouter()
 class GroupCreate(BaseModel):
     name: str
     description: str = ""
-    course_id: Optional[int] = None
+    course_id: int | None = None
     max_members: int = 20
     is_public: bool = True
 
@@ -34,8 +34,8 @@ class ReplyCreate(BaseModel):
 
 # Study Groups
 @router.get("/groups")
-def list_groups(course_id: Optional[int] = None, db: Session = Depends(get_db)):
-    q = db.query(StudyGroup).filter(StudyGroup.is_public == True)
+def list_groups(course_id: int | None = None, db: Session = Depends(get_db)):
+    q = db.query(StudyGroup).filter(StudyGroup.is_public)
     if course_id:
         q = q.filter(StudyGroup.course_id == course_id)
     return q.order_by(StudyGroup.created_at.desc()).all()
@@ -57,7 +57,11 @@ def join_group(group_id: int, db: Session = Depends(get_db), user: User = Depend
     g = db.query(StudyGroup).filter(StudyGroup.id == group_id).first()
     if not g:
         raise HTTPException(404, "Group not found")
-    existing = db.query(StudyGroupMember).filter(StudyGroupMember.group_id == group_id, StudyGroupMember.user_id == user.id).first()
+    existing = (
+        db.query(StudyGroupMember)
+        .filter(StudyGroupMember.group_id == group_id, StudyGroupMember.user_id == user.id)
+        .first()
+    )
     if existing:
         return {"message": "Already a member"}
     count = db.query(StudyGroupMember).filter(StudyGroupMember.group_id == group_id).count()
@@ -70,7 +74,12 @@ def join_group(group_id: int, db: Session = Depends(get_db), user: User = Depend
 
 @router.get("/groups/{group_id}")
 def get_group(group_id: int, db: Session = Depends(get_db)):
-    g = db.query(StudyGroup).options(joinedload(StudyGroup.members).joinedload(StudyGroupMember.user)).filter(StudyGroup.id == group_id).first()
+    g = (
+        db.query(StudyGroup)
+        .options(joinedload(StudyGroup.members).joinedload(StudyGroupMember.user))
+        .filter(StudyGroup.id == group_id)
+        .first()
+    )
     if not g:
         raise HTTPException(404, "Group not found")
     return g
@@ -79,11 +88,19 @@ def get_group(group_id: int, db: Session = Depends(get_db)):
 # Forums
 @router.get("/forums/{course_id}")
 def list_threads(course_id: int, db: Session = Depends(get_db)):
-    return db.query(ForumThread).options(joinedload(ForumThread.creator)).filter(ForumThread.course_id == course_id).order_by(ForumThread.is_pinned.desc(), ForumThread.created_at.desc()).all()
+    return (
+        db.query(ForumThread)
+        .options(joinedload(ForumThread.creator))
+        .filter(ForumThread.course_id == course_id)
+        .order_by(ForumThread.is_pinned.desc(), ForumThread.created_at.desc())
+        .all()
+    )
 
 
 @router.post("/forums/{course_id}", status_code=201)
-def create_thread(course_id: int, body: ThreadCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def create_thread(
+    course_id: int, body: ThreadCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
     t = ForumThread(course_id=course_id, created_by=user.id, title=body.title, content=body.content)
     db.add(t)
     db.commit()
@@ -93,7 +110,12 @@ def create_thread(course_id: int, body: ThreadCreate, db: Session = Depends(get_
 
 @router.get("/forums/thread/{thread_id}")
 def get_thread(thread_id: int, db: Session = Depends(get_db)):
-    t = db.query(ForumThread).options(joinedload(ForumThread.replies).joinedload(ForumReply.creator), joinedload(ForumThread.creator)).filter(ForumThread.id == thread_id).first()
+    t = (
+        db.query(ForumThread)
+        .options(joinedload(ForumThread.replies).joinedload(ForumReply.creator), joinedload(ForumThread.creator))
+        .filter(ForumThread.id == thread_id)
+        .first()
+    )
     if not t:
         raise HTTPException(404, "Thread not found")
     t.view_count += 1
@@ -103,7 +125,9 @@ def get_thread(thread_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/forums/thread/{thread_id}/reply", status_code=201)
-def reply_to_thread(thread_id: int, body: ReplyCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def reply_to_thread(
+    thread_id: int, body: ReplyCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
     t = db.query(ForumThread).filter(ForumThread.id == thread_id).first()
     if not t:
         raise HTTPException(404, "Thread not found")

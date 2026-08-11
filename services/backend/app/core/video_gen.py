@@ -11,11 +11,11 @@ Videos longer than a single clip are produced by generating consecutive clips
 and stitching them with ffmpeg (when available). Without ffmpeg the clips are
 returned as a playlist the frontend plays back-to-back.
 """
+
 import base64
 import shutil
 import subprocess
 import tempfile
-from typing import Optional
 
 import httpx
 
@@ -29,6 +29,7 @@ _OPERATION_MAX_WAIT = 300  # seconds
 async def _poll_operation(client: httpx.AsyncClient, name: str, api_key: str) -> dict:
     """Poll a Gemini long-running operation until it finishes."""
     import asyncio
+
     base = "https://generativelanguage.googleapis.com/v1beta"
     endpoint = f"{base}/operations/{name}?key={api_key}"
     for _ in range(int(_OPERATION_MAX_WAIT / _OPERATION_SLEEP)):
@@ -114,7 +115,7 @@ async def _sora_clips(prompt: str, clip_count: int) -> list[dict]:
     return clips
 
 
-def _stitch_clips(clips: list[dict]) -> Optional[bytes]:
+def _stitch_clips(clips: list[dict]) -> bytes | None:
     """Concatenate clip bytes with ffmpeg. Returns None if ffmpeg is missing."""
     if not shutil.which("ffmpeg") or len(clips) < 2:
         return None
@@ -133,7 +134,9 @@ def _stitch_clips(clips: list[dict]) -> Optional[bytes]:
         try:
             subprocess.run(
                 ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", list_file, "-c", "copy", out],
-                capture_output=True, timeout=180,
+                capture_output=True,
+                timeout=180,
+                check=True,
             )
             with open(out, "rb") as f:
                 return f.read()

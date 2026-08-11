@@ -21,9 +21,7 @@ if TYPE_CHECKING:
     from starlette.requests import Request
     from starlette.responses import Response
 
-request_id_var: contextvars.ContextVar[str] = contextvars.ContextVar(
-    "request_id", default="-"
-)
+request_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("request_id", default="-")
 
 _logger = logging.getLogger("digital_campus")
 
@@ -44,9 +42,7 @@ class RequestIdFilter(logging.Filter):
 
 def configure_logging(level: int = logging.INFO) -> None:
     """Install a single, consistently formatted handler on the root logger."""
-    formatter = logging.Formatter(
-        "%(asctime)s %(levelname)s [%(request_id)s] %(name)s: %(message)s"
-    )
+    formatter = logging.Formatter("%(asctime)s %(levelname)s [%(request_id)s] %(name)s: %(message)s")
     handler = logging.StreamHandler()
     handler.setFormatter(formatter)
     handler.addFilter(RequestIdFilter())
@@ -64,7 +60,7 @@ def configure_logging(level: int = logging.INFO) -> None:
 class RequestLogMiddleware(BaseHTTPMiddleware):
     """Log one line per request and propagate an X-Request-ID header."""
 
-    async def dispatch(self, request: "Request", call_next: Any) -> "Response":
+    async def dispatch(self, request: Request, call_next: Any) -> Response:
         request_id = uuid.uuid4().hex[:12]
         token = request_id_var.set(request_id)
         start = time.perf_counter()
@@ -77,9 +73,7 @@ class RequestLogMiddleware(BaseHTTPMiddleware):
             # ServerErrorMiddleware invokes the 500 handler outside our scope),
             # so carry the request id on the exception itself.
             exc.request_id = request_id  # type: ignore[attr-defined]
-            _logger.exception(
-                "unhandled error %s %s", request.method, request.url.path
-            )
+            _logger.exception("unhandled error %s %s", request.method, request.url.path)
             raise
         finally:
             request_id_var.reset(token)

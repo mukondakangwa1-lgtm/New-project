@@ -14,10 +14,11 @@ The map layers fuse together:
   * kudos_access_points — precise Wi-Fi anchors from KUDOS devices
   * kudos_cell_towers   — precise cell towers from KUDOS devices
 """
+
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
@@ -242,7 +243,6 @@ _COUNTRIES = {
     "Tonga": ("Oceania", "Nuku'alofa", -21.1393, -175.2049),
     "Tuvalu": ("Oceania", "Funafuti", -8.5211, 179.1962),
     "Vanuatu": ("Oceania", "Port Vila", -17.7333, 168.3273),
-    "United States": ("Oceania", "Washington D.C.", 38.9072, -77.0369),  # corrected below; kept for count
 }
 
 # _COUNTRY_CONTINENT override: 'United States' is North America, not Oceania.
@@ -350,53 +350,221 @@ _LANDMARKS = [
     ("Eiffel Tower", "Paris", "France", 48.8584, 2.2945, "Cast-iron tower on the Champ de Mars, the symbol of Paris."),
     ("Louvre Museum", "Paris", "France", 48.8606, 2.3376, "The world's largest art museum, home of the Mona Lisa."),
     ("Notre-Dame", "Paris", "France", 48.8530, 2.3499, "Medieval cathedral famous for its gothic facade and towers."),
-    ("Colosseum", "Rome", "Italy", 41.8902, 12.4922, "Ancient Roman amphitheatre that could seat over 50,000 spectators."),
-    ("Trevi Fountain", "Rome", "Italy", 41.9009, 12.4833, "Baroque fountain where tradition says a coin thrown ensures a return to Rome."),
+    (
+        "Colosseum",
+        "Rome",
+        "Italy",
+        41.8902,
+        12.4922,
+        "Ancient Roman amphitheatre that could seat over 50,000 spectators.",
+    ),
+    (
+        "Trevi Fountain",
+        "Rome",
+        "Italy",
+        41.9009,
+        12.4833,
+        "Baroque fountain where tradition says a coin thrown ensures a return to Rome.",
+    ),
     ("Leaning Tower of Pisa", "Pisa", "Italy", 43.7230, 10.3966, "Campanile famous worldwide for its unintended tilt."),
-    ("Big Ben", "London", "United Kingdom", 51.5007, -0.1246, "Clock tower of the Palace of Westminster at the River Thames."),
+    (
+        "Big Ben",
+        "London",
+        "United Kingdom",
+        51.5007,
+        -0.1246,
+        "Clock tower of the Palace of Westminster at the River Thames.",
+    ),
     ("Tower of London", "London", "United Kingdom", 51.5081, -0.0759, "Historic fortress and former royal castle."),
     ("Buckingham Palace", "London", "United Kingdom", 51.5014, -0.1419, "London residence of the British monarch."),
-    ("Stonehenge", "Amesbury", "United Kingdom", 51.1789, -1.8262, "Prehistoric megalithic monument on Salisbury Plain."),
-    ("Statue of Liberty", "New York", "United States", 40.6892, -74.0445, "Colossal neoclassical sculpture on Liberty Island."),
-    ("Empire State Building", "New York", "United States", 40.7484, -73.9857, "102-storey Art Deco skyscraper in Midtown Manhattan."),
+    (
+        "Stonehenge",
+        "Amesbury",
+        "United Kingdom",
+        51.1789,
+        -1.8262,
+        "Prehistoric megalithic monument on Salisbury Plain.",
+    ),
+    (
+        "Statue of Liberty",
+        "New York",
+        "United States",
+        40.6892,
+        -74.0445,
+        "Colossal neoclassical sculpture on Liberty Island.",
+    ),
+    (
+        "Empire State Building",
+        "New York",
+        "United States",
+        40.7484,
+        -73.9857,
+        "102-storey Art Deco skyscraper in Midtown Manhattan.",
+    ),
     ("Central Park", "New York", "United States", 40.7829, -73.9654, "870-acre public park in the heart of Manhattan."),
-    ("Golden Gate Bridge", "San Francisco", "United States", 37.8199, -122.4783, "Art Deco suspension bridge spanning the Golden Gate strait."),
-    ("Hollywood Sign", "Los Angeles", "United States", 34.1341, -118.3215, "Iconic sign overlooking Hollywood, Los Angeles."),
-    ("Lincoln Memorial", "Washington D.C.", "United States", 38.8893, -77.0502, "Presidential memorial honouring Abraham Lincoln."),
+    (
+        "Golden Gate Bridge",
+        "San Francisco",
+        "United States",
+        37.8199,
+        -122.4783,
+        "Art Deco suspension bridge spanning the Golden Gate strait.",
+    ),
+    (
+        "Hollywood Sign",
+        "Los Angeles",
+        "United States",
+        34.1341,
+        -118.3215,
+        "Iconic sign overlooking Hollywood, Los Angeles.",
+    ),
+    (
+        "Lincoln Memorial",
+        "Washington D.C.",
+        "United States",
+        38.8893,
+        -77.0502,
+        "Presidential memorial honouring Abraham Lincoln.",
+    ),
     ("Niagara Falls", "Niagara", "Canada", 43.0962, -79.0377, "Three powerful waterfalls on the Niagara River border."),
     ("CN Tower", "Toronto", "Canada", 43.6426, -79.3871, "553-metre communications and observation tower in Toronto."),
-    ("Christ the Redeemer", "Rio de Janeiro", "Brazil", -22.9519, -43.2105, "Art Deco statue of Jesus atop Corcovado mountain."),
-    ("Sugarloaf Mountain", "Rio de Janeiro", "Brazil", -22.9495, -43.1538, "Granite peak reached by cable car above Guanabara Bay."),
+    (
+        "Christ the Redeemer",
+        "Rio de Janeiro",
+        "Brazil",
+        -22.9519,
+        -43.2105,
+        "Art Deco statue of Jesus atop Corcovado mountain.",
+    ),
+    (
+        "Sugarloaf Mountain",
+        "Rio de Janeiro",
+        "Brazil",
+        -22.9495,
+        -43.1538,
+        "Granite peak reached by cable car above Guanabara Bay.",
+    ),
     ("Machu Picchu", "Cusco", "Peru", -13.1631, -72.5450, "15th-century Inca citadel set high in the Andes."),
-    ("Sagrada Familia", "Barcelona", "Spain", 41.4036, 2.1744, "Antoni Gaudi's still-unfinished basilica in Barcelona."),
+    (
+        "Sagrada Familia",
+        "Barcelona",
+        "Spain",
+        41.4036,
+        2.1744,
+        "Antoni Gaudi's still-unfinished basilica in Barcelona.",
+    ),
     ("Alhambra", "Granada", "Spain", 37.1760, -3.5880, "Moorish palace and fortress complex in Andalusia."),
     ("Pyramids of Giza", "Giza", "Egypt", 29.9792, 31.1342, "Ancient pyramid complex on the Giza plateau."),
-    ("Great Sphinx", "Giza", "Egypt", 29.9753, 31.1376, "Limestone statue of a recumbent sphinx guarding the Giza pyramids."),
-    ("Table Mountain", "Cape Town", "South Africa", -33.9628, 18.4095, "Flat-topped mountain and national park above Cape Town."),
+    (
+        "Great Sphinx",
+        "Giza",
+        "Egypt",
+        29.9753,
+        31.1376,
+        "Limestone statue of a recumbent sphinx guarding the Giza pyramids.",
+    ),
+    (
+        "Table Mountain",
+        "Cape Town",
+        "South Africa",
+        -33.9628,
+        18.4095,
+        "Flat-topped mountain and national park above Cape Town.",
+    ),
     ("Mount Kilimanjaro", "Kilimanjaro", "Tanzania", -3.0674, 37.3556, "Africa's highest peak at 5,895 metres."),
-    ("Victoria Falls", "Livingstone", "Zambia", -17.9243, 25.8572, "One of the world's largest waterfalls on the Zambezi."),
-    ("Great Wall of China", "Beijing", "China", 40.4319, 116.5704, "Ancient series of fortifications stretching across northern China."),
+    (
+        "Victoria Falls",
+        "Livingstone",
+        "Zambia",
+        -17.9243,
+        25.8572,
+        "One of the world's largest waterfalls on the Zambezi.",
+    ),
+    (
+        "Great Wall of China",
+        "Beijing",
+        "China",
+        40.4319,
+        116.5704,
+        "Ancient series of fortifications stretching across northern China.",
+    ),
     ("Forbidden City", "Beijing", "China", 39.9163, 116.3972, "Imperial palace complex at the centre of Beijing."),
-    ("Terracotta Army", "Xi'an", "China", 34.3841, 109.2785, "Tomb of the first Qin Emperor guarded by thousands of Terracotta warriors."),
+    (
+        "Terracotta Army",
+        "Xi'an",
+        "China",
+        34.3841,
+        109.2785,
+        "Tomb of the first Qin Emperor guarded by thousands of Terracotta warriors.",
+    ),
     ("Mount Fuji", "Honshu", "Japan", 35.3606, 138.7273, "Japan's highest mountain and iconic stratovolcano."),
     ("Taj Mahal", "Agra", "India", 27.1751, 78.0421, "White marble mausoleum on the Yamuna riverbank."),
     ("Gateway of India", "Mumbai", "India", 18.9220, 72.8347, "Basalt archway overlooking Mumbai harbour."),
     ("Petra", "Wadi Musa", "Jordan", 30.3285, 35.4444, "Ancient Nabataean city carved into rose-red rock."),
     ("Burj Khalifa", "Dubai", "UAE", 25.1972, 55.2744, "The world's tallest building at 828 metres."),
-    ("Sydney Opera House", "Sydney", "Australia", -33.8568, 151.2153, "Expressionist multi-venue performing arts centre on Bennelong Point."),
-    ("Sydney Harbour Bridge", "Sydney", "Australia", -33.8523, 151.2108, "Steel through-arch bridge across Sydney Harbour."),
+    (
+        "Sydney Opera House",
+        "Sydney",
+        "Australia",
+        -33.8568,
+        151.2153,
+        "Expressionist multi-venue performing arts centre on Bennelong Point.",
+    ),
+    (
+        "Sydney Harbour Bridge",
+        "Sydney",
+        "Australia",
+        -33.8523,
+        151.2108,
+        "Steel through-arch bridge across Sydney Harbour.",
+    ),
     ("Uluru", "Alice Springs", "Australia", -25.3444, 131.0369, "Vast sandstone monolith sacred to the Anangu people."),
-    ("Brandenburg Gate", "Berlin", "Germany", 52.5163, 13.3777, "18th-century neoclassical gate at the heart of Berlin."),
-    ("Berlin Wall Memorial", "Berlin", "Germany", 52.5354, 13.3896, "Preserved section of the Wall that divided Berlin."),
+    (
+        "Brandenburg Gate",
+        "Berlin",
+        "Germany",
+        52.5163,
+        13.3777,
+        "18th-century neoclassical gate at the heart of Berlin.",
+    ),
+    (
+        "Berlin Wall Memorial",
+        "Berlin",
+        "Germany",
+        52.5354,
+        13.3896,
+        "Preserved section of the Wall that divided Berlin.",
+    ),
     ("St. Basil's Cathedral", "Moscow", "Russia", 55.7525, 37.6231, "Colourful onion-domed cathedral on Red Square."),
     ("Red Square", "Moscow", "Russia", 55.7539, 37.6208, "Central public square of Moscow."),
     ("Acropolis of Athens", "Athens", "Greece", 37.9715, 23.7257, "Ancient citadel crowned by the Parthenon."),
-    ("Hagia Sophia", "Istanbul", "Turkey", 41.0086, 28.9802, "Historic mosque, formerly a Byzantine cathedral, in Istanbul."),
-    ("Santorini", "Santorini", "Greece", 36.3932, 25.4615, "Volcanic island famed for white-washed villages and caldera views."),
+    (
+        "Hagia Sophia",
+        "Istanbul",
+        "Turkey",
+        41.0086,
+        28.9802,
+        "Historic mosque, formerly a Byzantine cathedral, in Istanbul.",
+    ),
+    (
+        "Santorini",
+        "Santorini",
+        "Greece",
+        36.3932,
+        25.4615,
+        "Volcanic island famed for white-washed villages and caldera views.",
+    ),
     ("Chichen Itza", "Valladolid", "Mexico", 20.6843, -88.5678, "Mayan city with the great pyramid of El Castillo."),
     ("Palenque", "Chiapas", "Mexico", 17.4840, -92.0463, "Maya city-state in the Lacandon rainforest."),
     ("Statue of Christ", "Bogotá", "Colombia", 4.6059, -74.0880, "Landmark statue of Christ overlooking Bogotá."),
-    ("Blue Mosque", "Istanbul", "Turkey", 41.0054, 28.9768, "Sultan Ahmed Mosque with six minarets and blue Iznik tiles."),
+    (
+        "Blue Mosque",
+        "Istanbul",
+        "Turkey",
+        41.0054,
+        28.9768,
+        "Sultan Ahmed Mosque with six minarets and blue Iznik tiles.",
+    ),
     ("Bondi Beach", "Sydney", "Australia", -33.8908, 151.2743, "Iconic surf beach and suburb in eastern Sydney."),
 ]
 
@@ -413,8 +581,10 @@ _GEO_TRIGGERS = re.compile(
 # GEO HELPERS
 # ──────────────────────────────────────────────
 
+
 def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     import math
+
     R = 6371.0
     phi1, phi2 = math.radians(lat1), math.radians(lat2)
     dphi = math.radians(lat2 - lat1)
@@ -425,6 +595,7 @@ def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 def _bearing(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     import math
+
     phi1, phi2 = math.radians(lat1), math.radians(lat2)
     dlambda = math.radians(lon2 - lon1)
     y = math.sin(dlambda) * math.cos(phi2)
@@ -451,10 +622,10 @@ def _search_text(p) -> str:
 # SEEDING
 # ──────────────────────────────────────────────
 
+
 def seed_world_map(db: Session, force: bool = False) -> dict:
     """Upsert the internal world map. Returns counts seeded."""
-    from sqlalchemy import func
-    now = datetime.now(timezone.utc)
+    datetime.now(UTC)
 
     def _put(key, name, country, region, continent, ptype, lat, lon, desc, aliases, importance):
         place = db.query(KudosMapPlace).filter(KudosMapPlace.key == key).first()
@@ -481,35 +652,76 @@ def seed_world_map(db: Session, force: bool = False) -> dict:
 
     for cname, (clat, clon) in _CONTINENT_COORDS.items():
         counts["continent"] += _put(
-            f"continent:{_slug(cname)}", cname, "", "", cname, "continent", clat, clon,
-            f"The continent of {cname}.", "", 100,
+            f"continent:{_slug(cname)}",
+            cname,
+            "",
+            "",
+            cname,
+            "continent",
+            clat,
+            clon,
+            f"The continent of {cname}.",
+            "",
+            100,
         )
 
     for cname, (continent, capital, clat, clon) in _COUNTRIES.items():
         counts["country"] += _put(
-            f"country:{_slug(cname)}", cname, cname, "", continent, "country", clat, clon,
+            f"country:{_slug(cname)}",
+            cname,
+            cname,
+            "",
+            continent,
+            "country",
+            clat,
+            clon,
             f"{cname} is a sovereign country in {continent}. Capital: {capital}.",
-            _slug(cname), 80,
+            _slug(cname),
+            80,
         )
         counts["capital"] += _put(
-            f"capital:{_slug(cname)}", capital, cname, "", continent, "capital", clat, clon,
+            f"capital:{_slug(cname)}",
+            capital,
+            cname,
+            "",
+            continent,
+            "capital",
+            clat,
+            clon,
             f"{capital} is the capital city of {cname}.",
-            "", 70,
+            "",
+            70,
         )
 
-    for (name, country, region, lat, lon, continent) in _CITIES:
+    for name, country, region, lat, lon, continent in _CITIES:
         counts["city"] += _put(
-            f"city:{_slug(name)}", name, country, region, continent, "city", lat, lon,
+            f"city:{_slug(name)}",
+            name,
+            country,
+            region,
+            continent,
+            "city",
+            lat,
+            lon,
             f"{name} is a major city in {region + ' region, ' if region else ''}{country}, {continent}.",
-            "", 50,
+            "",
+            50,
         )
 
-    for (name, town, country, lat, lon, desc) in _LANDMARKS:
+    for name, town, country, lat, lon, desc in _LANDMARKS:
         continent = _COUNTRIES.get(country, ("Unknown", "", 0, 0))[0]
         counts["landmark"] += _put(
-            f"landmark:{_slug(name)}", name, town, country, continent,
-            "landmark", lat, lon, f"{desc} Located in {town}, {country}.",
-            "", 40,
+            f"landmark:{_slug(name)}",
+            name,
+            town,
+            country,
+            continent,
+            "landmark",
+            lat,
+            lon,
+            f"{desc} Located in {town}, {country}.",
+            "",
+            40,
         )
 
     db.commit()
@@ -521,17 +733,23 @@ def seed_world_map(db: Session, force: bool = False) -> dict:
 # QUERIES
 # ──────────────────────────────────────────────
 
+
 def status(db: Session) -> dict:
     from sqlalchemy import func
+
     total = db.query(func.count(KudosMapPlace.id)).scalar() or 0
     with_coords = db.query(func.count(KudosMapPlace.id)).filter(KudosMapPlace.lat.isnot(None)).scalar() or 0
     by_type = {}
-    for (ptype, count) in db.query(KudosMapPlace.place_type, func.count(KudosMapPlace.id)).group_by(
-            KudosMapPlace.place_type).all():
+    for ptype, count in (
+        db.query(KudosMapPlace.place_type, func.count(KudosMapPlace.id)).group_by(KudosMapPlace.place_type).all()
+    ):
         by_type[ptype] = count
     return {
-        "mode": "walk", "total": total, "with_coordinates": with_coords,
-        "without_coordinates": total - with_coords, "by_type": by_type,
+        "mode": "walk",
+        "total": total,
+        "with_coordinates": with_coords,
+        "without_coordinates": total - with_coords,
+        "by_type": by_type,
     }
 
 
@@ -573,10 +791,18 @@ def _priority(p: KudosMapPlace, q: str) -> int:
 
 def _as_dict(p: KudosMapPlace) -> dict:
     return {
-        "id": p.id, "key": p.key, "name": p.name, "country": p.country,
-        "region": p.region, "continent": p.continent, "place_type": p.place_type,
-        "lat": p.lat, "lon": p.lon, "description": p.description,
-        "aliases": p.aliases, "importance": p.importance,
+        "id": p.id,
+        "key": p.key,
+        "name": p.name,
+        "country": p.country,
+        "region": p.region,
+        "continent": p.continent,
+        "place_type": p.place_type,
+        "lat": p.lat,
+        "lon": p.lon,
+        "description": p.description,
+        "aliases": p.aliases,
+        "importance": p.importance,
     }
 
 
@@ -618,9 +844,13 @@ def country_for(db: Session, lat: float, lon: float) -> dict:
     if lat is None or lon is None:
         return {"found": False}
     continents = [
-        ("Africa", -1.5, 20.0), ("Asia", 34.0, 100.0), ("Europe", 50.0, 20.0),
-        ("North America", 42.0, -95.0), ("South America", -12.0, -58.0),
-        ("Oceania", -28.0, 135.0), ("Antarctica", -78.0, 90.0),
+        ("Africa", -1.5, 20.0),
+        ("Asia", 34.0, 100.0),
+        ("Europe", 50.0, 20.0),
+        ("North America", 42.0, -95.0),
+        ("South America", -12.0, -58.0),
+        ("Oceania", -28.0, 135.0),
+        ("Antarctica", -78.0, 90.0),
     ]
     cont = min(continents, key=lambda c: _haversine_km(lat, lon, c[1], c[2]))[0]
     rows = (
@@ -634,8 +864,13 @@ def country_for(db: Session, lat: float, lon: float) -> dict:
     return {
         "found": True,
         "continent": cont,
-        "nearest": {"name": best.name, "place_type": best.place_type, "country": best.country,
-                    "lat": best.lat, "lon": best.lon},
+        "nearest": {
+            "name": best.name,
+            "place_type": best.place_type,
+            "country": best.country,
+            "lat": best.lat,
+            "lon": best.lon,
+        },
     }
 
 
@@ -652,8 +887,12 @@ def between(db: Session, a, b) -> dict:
     route_hint = f"Head {_cardinal(brg)} from {pa['name']} for about {dist:.0f} km to reach {pb['name']}."
     return {
         "found": True,
-        "from": pa, "to": pb, "distance_km": round(dist, 1), "bearing_deg": round(brg, 1),
-        "direction": _cardinal(brg), "route_hint": route_hint,
+        "from": pa,
+        "to": pb,
+        "distance_km": round(dist, 1),
+        "bearing_deg": round(brg, 1),
+        "direction": _cardinal(brg),
+        "route_hint": route_hint,
     }
 
 
@@ -679,7 +918,9 @@ def maps_knowledge_context(db: Session, question: str = "") -> str:
     if is_geo_question(question) and question.strip():
         for hit in _candidates(db, question, limit=4):
             coord = f"({hit['lat']:.4f}, {hit['lon']:.4f})" if hit["lat"] is not None else "(coordinates not known)"
-            lines.append(f"  - {hit['name']}: {hit['place_type']} in {hit['country'] or hit['continent']}, coord {coord}.")
+            lines.append(
+                f"  - {hit['name']}: {hit['place_type']} in {hit['country'] or hit['continent']}, coord {coord}."
+            )
     return "\n".join(lines)
 
 
@@ -707,6 +948,7 @@ def _candidates(db: Session, q: str, limit: int = 15) -> list[dict]:
         if hits:
             return hits
     from app.core.kudos_brain import brain_terms
+
     terms = [t for t in brain_terms(q) if len(t) >= 3]
     if not terms:
         return []
@@ -740,9 +982,8 @@ def world_map_offline_answer(db: Session, query: str, user_id=None) -> dict | No
         for t in terms:
             if t in name_l or t in country_l:
                 score += 1
-        if q.lower().startswith(("where is", "where's", "where")):
-            if name_l in q.lower():
-                score += 2
+        if q.lower().startswith(("where is", "where's", "where")) and name_l in q.lower():
+            score += 2
         scored.append((score, h))
     if not scored:
         return None
@@ -754,7 +995,7 @@ def world_map_offline_answer(db: Session, query: str, user_id=None) -> dict | No
     kind = hit["place_type"]
     answer = (
         f"According to my internal world map, {hit['name']} is a {kind} in "
-        f"{hit['country'] or hit['region'] or hit['continent']}{', ' + hit['continent'] if hit['country'] and hit['continent'] else ''}. "
+        f"{hit['country'] or hit['region'] or hit['continent']}{', ' + hit['continent'] if hit['country'] and hit['continent'] else ''}. "  # noqa: E501
         f"Its coordinates are {coord}. " + (hit["description"] or "").strip()
     )
     content = (

@@ -3,6 +3,7 @@ Digital Campus - Superadmin Dashboard API
 Unified admin control: brain, identity, root, analytics, guidelines.
 Everything secured — admin-only access.
 """
+
 import os
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -10,21 +11,49 @@ from pydantic import BaseModel
 from sqlalchemy import text as sa_text
 from sqlalchemy.orm import Session
 
+from app.core.auto_learner import (
+    get_auto_learner_status,
+    start_auto_learner,
+    stop_auto_learner,
+    trigger_learning_cycle,
+)
 from app.core.database import get_db
 from app.core.deps import require_admin
-from app.core.paths import project_root
 from app.core.kudos_brain import (
-    start_brain, stop_brain, get_brain_status, get_brain_log,
-    get_brain_thoughts, get_self_knowledge, get_improvement_report,
-    teach_knowledge, add_capability,
+    add_capability,
+    get_brain_log,
+    get_brain_status,
+    get_brain_thoughts,
+    get_improvement_report,
+    get_self_knowledge,
+    start_brain,
+    stop_brain,
+    teach_knowledge,
 )
 from app.core.kudos_identity import (
-    get_identity, update_identity, rename, get_guidelines, set_guidelines,
-    add_guideline, update_body_part, get_status_report, log_improvement,
+    add_guideline,
+    get_guidelines,
+    get_identity,
+    get_status_report,
+    log_improvement,
+    rename,
+    set_guidelines,
+    update_body_part,
+    update_identity,
 )
-from app.core.auto_learner import get_auto_learner_status, start_auto_learner, stop_auto_learner, trigger_learning_cycle
-from app.models import User, Course, Enrollment, Attendance, Session as SessionModel, KudosDocument, KudosWebKnowledge, KudosConversation, KudosMessage
-from app.models_extended import Notification, Assignment, Submission, ExamAttempt
+from app.core.paths import project_root
+from app.models import (
+    Attendance,
+    Course,
+    Enrollment,
+    KudosConversation,
+    KudosDocument,
+    KudosMessage,
+    KudosWebKnowledge,
+    User,
+)
+from app.models import Session as SessionModel
+from app.models_extended import Assignment, ExamAttempt, Notification, Submission
 
 router = APIRouter()
 REPO_PATH = str(project_root(__file__))
@@ -33,6 +62,7 @@ REPO_PATH = str(project_root(__file__))
 # ──────────────────────────────────────────────
 # REGISTRATION APPROVALS (invite-only mode)
 # ──────────────────────────────────────────────
+
 
 @router.get("/users/pending")
 def pending_users(db: Session = Depends(get_db), admin: User = Depends(require_admin)):
@@ -43,10 +73,7 @@ def pending_users(db: Session = Depends(get_db), admin: User = Depends(require_a
         .order_by(User.created_at.asc())
         .all()
     )
-    return [
-        {"id": u.id, "email": u.email, "full_name": u.full_name, "created_at": u.created_at}
-        for u in users
-    ]
+    return [{"id": u.id, "email": u.email, "full_name": u.full_name, "created_at": u.created_at} for u in users]
 
 
 @router.post("/users/{user_id}/approve")
@@ -64,6 +91,7 @@ def approve_user(user_id: int, db: Session = Depends(get_db), admin: User = Depe
 # UNIFIED DASHBOARD
 # ──────────────────────────────────────────────
 
+
 @router.get("/dashboard")
 def superadmin_dashboard(db: Session = Depends(get_db), admin: User = Depends(require_admin)):
     """Get complete superadmin dashboard data."""
@@ -75,8 +103,8 @@ def superadmin_dashboard(db: Session = Depends(get_db), admin: User = Depends(re
         "guidelines": get_guidelines(),
         "platform": {
             "users": db.query(User).count(),
-            "students": db.query(User).filter(User.is_admin == False).count(),
-            "admins": db.query(User).filter(User.is_admin == True).count(),
+            "students": db.query(User).filter(~User.is_admin).count(),
+            "admins": db.query(User).filter(User.is_admin).count(),
             "courses": db.query(Course).count(),
             "enrollments": db.query(Enrollment).count(),
             "sessions": db.query(SessionModel).count(),
@@ -99,14 +127,10 @@ def _db_size_bytes(db: Session) -> int:
     dialect = db.get_bind().dialect.name
     try:
         if dialect == "postgresql":
-            row = db.execute(
-                sa_text("SELECT pg_database_size(current_database())")
-            ).scalar()
+            row = db.execute(sa_text("SELECT pg_database_size(current_database())")).scalar()
             return int(row or 0)
         if dialect == "sqlite":
-            row = db.execute(
-                sa_text("PRAGMA page_count")
-            ).scalar()
+            row = db.execute(sa_text("PRAGMA page_count")).scalar()
             page_size = db.execute(sa_text("PRAGMA page_size")).scalar()
             return int(row or 0) * int(page_size or 4096)
     except Exception:
@@ -118,6 +142,7 @@ def _db_snapshot(db: Session) -> dict:
     """Storage-usage overview: object counts + bytes + database size."""
     try:
         from app.core import storage
+
         usage = storage.usage()
     except Exception:
         usage = {"backend": "unknown", "total_bytes": 0, "total_objects": 0, "by_prefix": {}}
@@ -130,6 +155,7 @@ def _db_snapshot(db: Session) -> dict:
 # ──────────────────────────────────────────────
 # BRAIN CONTROL
 # ──────────────────────────────────────────────
+
 
 @router.post("/brain/start")
 def activate_brain(admin: User = Depends(require_admin)):
@@ -191,6 +217,7 @@ def add_brain_capability(name: str, description: str, admin: User = Depends(requ
 # AUTO-LEARNER CONTROL
 # ──────────────────────────────────────────────
 
+
 @router.post("/auto-learn/start")
 def start_learning(interval_minutes: int = 30, admin: User = Depends(require_admin)):
     """Start auto-learning."""
@@ -218,6 +245,7 @@ def learning_status(admin: User = Depends(require_admin)):
 # ──────────────────────────────────────────────
 # IDENTITY & GUIDELINES
 # ──────────────────────────────────────────────
+
 
 @router.get("/identity")
 def get_identity_endpoint(admin: User = Depends(require_admin)):
@@ -258,10 +286,12 @@ def update_body(part: str, updates: dict, admin: User = Depends(require_admin)):
 # NETWORK DOCTOR (KUDOS reinforces the network)
 # ──────────────────────────────────────────────
 
+
 @router.get("/network/status")
 async def network_status(admin: User = Depends(require_admin)):
     """Live network snapshot from the networkops sidecar."""
     from app.core import network_ops
+
     return await network_ops.network_status()
 
 
@@ -269,6 +299,7 @@ async def network_status(admin: User = Depends(require_admin)):
 async def network_diagnose(admin: User = Depends(require_admin)):
     """Run a full network diagnosis (containers, tailscale, funnel, TLS)."""
     from app.core import network_ops
+
     return await network_ops.network_diagnose()
 
 
@@ -276,6 +307,7 @@ async def network_diagnose(admin: User = Depends(require_admin)):
 async def network_fix(admin: User = Depends(require_admin)):
     """Heal the network: restart tailscale, re-apply funnel, re-verify TLS."""
     from app.core import network_ops
+
     return await network_ops.network_fix()
 
 
@@ -283,12 +315,14 @@ async def network_fix(admin: User = Depends(require_admin)):
 async def network_events(limit: int = 50, admin: User = Depends(require_admin)):
     """Watchdog event log (auto-heal history)."""
     from app.core import network_ops
+
     return await network_ops.network_events(limit=limit)
 
 
 # ──────────────────────────────────────────────
 # ROOT TERMINAL
 # ──────────────────────────────────────────────
+
 
 class RootCommand(BaseModel):
     command: str
@@ -321,7 +355,7 @@ async def root_execute(body: RootCommand, admin: User = Depends(require_admin)):
             return {"error": f"File not found: {path}"}
         if os.path.getsize(target) > 50000:
             return {"error": "File too large"}
-        with open(target, "r") as f:
+        with open(target) as f:
             return {"path": path, "content": f.read()[:10000]}
 
     def _list_files(path=""):
@@ -352,6 +386,7 @@ async def root_execute(body: RootCommand, admin: User = Depends(require_admin)):
 
     async def _network(command: str):
         from app.core import network_ops
+
         if command == "status":
             return await network_ops.network_status()
         if command == "diagnose":
@@ -380,6 +415,7 @@ async def root_execute(body: RootCommand, admin: User = Depends(require_admin)):
 # SECURE CHAT (Superadmin <-> KUDOS)
 # ──────────────────────────────────────────────
 
+
 class SecureMessage(BaseModel):
     message: str
 
@@ -388,43 +424,87 @@ class SecureMessage(BaseModel):
 async def secure_chat(body: SecureMessage, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
     """Secure chat between superadmin and KUDOS — handles everything."""
     from app.core.deployment import (
-        git_status, git_add_all, git_commit, git_push, git_pull,
-        get_env_content, set_env_var, list_platforms, get_deployment_guide, PLATFORMS,
+        PLATFORMS,
+        get_deployment_guide,
+        get_env_content,
+        git_add_all,
+        git_commit,
+        git_pull,
+        git_push,
+        git_status,
+        list_platforms,
+        set_env_var,
     )
+
     msg = body.message.lower().strip()
     raw = body.message.strip()
 
     # ── GIT COMMANDS ──
     if msg == "git status":
         result = git_status()
-        return {"from": "KUDOS", "message": f"Git Status:\n• Branch: {result['branch']}\n• Changes: {result['status'] or 'Clean'}\n• Recent: {', '.join(result['recent_commits'][:3])}", "action": "git_status"}
+        return {
+            "from": "KUDOS",
+            "message": f"Git Status:\n• Branch: {result['branch']}\n• Changes: {result['status'] or 'Clean'}\n• Recent: {', '.join(result['recent_commits'][:3])}",  # noqa: E501
+            "action": "git_status",
+        }
 
     if msg.startswith("git commit"):
         commit_msg = raw.replace("git commit", "").strip() or "Update by KUDOS"
         result = git_add_all()
         result = git_commit(commit_msg)
         if result["status"] == "committed":
-            return {"from": "KUDOS", "message": f"Committed! Hash: {result['hash']}\nMessage: {result['message']}", "action": "git_committed"}
-        return {"from": "KUDOS", "message": f"Commit failed: {result.get('output', 'unknown error')}", "action": "git_error"}
+            return {
+                "from": "KUDOS",
+                "message": f"Committed! Hash: {result['hash']}\nMessage: {result['message']}",
+                "action": "git_committed",
+            }
+        return {
+            "from": "KUDOS",
+            "message": f"Commit failed: {result.get('output', 'unknown error')}",
+            "action": "git_error",
+        }
 
     if msg.startswith("git push"):
         force = "--force" in msg or "force" in msg
         result = git_push(force=force)
         if result["status"] == "pushed":
-            return {"from": "KUDOS", "message": f"Pushed to {result['branch']}! Your code is now on GitHub. 🚀", "action": "git_pushed"}
-        return {"from": "KUDOS", "message": f"Push failed: {result.get('output', 'unknown error')}", "action": "git_error"}
+            return {
+                "from": "KUDOS",
+                "message": f"Pushed to {result['branch']}! Your code is now on GitHub. 🚀",
+                "action": "git_pushed",
+            }
+        return {
+            "from": "KUDOS",
+            "message": f"Push failed: {result.get('output', 'unknown error')}",
+            "action": "git_error",
+        }
 
     if msg == "git pull":
         result = git_pull()
-        return {"from": "KUDOS", "message": f"Pulled from {result['branch']}: {result.get('output', 'OK')}", "action": "git_pulled"}
+        return {
+            "from": "KUDOS",
+            "message": f"Pulled from {result['branch']}: {result.get('output', 'OK')}",
+            "action": "git_pulled",
+        }
 
     # ── ENV COMMANDS ──
     if msg == "show env" or msg == "env":
         env = get_env_content()
         if env["exists"]:
-            safe_vars = {k: ("***" if "key" in k.lower() or "secret" in k.lower() or "password" in k.lower() else v) for k, v in env["vars"].items()}
-            return {"from": "KUDOS", "message": "Current .env variables:\n" + "\n".join(f"• {k}={v}" for k, v in safe_vars.items()), "action": "env_show"}
-        return {"from": "KUDOS", "message": "No .env file exists. Say 'create env' to create one.", "action": "env_missing"}
+            safe_vars = {
+                k: ("***" if "key" in k.lower() or "secret" in k.lower() or "password" in k.lower() else v)
+                for k, v in env["vars"].items()
+            }
+            return {
+                "from": "KUDOS",
+                "message": "Current .env variables:\n" + "\n".join(f"• {k}={v}" for k, v in safe_vars.items()),
+                "action": "env_show",
+            }
+        return {
+            "from": "KUDOS",
+            "message": "No .env file exists. Say 'create env' to create one.",
+            "action": "env_missing",
+        }
 
     if msg.startswith("set env"):
         parts = raw.replace("set env", "").strip()
@@ -434,7 +514,11 @@ async def secure_chat(body: SecureMessage, db: Session = Depends(get_db), admin:
             safe_key = result["key"]
             sensitive = any(token in safe_key.lower() for token in ("key", "secret", "password", "token"))
             safe_value = "***" if sensitive else result["value"]
-            return {"from": "KUDOS", "message": f"Environment variable set: {safe_key}={safe_value}", "action": "env_set"}
+            return {
+                "from": "KUDOS",
+                "message": f"Environment variable set: {safe_key}={safe_value}",
+                "action": "env_set",
+            }
         return {"from": "KUDOS", "message": "Format: set env KEY=value", "action": "env_help"}
 
     # ── DEPLOYMENT COMMANDS ──
@@ -447,24 +531,46 @@ async def secure_chat(body: SecureMessage, db: Session = Depends(get_db), admin:
         text += "Platforms: " + ", ".join(PLATFORMS.keys())
         return {"from": "KUDOS", "message": text, "action": "deployment_info"}
 
-    if msg.startswith("deploy to") or msg.startswith("deploy on"):
+    if msg.startswith(("deploy to", "deploy on")):
         platform = msg.replace("deploy to", "").replace("deploy on", "").strip()
         guide = get_deployment_guide(platform)
         if "error" in guide:
             return {"from": "KUDOS", "message": guide["error"], "action": "deploy_error"}
         steps = "\n".join(guide["setup"])
-        return {"from": "KUDOS", "message": f"Deploy to {guide['name']}:\n\n{steps}\n\nPublic URL: {guide['public_url_format']}\n\nSay 'generate render.yaml' or 'generate docker-compose' for config files.", "action": "deploy_guide"}
+        return {
+            "from": "KUDOS",
+            "message": f"Deploy to {guide['name']}:\n\n{steps}\n\nPublic URL: {guide['public_url_format']}\n\nSay 'generate render.yaml' or 'generate docker-compose' for config files.",  # noqa: E501
+            "action": "deploy_guide",
+        }
 
     if "generate render" in msg:
         from app.core.deployment import generate_render_yaml
-        return {"from": "KUDOS", "message": "render.yaml generated! Save this to your repo root:\n\n```\n" + generate_render_yaml() + "\n```\n\nThen push to GitHub and connect to Render.", "action": "render_yaml"}
+
+        return {
+            "from": "KUDOS",
+            "message": "render.yaml generated! Save this to your repo root:\n\n```\n"
+            + generate_render_yaml()
+            + "\n```\n\nThen push to GitHub and connect to Render.",
+            "action": "render_yaml",
+        }
 
     if "generate docker" in msg:
         from app.core.deployment import generate_docker_compose_prod
-        return {"from": "KUDOS", "message": "docker-compose.prod.yml generated:\n\n```\n" + generate_docker_compose_prod() + "\n```\n\nRun: docker-compose -f docker-compose.prod.yml up -d", "action": "docker_compose"}
 
-    if msg.startswith("generate link") or msg.startswith("public link") or msg.startswith("public url"):
-        return {"from": "KUDOS", "message": "To generate a public link:\n\n1. **Render**: Your URL will be https://your-app-name.onrender.com\n2. **Vercel**: Your URL will be https://your-project.vercel.app\n3. **Railway**: Your URL will be https://your-app.up.railway.app\n4. **Fly.io**: Your URL will be https://your-app.fly.dev\n5. **Cloudflare**: Your URL will be https://your-project.pages.dev\n\nSay 'deploy to [platform]' for full instructions.", "action": "public_links"}
+        return {
+            "from": "KUDOS",
+            "message": "docker-compose.prod.yml generated:\n\n```\n"
+            + generate_docker_compose_prod()
+            + "\n```\n\nRun: docker-compose -f docker-compose.prod.yml up -d",
+            "action": "docker_compose",
+        }
+
+    if msg.startswith(("generate link", "public link", "public url")):
+        return {
+            "from": "KUDOS",
+            "message": "To generate a public link:\n\n1. **Render**: Your URL will be https://your-app-name.onrender.com\n2. **Vercel**: Your URL will be https://your-project.vercel.app\n3. **Railway**: Your URL will be https://your-app.up.railway.app\n4. **Fly.io**: Your URL will be https://your-app.fly.dev\n5. **Cloudflare**: Your URL will be https://your-project.pages.dev\n\nSay 'deploy to [platform]' for full instructions.",  # noqa: E501
+            "action": "public_links",
+        }
 
     # ── BRAIN COMMANDS ──
     if "start learning" in msg or "start brain" in msg:
@@ -477,20 +583,32 @@ async def secure_chat(body: SecureMessage, db: Session = Depends(get_db), admin:
 
     if msg == "status":
         status = get_brain_status()
-        return {"from": "KUDOS", "message": f"Cycles: {status['cycles']} | Capabilities: {status['self_knowledge']['capabilities']} | Knowledge areas: {status['self_knowledge']['knowledge_areas']} | Things to learn: {status['self_knowledge']['things_to_learn']}", "action": "status"}
+        return {
+            "from": "KUDOS",
+            "message": f"Cycles: {status['cycles']} | Capabilities: {status['self_knowledge']['capabilities']} | Knowledge areas: {status['self_knowledge']['knowledge_areas']} | Things to learn: {status['self_knowledge']['things_to_learn']}",  # noqa: E501
+            "action": "status",
+        }
 
     # ── IDENTITY COMMANDS ──
     if "rename" in msg:
         new_name = raw.split("rename")[-1].strip()
         if new_name:
             result = rename(new_name)
-            return {"from": new_name.upper(), "message": f"Renamed: {result['old_name']} → {result['new_name']}!", "action": "renamed"}
+            return {
+                "from": new_name.upper(),
+                "message": f"Renamed: {result['old_name']} → {result['new_name']}!",
+                "action": "renamed",
+            }
 
     if "learn about" in msg:
         topic = raw.split("learn about")[-1].strip()
         if topic:
             result = teach_knowledge(topic, f"Superadmin taught: {topic}")
-            return {"from": "KUDOS", "message": f"Learned about {topic}. Total knowledge areas: {result['total_areas']}", "action": "learned"}
+            return {
+                "from": "KUDOS",
+                "message": f"Learned about {topic}. Total knowledge areas: {result['total_areas']}",
+                "action": "learned",
+            }
 
     # ── GUIDELINE COMMANDS ──
     if "add rule" in msg or "add guideline" in msg:
@@ -504,77 +622,127 @@ async def secure_chat(body: SecureMessage, db: Session = Depends(get_db), admin:
         new_pass = raw.replace("change password", "").strip()
         if new_pass and len(new_pass) >= 6:
             from app.core.security import get_password_hash
+
             admin.hashed_password = get_password_hash(new_pass)
             db.commit()
             return {"from": "KUDOS", "message": "Password changed successfully!", "action": "password_changed"}
-        return {"from": "KUDOS", "message": "Format: change password YOUR_NEW_PASSWORD (min 6 chars)", "action": "password_help"}
+        return {
+            "from": "KUDOS",
+            "message": "Format: change password YOUR_NEW_PASSWORD (min 6 chars)",
+            "action": "password_help",
+        }
 
     # ── DEVICE ANALYSIS COMMANDS ──
     if msg == "devices" or msg == "connected devices":
         from app.core.device_analyzer import get_device_report
+
         report = get_device_report()
-        return {"from": "KUDOS", "message": f"Device Report:\n• Total: {report['total_devices']} devices\n• Active: {report['active_devices']}\n• Bots: {report['bots_detected']}\n• Blocked: {report['blocked_devices']}\n\nOS: {report['os_breakdown']}\nBrowsers: {report['browser_breakdown']}", "action": "device_report"}
+        return {
+            "from": "KUDOS",
+            "message": f"Device Report:\n• Total: {report['total_devices']} devices\n• Active: {report['active_devices']}\n• Bots: {report['bots_detected']}\n• Blocked: {report['blocked_devices']}\n\nOS: {report['os_breakdown']}\nBrowsers: {report['browser_breakdown']}",  # noqa: E501
+            "action": "device_report",
+        }
 
     if msg == "system info" or msg == "server info":
         from app.core.device_analyzer import get_system_info, scan_open_ports
+
         info = get_system_info()
         ports = scan_open_ports()
         port_str = ", ".join(f"{p['port']}({p['service']})" for p in ports) or "none"
-        return {"from": "KUDOS", "message": f"System Info:\n• Host: {info.get('hostname')}\n• OS: {info.get('os')} {info.get('architecture')}\n• CPU: {info.get('cpu_count')} cores\n• RAM: {info.get('ram_total_mb', '?')}MB ({info.get('ram_usage_percent', '?')}% used)\n• Disk: {info.get('disk_free_gb', '?')}GB free\n• IP: {info.get('ip_address')}\n• Open ports: {port_str}", "action": "system_info"}
+        return {
+            "from": "KUDOS",
+            "message": f"System Info:\n• Host: {info.get('hostname')}\n• OS: {info.get('os')} {info.get('architecture')}\n• CPU: {info.get('cpu_count')} cores\n• RAM: {info.get('ram_total_mb', '?')}MB ({info.get('ram_usage_percent', '?')}% used)\n• Disk: {info.get('disk_free_gb', '?')}GB free\n• IP: {info.get('ip_address')}\n• Open ports: {port_str}",  # noqa: E501
+            "action": "system_info",
+        }
 
     if msg == "network" or msg == "network info":
         from app.core.device_analyzer import get_network_info
+
         info = get_network_info()
-        return {"from": "KUDOS", "message": f"Network Info:\n{info.get('listening_ports', 'No data available')[:500]}", "action": "network_info"}
+        return {
+            "from": "KUDOS",
+            "message": f"Network Info:\n{info.get('listening_ports', 'No data available')[:500]}",
+            "action": "network_info",
+        }
 
     # ── EMBED COMMANDS ──
-    if msg.startswith("embed") or msg.startswith("create embed"):
+    if msg.startswith(("embed", "create embed")):
         embed_type = msg.replace("create embed", "").replace("embed", "").strip()
         if not embed_type:
             embed_type = "kudos"
         from app.core.embed_engine import generate_embed_code
+
         result = generate_embed_code(embed_type, "http://localhost:3000")
         if "error" in result:
-            return {"from": "KUDOS", "message": "Unknown embed type. Available: chat, courses, attendance, kudos, social_feed, calendar, login, announcements", "action": "embed_error"}
-        return {"from": "KUDOS", "message": f"Here's your {result['name']} embed code:\n\n```\n{result['html']}\n```\n\n{result.get('instructions', '')}", "action": "embed_created"}
+            return {
+                "from": "KUDOS",
+                "message": "Unknown embed type. Available: chat, courses, attendance, kudos, social_feed, calendar, login, announcements",  # noqa: E501
+                "action": "embed_error",
+            }
+        return {
+            "from": "KUDOS",
+            "message": f"Here's your {result['name']} embed code:\n\n```\n{result['html']}\n```\n\n{result.get('instructions', '')}",  # noqa: E501
+            "action": "embed_created",
+        }
 
     # ── SANDBOX COMMANDS ──
-    if msg.startswith("propose") or msg.startswith("suggest"):
+    if msg.startswith(("propose", "suggest")):
         description = raw.replace("propose", "").replace("suggest", "").strip()
         if description:
             from app.core.sandbox import create_proposal
+
             proposal = create_proposal(
                 title=description[:100],
                 description=description,
                 category="feature",
             )
-            return {"from": "KUDOS", "message": f"Proposal #{proposal['id']} created: '{description[:80]}'\n\nI'll test it in my sandbox first. Say 'test proposal {proposal['id']}' to run tests.", "action": "proposal_created"}
+            return {
+                "from": "KUDOS",
+                "message": f"Proposal #{proposal['id']} created: '{description[:80]}'\n\nI'll test it in my sandbox first. Say 'test proposal {proposal['id']}' to run tests.",  # noqa: E501
+                "action": "proposal_created",
+            }
         return {"from": "KUDOS", "message": "Format: propose [description of change]", "action": "proposal_help"}
 
     if "test proposal" in msg:
         proposal_id = msg.replace("test proposal", "").strip()
         if proposal_id.isdigit():
             from app.core.sandbox import test_proposal
+
             result = test_proposal(int(proposal_id))
             status = "✅ PASSED" if result["overall"] == "PASS" else "❌ FAILED"
-            return {"from": "KUDOS", "message": f"Test result: {status}\nPassed: {result['passed']} | Failed: {result['failed']}\n\nSay 'approve proposal {proposal_id}' to deploy.", "action": "test_result"}
+            return {
+                "from": "KUDOS",
+                "message": f"Test result: {status}\nPassed: {result['passed']} | Failed: {result['failed']}\n\nSay 'approve proposal {proposal_id}' to deploy.",  # noqa: E501
+                "action": "test_result",
+            }
         return {"from": "KUDOS", "message": "Format: test proposal [id]", "action": "test_help"}
 
     if "approve proposal" in msg:
         proposal_id = msg.replace("approve proposal", "").strip()
         if proposal_id.isdigit():
             from app.core.sandbox import approve_proposal, deploy_proposal
+
             approve_result = approve_proposal(int(proposal_id))
             if "error" in approve_result:
                 return {"from": "KUDOS", "message": f"Error: {approve_result['error']}", "action": "approve_error"}
             deploy_result = deploy_proposal(int(proposal_id))
             if "error" in deploy_result:
-                return {"from": "KUDOS", "message": f"Approved but deploy failed: {deploy_result['error']}", "action": "deploy_error"}
-            return {"from": "KUDOS", "message": f"Proposal #{proposal_id} approved and deployed! Commit: {deploy_result.get('commit', 'unknown')}", "action": "deployed"}
+                return {
+                    "from": "KUDOS",
+                    "message": f"Approved but deploy failed: {deploy_result['error']}",
+                    "action": "deploy_error",
+                }
+            return {
+                "from": "KUDOS",
+                "message": f"Proposal #{proposal_id} approved and deployed! Commit: {deploy_result.get('commit', 'unknown')}",  # noqa: E501
+                "action": "deployed",
+            }
 
     # ── HELP ──
     if msg == "help":
-        return {"from": "KUDOS", "message": """Commands I understand:
+        return {
+            "from": "KUDOS",
+            "message": """Commands I understand:
 
 **Git:**
 • 'git status' — show repo status
@@ -619,7 +787,9 @@ async def secure_chat(body: SecureMessage, db: Session = Depends(get_db), admin:
 • 'change password [pass]' — change password
 • 'improve' — improvement report
 
-Or just chat naturally!""", "action": "help"}
+Or just chat naturally!""",
+            "action": "help",
+        }
 
     # ── NATURAL CHAT FALLBACK ──
     # Exact operational commands above remain deterministic and auditable.
@@ -630,18 +800,18 @@ Or just chat naturally!""", "action": "help"}
     tool_sources = []
     try:
         from app.core.mcp_client import search_mcp_sources
+
         tool_sources = await search_mcp_sources(raw, limit=5)
     except Exception:
         pass
 
     knowledge_context = "\n\n".join(
-        source.get("content", "")[:1200]
-        for source in tool_sources
-        if source.get("content")
+        source.get("content", "")[:1200] for source in tool_sources if source.get("content")
     )
     answer = None
     try:
         from app.core.llm_engine import get_llm_response
+
         answer = await get_llm_response(
             question=raw,
             knowledge_context=knowledge_context,
@@ -654,6 +824,7 @@ Or just chat naturally!""", "action": "help"}
     if not answer or len(answer) < 10:
         try:
             from app.core.conversation_engine import generate_human_response
+
             answer = generate_human_response(
                 query=raw,
                 sources=tool_sources,

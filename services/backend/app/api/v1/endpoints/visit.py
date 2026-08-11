@@ -4,6 +4,7 @@ Public, auth-free endpoint. Fired by the frontend whenever someone loads a
 page: the first visit switches on KUDOS' continuous learning for good
 (never stops by itself — it just keeps improving).
 """
+
 from fastapi import APIRouter
 
 from app.core.auto_learner import resume_kudos_learner, start_learning_on_visit

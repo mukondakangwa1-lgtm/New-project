@@ -2,15 +2,16 @@
 KUDOS Guardian API — Secure superadmin channel, integrity checks, self-improvement.
 Only superadmin can access these endpoints.
 """
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.deps import require_admin
 from app.core.kudos_guardian import (
+    KUDOS_PROTECTED_PATHS,
     secure_channel,
     self_improver,
-    verify_integrity,
     update_hashes_after_admin_change,
-    KUDOS_PROTECTED_PATHS,
+    verify_integrity,
 )
 from app.models import User
 
@@ -70,10 +71,12 @@ def open_secure_channel(admin: User = Depends(require_admin)):
 @router.post("/channel/command")
 def execute_command(
     command: str,
-    params: dict = {},
+    params: dict | None = None,
     admin: User = Depends(require_admin),
 ):
     """Execute a command on KUDOS through the secure channel (superadmin only)."""
+    if params is None:
+        params = {}
     result = secure_channel.execute_command(admin.id, True, command, params)
     return result
 

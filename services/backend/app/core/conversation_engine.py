@@ -2,10 +2,9 @@
 KUDOS Conversational AI Engine v2
 Responds like a real human — contextual, concise, empathetic.
 """
-import re
-import random
-from typing import Optional
 
+import random
+import re
 
 # ──────────────────────────────────────────────
 # CONVERSATION CONTEXT
@@ -53,7 +52,7 @@ def _detect_query_type(query: str) -> str:
     return "question"
 
 
-def _detect_mood(query: str) -> Optional[str]:
+def _detect_mood(query: str) -> str | None:
     q = query.lower()
     for mood, patterns in MOOD_PATTERNS.items():
         for p in patterns:
@@ -65,10 +64,44 @@ def _detect_mood(query: str) -> Optional[str]:
 def _extract_relevant_sentences(query: str, text: str, max_sentences: int = 4) -> str:
     """Extract the most relevant sentences from a text based on query keywords."""
     query_words = set(re.findall(r"[a-zA-Z]{3,}", query.lower()))
-    stop = {"the", "and", "for", "that", "this", "with", "from", "are", "was", "were", "have", "has", "had", "not", "but", "can", "will", "would", "could", "should", "how", "what", "when", "where", "which", "who", "why", "tell", "give", "show", "explain", "help", "about"}
+    stop = {
+        "the",
+        "and",
+        "for",
+        "that",
+        "this",
+        "with",
+        "from",
+        "are",
+        "was",
+        "were",
+        "have",
+        "has",
+        "had",
+        "not",
+        "but",
+        "can",
+        "will",
+        "would",
+        "could",
+        "should",
+        "how",
+        "what",
+        "when",
+        "where",
+        "which",
+        "who",
+        "why",
+        "tell",
+        "give",
+        "show",
+        "explain",
+        "help",
+        "about",
+    }
     query_words -= stop
 
-    sentences = re.split(r'[.!?\n]+', text)
+    sentences = re.split(r"[.!?\n]+", text)
     sentences = [s.strip() for s in sentences if len(s.strip()) > 20]
 
     if not sentences:
@@ -95,25 +128,30 @@ def _extract_relevant_sentences(query: str, text: str, max_sentences: int = 4) -
 # GREETING RESPONSES
 # ──────────────────────────────────────────────
 
+
 def _greeting_response(query: str, ctx: dict) -> str:
     q = query.lower().strip()
     name = ctx.get("name")
     name_str = f", {name}" if name else ""
 
     if re.search(r"^(hi|hello|hey|yo|sup|howdy|greetings)", q):
-        return random.choice([
-            f"Hey{name_str}! 👋 How can I help you today?",
-            f"Hi{name_str}! What's on your mind?",
-            f"Hello{name_str}! 😊 What would you like to know?",
-            f"Hey there{name_str}! Ask me anything — I'm here to help.",
-        ])
+        return random.choice(
+            [
+                f"Hey{name_str}! 👋 How can I help you today?",
+                f"Hi{name_str}! What's on your mind?",
+                f"Hello{name_str}! 😊 What would you like to know?",
+                f"Hey there{name_str}! Ask me anything — I'm here to help.",
+            ]
+        )
 
     if re.search(r"how are you|how's it going|what's up", q):
-        return random.choice([
-            "I'm doing great, thanks for asking! 😊 How about you?",
-            "I'm good! Ready to help with whatever you need. What's up?",
-            "All good on my end! What can I do for you today?",
-        ])
+        return random.choice(
+            [
+                "I'm doing great, thanks for asking! 😊 How about you?",
+                "I'm good! Ready to help with whatever you need. What's up?",
+                "All good on my end! What can I do for you today?",
+            ]
+        )
 
     if re.search(r"who are you|what are you|tell me about yourself", q):
         return (
@@ -127,25 +165,31 @@ def _greeting_response(query: str, ctx: dict) -> str:
         )
 
     if re.search(r"thanks|thank you|thx|cheers", q):
-        return random.choice([
-            "You're welcome! 😊 Anything else I can help with?",
-            "Happy to help! Let me know if you need anything else.",
-            "Anytime! That's what I'm here for. 🙌",
-        ])
+        return random.choice(
+            [
+                "You're welcome! 😊 Anything else I can help with?",
+                "Happy to help! Let me know if you need anything else.",
+                "Anytime! That's what I'm here for. 🙌",
+            ]
+        )
 
     if re.search(r"bye|goodbye|see you|later", q):
-        return random.choice([
-            "See you later! 👋 Take care!",
-            "Bye! Good luck with everything! 🙌",
-            "Until next time! Don't hesitate to come back if you need help. 😊",
-        ])
+        return random.choice(
+            [
+                "See you later! 👋 Take care!",
+                "Bye! Good luck with everything! 🙌",
+                "Until next time! Don't hesitate to come back if you need help. 😊",
+            ]
+        )
 
     if re.search(r"^(yes|no|ok|okay|sure|right|yep)", q):
-        return random.choice([
-            "Got it! What else would you like to know?",
-            "Sure thing! What's next?",
-            "👍 Anything else?",
-        ])
+        return random.choice(
+            [
+                "Got it! What else would you like to know?",
+                "Sure thing! What's next?",
+                "👍 Anything else?",
+            ]
+        )
 
     return f"Hey{name_str}! What would you like to know? I'm here to help. 😊"
 
@@ -153,7 +197,7 @@ def _greeting_response(query: str, ctx: dict) -> str:
 def _mood_response(mood: str, query: str) -> str:
     responses = {
         "stressed": [
-            "I hear you — stress can be really tough. 💙 Take a deep breath. What's weighing on you? Maybe I can help break it down into manageable pieces.",
+            "I hear you — stress can be really tough. 💙 Take a deep breath. What's weighing on you? Maybe I can help break it down into manageable pieces.",  # noqa: E501
             "Stress is hard, but you're not alone in this. What's causing the pressure? Let's figure it out together.",
             "I'm sorry you're feeling stressed. 😔 What's going on? Sometimes talking through it helps.",
         ],
@@ -185,11 +229,12 @@ def _mood_response(mood: str, query: str) -> str:
 # MAIN RESPONSE GENERATOR
 # ──────────────────────────────────────────────
 
+
 def generate_human_response(
     query: str,
     sources: list[dict],
     conv_id: int,
-    user_name: Optional[str] = None,
+    user_name: str | None = None,
 ) -> str:
     """Generate a human-like response. Never dumps raw content."""
     ctx = _get_ctx(conv_id)
@@ -290,19 +335,19 @@ def _no_knowledge_response(query: str, ctx: dict) -> str:
             "What specifically are you working on? I might be able to help from what I already know. 😊"
         )
 
-    return random.choice([
-        f"Great question! I don't have specific info about \"{query}\" in my knowledge base yet, "
-        "but I'm always learning. You can help me by uploading a document or teaching me a web page about it. "
-        "What else can I help with? 😊",
-
-        f"Hmm, I'm not sure about \"{query}\" yet. "
-        "I'm still growing my knowledge! Try uploading a document or using the Connectors page to add sources. "
-        "Is there something else I can help with?",
-
-        f"I don't have enough info about \"{query}\" right now, "
-        "but I'm eager to learn! You can teach me by uploading docs or web pages. "
-        "What else would you like to know?",
-    ])
+    return random.choice(
+        [
+            f'Great question! I don\'t have specific info about "{query}" in my knowledge base yet, '
+            "but I'm always learning. You can help me by uploading a document or teaching me a web page about it. "
+            "What else can I help with? 😊",
+            f'Hmm, I\'m not sure about "{query}" yet. '
+            "I'm still growing my knowledge! Try uploading a document or using the Connectors page to add sources. "
+            "Is there something else I can help with?",
+            f'I don\'t have enough info about "{query}" right now, '
+            "but I'm eager to learn! You can teach me by uploading docs or web pages. "
+            "What else would you like to know?",
+        ]
+    )
 
 
 def _get_follow_up(query: str) -> str:

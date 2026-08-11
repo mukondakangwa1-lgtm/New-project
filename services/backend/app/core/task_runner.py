@@ -9,14 +9,15 @@ Design rules:
   workspace.run().
 - everything is append-only logged in kudos_sandbox_logs.
 """
+
 import json
 import re
 import shlex
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from app.core.database import SessionLocal
-from app.core.workspace import Workspace, WorkspaceError, WORKSPACES_DIR_NAME
+from app.core.workspace import WORKSPACES_DIR_NAME, Workspace, WorkspaceError
 from app.models import AgentTask, SandboxLog
 
 KNOWN_TASK_TYPES = {"run_command", "quality_gate", "edit_apply"}
@@ -47,9 +48,15 @@ def _workspace_from_payload(payload: dict) -> Workspace:
     return Workspace(p.parent.parent, p.name)
 
 
-def _log(workspace: str | None, operation: str, command: str,
-         status: str, output: str = "", exit_code: int | None = None,
-         proposal_uuid: str | None = None) -> SandboxLog:
+def _log(
+    workspace: str | None,
+    operation: str,
+    command: str,
+    status: str,
+    output: str = "",
+    exit_code: int | None = None,
+    proposal_uuid: str | None = None,
+) -> SandboxLog:
     entry = SandboxLog(
         workspace=workspace,
         operation=operation,
@@ -58,7 +65,7 @@ def _log(workspace: str | None, operation: str, command: str,
         output=output[:100000],
         exit_code=exit_code,
         proposal_uuid=proposal_uuid,
-        finished_at=datetime.now(timezone.utc) if status != "queued" else None,
+        finished_at=datetime.now(UTC) if status != "queued" else None,
     )
     db = SessionLocal()
     try:
@@ -102,7 +109,7 @@ def run_task(task_id: int) -> dict:
             raise TaskRunnerError(f"Task {task_id} already running")
         payload = json.loads(task.payload or "{}")
         task.status = "running"
-        task.started_at = datetime.now(timezone.utc)
+        task.started_at = datetime.now(UTC)
         db.commit()
         ws = _workspace_from_payload(payload)
         if not ws.path.exists():
@@ -131,22 +138,35 @@ def run_task(task_id: int) -> dict:
     try:
         result = ws.run(parts, timeout=int(payload.get("timeout", 120)))
     except WorkspaceError as exc:
-        _log(ws.path.name, "command", command, "failed", output=str(exc), exit_code=-1,
-             proposal_uuid=payload.get("proposal_uuid"))
+        _log(
+            ws.path.name,
+            "command",
+            command,
+            "failed",
+            output=str(exc),
+            exit_code=-1,
+            proposal_uuid=payload.get("proposal_uuid"),
+        )
         _fail(task_id, str(exc))
         return {"task_id": task_id, "status": "failed", "error": str(exc)}
 
     output = result.stdout or ""
     if result.returncode != 0:
         output = (output + "\n" + (result.stderr or "")).strip()
-    _log(ws.path.name, "command", command, "done" if result.returncode == 0 else "failed",
-         output=output, exit_code=result.returncode, proposal_uuid=payload.get("proposal_uuid"))
+    _log(
+        ws.path.name,
+        "command",
+        command,
+        "done" if result.returncode == 0 else "failed",
+        output=output,
+        exit_code=result.returncode,
+        proposal_uuid=payload.get("proposal_uuid"),
+    )
 
     outcome = {"exit_code": result.returncode, "output": output[:100000]}
     error = "" if result.returncode == 0 else f"exit code {result.returncode}"
     _finish(task_id, outcome, error)
-    return {"task_id": task_id, "status": "done" if result.returncode == 0 else "failed",
-            **outcome}
+    return {"task_id": task_id, "status": "done" if result.returncode == 0 else "failed", **outcome}
 
 
 def _is_inside(path: str, ws_root: Path) -> bool:
@@ -206,8 +226,7 @@ def _validate_command(command: str, ws_root: Path) -> tuple[list[str], str | Non
 ALLOWED_EDIT_ACTIONS = {"create", "replace", "append", "insert"}
 
 
-def _run_edits(task: "AgentTask", ws: "Workspace", edits: list,
-               proposal_uuid: str | None = None) -> dict:
+def _run_edits(task: "AgentTask", ws: "Workspace", edits: list, proposal_uuid: str | None = None) -> dict:
     """Apply a guarded edit set inside the workspace.
 
     Every edit path goes through pathguard.resolve_inside, so ``..``
@@ -224,8 +243,12 @@ def _run_edits(task: "AgentTask", ws: "Workspace", edits: list,
         relpath = edit.get("path")
         action = (edit.get("action") or "replace").lower()
         if not relpath or action not in ALLOWED_EDIT_ACTIONS:
-            refusals.append({"index": i, "error": "edit needs a path and action in "
-                             f"create|replace|append|insert (got action={action!r})"})
+            refusals.append(
+                {
+                    "index": i,
+                    "error": f"edit needs a path and action in create|replace|append|insert (got action={action!r})",
+                }
+            )
             continue
         try:
             target = resolve_inside(ws.path, str(relpath), allow_missing=True)
@@ -233,8 +256,7 @@ def _run_edits(task: "AgentTask", ws: "Workspace", edits: list,
             content = edit.get("content", edit.get("content_preview", ""))
             if action == "create":
                 if target.exists():
-                    refusals.append({"index": i, "path": relpath,
-                                     "error": "file already exists"})
+                    refusals.append({"index": i, "path": relpath, "error": "file already exists"})
                     continue
                 target.write_text(content)
             elif action == "replace":
@@ -266,16 +288,19 @@ def _run_edits(task: "AgentTask", ws: "Workspace", edits: list,
         status = "failed"
     elif refusals:
         first = refusals[0]
-        first_ref = first.get("path", "edit #%d" % first["index"])
+        first_ref = first.get("path", f"edit #{first['index']}")
         error = f"{len(refusals)} of {len(edits)} edits refused (first: {first_ref}: {first['error']})"
         status = "failed"
 
-    _log(ws.path.name, "edit_apply",
-         f"{len(edits)} edits ({', '.join(sorted({e.get('action', 'replace') for e in edits}))})",
-         status if not error else "partial",
-         output=json.dumps({"applied": applied, "refusals": refusals[:50]}),
-         exit_code=0 if status == "done" else -1,
-         proposal_uuid=proposal_uuid)
+    _log(
+        ws.path.name,
+        "edit_apply",
+        f"{len(edits)} edits ({', '.join(sorted({e.get('action', 'replace') for e in edits}))})",
+        status if not error else "partial",
+        output=json.dumps({"applied": applied, "refusals": refusals[:50]}),
+        exit_code=0 if status == "done" else -1,
+        proposal_uuid=proposal_uuid,
+    )
     _finish(task.id, outcome, error)
     return {"task_id": task.id, "status": status, "error": error, **outcome}
 
@@ -293,7 +318,7 @@ def _fail(task_id: int, error: str):
         if task:
             task.status = "failed"
             task.error = error[:5000]
-            task.finished_at = datetime.now(timezone.utc)
+            task.finished_at = datetime.now(UTC)
             db.commit()
     finally:
         db.close()
@@ -307,7 +332,7 @@ def _finish(task_id: int, outcome: dict, error: str = ""):
             task.status = "done" if not error else "failed"
             task.result = json.dumps(outcome)
             task.error = error[:5000] if error else ""
-            task.finished_at = datetime.now(timezone.utc)
+            task.finished_at = datetime.now(UTC)
             db.commit()
     finally:
         db.close()

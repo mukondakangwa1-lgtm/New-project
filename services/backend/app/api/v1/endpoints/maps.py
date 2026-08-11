@@ -17,12 +17,12 @@ Endpoints:
   POST /maps/report-scan— a device feeds its Wi-Fi/cell/GPS scan
   POST /maps/seed       — (admin) seed/refresh the internal world map
 """
+
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.core import network_map, world_map
-from app.core.config import settings
+from app.core import network_map, network_mesh, world_map
 from app.core.database import get_db
 from app.core.deps import get_current_user, require_admin
 from app.core.device_storage import get_device_by_token
@@ -99,6 +99,7 @@ def maps_nearby(
     current_user: User = Depends(get_current_user),
 ):
     from app.core.radio_garden import near as radio_near
+
     return {
         "places": world_map.near(db, lat, lon, radius_km, limit),
         "radio_towers": radio_near(db, lat, lon, radius_km),
@@ -119,6 +120,7 @@ def maps_between(
 def maps_world(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Fused snapshot of KUDOS's own real-world map."""
     from app.core.radio_garden import overview as radio_overview
+
     return {
         "places": world_map.status(db),
         "radio": radio_overview(db),
@@ -139,8 +141,9 @@ def maps_where(
     fix = network_map.latest_fix(db, device.id) if device else network_map.best_fix_for_user(db, current_user.id)
     if fix.get("mode") == "none" or fix.get("lat") is None:
         return {
-            "known": False, "location": None,
-            "reason": "KUDOS has not measured a fix yet — share your location on the Maps panel so it can anchor your networks.",
+            "known": False,
+            "location": None,
+            "reason": "KUDOS has not measured a fix yet — share your location on the Maps panel so it can anchor your networks.",  # noqa: E501
         }
     area = world_map.country_for(db, fix.get("lat"), fix.get("lon"))
     return {"known": True, "location": fix, "area": area}

@@ -4,19 +4,24 @@ Universal connectors: GitHub, GitLab, websites, APIs, RSS feeds, npm, PyPI.
 Crawls, fetches, and learns from any source. Supports offline knowledge packs.
 Auto-sync: bulk sync all connectors on a schedule.
 """
+
 import asyncio
 import base64
 import json
 import threading
 import time
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 import httpx
 from bs4 import BeautifulSoup
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.api.v1.endpoints.kudos import (
+    chunk_text,
+    extract_keywords,
+    simple_summarize,
+)
 from app.core.database import SessionLocal, get_db
 from app.core.deps import get_current_user, require_admin
 from app.models import (
@@ -39,21 +44,14 @@ from app.schemas import (
 
 router = APIRouter()
 
-# Import from kudos module
-from app.api.v1.endpoints.kudos import (
-    chunk_text,
-    extract_keywords,
-    simple_summarize,
-)
-
 # ──────────────────────────────────────────────
 # AUTO-SYNC ENGINE
 # ──────────────────────────────────────────────
 
-_auto_sync_thread: Optional[threading.Thread] = None
+_auto_sync_thread: threading.Thread | None = None
 _auto_sync_running = False
 _auto_sync_interval = 3600  # default: 1 hour
-_last_auto_sync: Optional[datetime] = None
+_last_auto_sync: datetime | None = None
 _auto_sync_results: list[dict] = []
 
 
@@ -64,11 +62,9 @@ def _run_auto_sync():
         db = SessionLocal()
         try:
             connectors = (
-                db.query(KudosConnector)
-                .filter(KudosConnector.is_approved == True, KudosConnector.status != "paused")
-                .all()
+                db.query(KudosConnector).filter(KudosConnector.is_approved, KudosConnector.status != "paused").all()
             )
-            admin = db.query(User).filter(User.is_admin == True).first()
+            admin = db.query(User).filter(User.is_admin).first()
             if not admin:
                 time.sleep(_auto_sync_interval)
                 continue
@@ -100,7 +96,7 @@ def _run_auto_sync():
                     finally:
                         loop.close()
 
-                    conn.last_synced_at = datetime.now(timezone.utc)
+                    conn.last_synced_at = datetime.now(UTC)
                     conn.items_learned += result["items_new"]
                     conn.status = "active"
                     conn.error_message = ""
@@ -114,11 +110,13 @@ def _run_auto_sync():
                         details=result["details"],
                     )
                     db.add(log)
-                    results.append({
-                        "connector": conn.name,
-                        "items_new": result["items_new"],
-                        "status": "success",
-                    })
+                    results.append(
+                        {
+                            "connector": conn.name,
+                            "items_new": result["items_new"],
+                            "status": "success",
+                        }
+                    )
 
                 except Exception as e:
                     conn.status = "error"
@@ -129,14 +127,16 @@ def _run_auto_sync():
                         details=str(e)[:1000],
                     )
                     db.add(log)
-                    results.append({
-                        "connector": conn.name,
-                        "status": "error",
-                        "error": str(e)[:200],
-                    })
+                    results.append(
+                        {
+                            "connector": conn.name,
+                            "status": "error",
+                            "error": str(e)[:200],
+                        }
+                    )
 
             db.commit()
-            _last_auto_sync = datetime.now(timezone.utc)
+            _last_auto_sync = datetime.now(UTC)
             _auto_sync_results = results
 
         except Exception:
@@ -157,12 +157,7 @@ def list_connectors(
     db: Session = Depends(get_db),
 ):
     """List all approved connectors (public)."""
-    return (
-        db.query(KudosConnector)
-        .filter(KudosConnector.is_approved == True)
-        .order_by(KudosConnector.created_at.desc())
-        .all()
-    )
+    return db.query(KudosConnector).filter(KudosConnector.is_approved).order_by(KudosConnector.created_at.desc()).all()
 
 
 @router.post("/", response_model=KudosConnectorResponse, status_code=201)
@@ -232,11 +227,7 @@ async def sync_all_connectors(
     current_user: User = Depends(get_current_user),
 ):
     """Sync ALL approved connectors at once."""
-    connectors = (
-        db.query(KudosConnector)
-        .filter(KudosConnector.is_approved == True, KudosConnector.status != "paused")
-        .all()
-    )
+    connectors = db.query(KudosConnector).filter(KudosConnector.is_approved, KudosConnector.status != "paused").all()
     if not connectors:
         return {"message": "No connectors to sync", "results": []}
 
@@ -247,26 +238,42 @@ async def sync_all_connectors(
         config = json.loads(conn.config) if conn.config else {}
         try:
             sync_fn = {
-                "github": _sync_github, "gitlab": _sync_gitlab,
-                "website": _sync_website, "api": _sync_api,
-                "rss": _sync_rss, "npm": _sync_npm, "pypi": _sync_pypi,
+                "github": _sync_github,
+                "gitlab": _sync_gitlab,
+                "website": _sync_website,
+                "api": _sync_api,
+                "rss": _sync_rss,
+                "npm": _sync_npm,
+                "pypi": _sync_pypi,
             }.get(conn.connector_type)
             if not sync_fn:
                 results.append({"connector": conn.name, "status": "skipped"})
                 continue
 
             result = await sync_fn(db, conn, config, current_user)
-            conn.last_synced_at = datetime.now(timezone.utc)
+            conn.last_synced_at = datetime.now(UTC)
             conn.items_learned += result["items_new"]
             conn.status = "active"
             conn.error_message = ""
-            db.add(KudosSyncLog(
-                connector_id=conn.id, action="bulk-sync",
-                items_found=result["items_found"], items_new=result["items_new"],
-                items_updated=result["items_updated"], details=result["details"],
-            ))
+            db.add(
+                KudosSyncLog(
+                    connector_id=conn.id,
+                    action="bulk-sync",
+                    items_found=result["items_found"],
+                    items_new=result["items_new"],
+                    items_updated=result["items_updated"],
+                    details=result["details"],
+                )
+            )
             total_items += result["items_new"]
-            results.append({"connector": conn.name, "type": conn.connector_type, "items_new": result["items_new"], "status": "success"})
+            results.append(
+                {
+                    "connector": conn.name,
+                    "type": conn.connector_type,
+                    "items_new": result["items_new"],
+                    "status": "success",
+                }
+            )
         except Exception as e:
             conn.status = "error"
             conn.error_message = str(e)[:500]
@@ -274,7 +281,12 @@ async def sync_all_connectors(
             results.append({"connector": conn.name, "status": "error", "error": str(e)[:200]})
 
     db.commit()
-    return {"message": f"Synced {len(connectors)} connectors, {total_items} new items", "total_connectors": len(connectors), "total_new_items": total_items, "results": results}
+    return {
+        "message": f"Synced {len(connectors)} connectors, {total_items} new items",
+        "total_connectors": len(connectors),
+        "total_new_items": total_items,
+        "results": results,
+    }
 
 
 @router.post("/auto-sync/start")
@@ -285,12 +297,20 @@ def start_auto_sync(
     """Start automatic background sync (superadmin only)."""
     global _auto_sync_thread, _auto_sync_running, _auto_sync_interval
     if _auto_sync_running:
-        return {"status": "already_running", "interval_minutes": _auto_sync_interval // 60, "last_sync": _last_auto_sync.isoformat() if _last_auto_sync else None}
+        return {
+            "status": "already_running",
+            "interval_minutes": _auto_sync_interval // 60,
+            "last_sync": _last_auto_sync.isoformat() if _last_auto_sync else None,
+        }
     _auto_sync_interval = max(interval_minutes * 60, 300)
     _auto_sync_running = True
     _auto_sync_thread = threading.Thread(target=_run_auto_sync, daemon=True)
     _auto_sync_thread.start()
-    return {"status": "started", "interval_minutes": _auto_sync_interval // 60, "message": f"Auto-sync started — every {_auto_sync_interval // 60} minutes"}
+    return {
+        "status": "started",
+        "interval_minutes": _auto_sync_interval // 60,
+        "message": f"Auto-sync started — every {_auto_sync_interval // 60} minutes",
+    }
 
 
 @router.post("/auto-sync/stop")
@@ -304,7 +324,12 @@ def stop_auto_sync(admin: User = Depends(require_admin)):
 @router.get("/auto-sync/status")
 def auto_sync_status():
     """Get auto-sync status and recent results."""
-    return {"running": _auto_sync_running, "interval_minutes": _auto_sync_interval // 60, "last_sync": _last_auto_sync.isoformat() if _last_auto_sync else None, "recent_results": _auto_sync_results[-10:]}
+    return {
+        "running": _auto_sync_running,
+        "interval_minutes": _auto_sync_interval // 60,
+        "last_sync": _last_auto_sync.isoformat() if _last_auto_sync else None,
+        "recent_results": _auto_sync_results[-10:],
+    }
 
 
 @router.get("/{connector_id}/logs", response_model=list[KudosSyncLogResponse])
@@ -363,7 +388,7 @@ async def sync_connector(
             raise HTTPException(status_code=400, detail=f"Unknown connector type: {conn.connector_type}")
 
         # Update connector
-        conn.last_synced_at = datetime.now(timezone.utc)
+        conn.last_synced_at = datetime.now(UTC)
         conn.items_learned += result["items_new"]
         conn.status = "active"
         conn.error_message = ""
@@ -395,7 +420,7 @@ async def sync_connector(
         )
         db.add(log)
         db.commit()
-        raise HTTPException(status_code=500, detail=f"Sync failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Sync failed: {e}") from e
 
 
 # ──────────────────────────────────────────────
@@ -433,7 +458,8 @@ async def _sync_github(db: Session, conn: KudosConnector, config: dict, user: Us
         items_found += 1
 
         _store_web_knowledge(
-            db, conn.source_url,
+            db,
+            conn.source_url,
             f"{owner}/{repo} — GitHub Repository",
             f"Repository: {repo_data.get('full_name', '')}\n"
             f"Description: {repo_data.get('description', '')}\n"
@@ -441,7 +467,8 @@ async def _sync_github(db: Session, conn: KudosConnector, config: dict, user: Us
             f"Stars: {repo_data.get('stargazers_count', 0)}\n"
             f"Forks: {repo_data.get('forks_count', 0)}\n"
             f"Topics: {', '.join(repo_data.get('topics', []))}\n",
-            user.id, conn.is_approved,
+            user.id,
+            conn.is_approved,
         )
         items_new += 1
 
@@ -453,10 +480,12 @@ async def _sync_github(db: Session, conn: KudosConnector, config: dict, user: Us
                 readme_text = base64.b64decode(readme_data.get("content", "")).decode("utf-8", errors="ignore")
                 items_found += 1
                 _store_web_knowledge(
-                    db, f"{url}/blob/main/README.md",
+                    db,
+                    f"{url}/blob/main/README.md",
                     f"{owner}/{repo} — README",
                     readme_text,
-                    user.id, conn.is_approved,
+                    user.id,
+                    conn.is_approved,
                 )
                 items_new += 1
         except Exception:
@@ -468,15 +497,16 @@ async def _sync_github(db: Session, conn: KudosConnector, config: dict, user: Us
             if tree_res.status_code == 200:
                 tree = tree_res.json()
                 file_list = "\n".join(
-                    f"{'📁' if t['type'] == 'tree' else '📄'} {t['path']}"
-                    for t in tree.get("tree", [])[:100]
+                    f"{'📁' if t['type'] == 'tree' else '📄'} {t['path']}" for t in tree.get("tree", [])[:100]
                 )
                 items_found += 1
                 _store_web_knowledge(
-                    db, f"{url}/tree/HEAD",
+                    db,
+                    f"{url}/tree/HEAD",
                     f"{owner}/{repo} — File Tree",
                     f"Repository file structure:\n{file_list}",
-                    user.id, conn.is_approved,
+                    user.id,
+                    conn.is_approved,
                 )
                 items_new += 1
         except Exception:
@@ -493,15 +523,16 @@ async def _sync_github(db: Session, conn: KudosConnector, config: dict, user: Us
                     issues = issues_res.json()
                     if issues:
                         issues_text = "\n\n".join(
-                            f"#{i['number']} {i['title']}\n{i.get('body', '')[:300]}"
-                            for i in issues[:10]
+                            f"#{i['number']} {i['title']}\n{i.get('body', '')[:300]}" for i in issues[:10]
                         )
                         items_found += 1
                         _store_web_knowledge(
-                            db, f"{url}/issues",
+                            db,
+                            f"{url}/issues",
                             f"{owner}/{repo} — Open Issues ({len(issues)})",
                             issues_text,
-                            user.id, conn.is_approved,
+                            user.id,
+                            conn.is_approved,
                         )
                         items_new += 1
             except Exception:
@@ -514,7 +545,8 @@ async def _sync_github(db: Session, conn: KudosConnector, config: dict, user: Us
             if tree_res.status_code == 200:
                 all_files = tree_res.json().get("tree", [])
                 code_files = [
-                    f for f in all_files
+                    f
+                    for f in all_files
                     if f["type"] == "blob"
                     and any(f["path"].endswith(ext) for ext in code_extensions)
                     and f.get("size", 0) < 50000
@@ -527,13 +559,19 @@ async def _sync_github(db: Session, conn: KudosConnector, config: dict, user: Us
                             headers=headers,
                         )
                         if file_res.status_code == 200:
-                            content = base64.b64decode(file_res.json().get("content", "")).decode("utf-8", errors="ignore")
+                            content = base64.b64decode(file_res.json().get("content", "")).decode(
+                                "utf-8", errors="ignore"
+                            )
                             if len(content) > 100:
                                 items_found += 1
                                 _store_document(
-                                    db, f"{owner}/{repo}/{f['path']}",
-                                    f["path"], f["path"].rsplit(".", 1)[-1],
-                                    content, user.id, conn.is_approved,
+                                    db,
+                                    f"{owner}/{repo}/{f['path']}",
+                                    f["path"],
+                                    f["path"].rsplit(".", 1)[-1],
+                                    content,
+                                    user.id,
+                                    conn.is_approved,
                                 )
                                 items_new += 1
                     except Exception:
@@ -573,13 +611,15 @@ async def _sync_gitlab(db: Session, conn: KudosConnector, config: dict, user: Us
         items_found += 1
 
         _store_web_knowledge(
-            db, url,
+            db,
+            url,
             f"{project.get('path_with_namespace', '')} — GitLab Repository",
             f"Project: {project.get('name', '')}\n"
             f"Description: {project.get('description', '')}\n"
             f"Language: {project.get('language', '')}\n"
             f"Stars: {project.get('star_count', 0)}\n",
-            user.id, conn.is_approved,
+            user.id,
+            conn.is_approved,
         )
         items_new += 1
 
@@ -589,10 +629,12 @@ async def _sync_gitlab(db: Session, conn: KudosConnector, config: dict, user: Us
             if readme_res.status_code == 200:
                 items_found += 1
                 _store_web_knowledge(
-                    db, f"{url}/-/blob/main/README.md",
+                    db,
+                    f"{url}/-/blob/main/README.md",
                     f"{project.get('path_with_namespace', '')} — README",
                     readme_res.text,
-                    user.id, conn.is_approved,
+                    user.id,
+                    conn.is_approved,
                 )
                 items_new += 1
         except Exception:
@@ -642,14 +684,19 @@ async def _sync_website(db: Session, conn: KudosConnector, config: dict, user: U
                 if len(text) > 100:
                     items_found += 1
                     _store_web_knowledge(
-                        db, page_url, title[:255], text,
-                        user.id, conn.is_approved,
+                        db,
+                        page_url,
+                        title[:255],
+                        text,
+                        user.id,
+                        conn.is_approved,
                     )
                     items_new += 1
 
                 # Follow links (same domain only)
                 if depth < max_depth:
                     from urllib.parse import urljoin, urlparse
+
                     base_domain = urlparse(url).netloc
                     for a in soup.find_all("a", href=True):
                         link = urljoin(page_url, a["href"]).split("#")[0].split("?")[0]
@@ -686,10 +733,12 @@ async def _sync_api(db: Session, conn: KudosConnector, config: dict, user: User)
 
     items_found = 1
     _store_web_knowledge(
-        db, url,
+        db,
+        url,
         config.get("title", f"API: {url}"),
         text,
-        user.id, conn.is_approved,
+        user.id,
+        conn.is_approved,
     )
 
     return {
@@ -728,10 +777,12 @@ async def _sync_rss(db: Session, conn: KudosConnector, config: dict, user: User)
 
         if desc_text and len(desc_text) > 50:
             _store_web_knowledge(
-                db, link_text,
+                db,
+                link_text,
                 f"[RSS] {title_text}",
                 f"{title_text}\n\n{desc_text}",
-                user.id, conn.is_approved,
+                user.id,
+                conn.is_approved,
             )
             items_new += 1
 
@@ -767,9 +818,12 @@ async def _sync_npm(db: Session, conn: KudosConnector, config: dict, user: User)
     )
 
     _store_web_knowledge(
-        db, f"https://www.npmjs.com/package/{package}",
+        db,
+        f"https://www.npmjs.com/package/{package}",
         f"[npm] {data.get('name', package)}",
-        text, user.id, conn.is_approved,
+        text,
+        user.id,
+        conn.is_approved,
     )
 
     return {
@@ -802,9 +856,12 @@ async def _sync_pypi(db: Session, conn: KudosConnector, config: dict, user: User
     )
 
     _store_web_knowledge(
-        db, f"https://pypi.org/project/{package}/",
+        db,
+        f"https://pypi.org/project/{package}/",
         f"[PyPI] {info.get('name', package)}",
-        text, user.id, conn.is_approved,
+        text,
+        user.id,
+        conn.is_approved,
     )
 
     return {
@@ -831,38 +888,35 @@ def create_knowledge_pack(
     Can be shared and imported by other users for offline use.
     """
     # Gather all approved knowledge
-    docs = db.query(KudosDocument).filter(
-        KudosDocument.is_approved == True, KudosDocument.is_active == True
-    ).all()
+    docs = db.query(KudosDocument).filter(KudosDocument.is_approved, KudosDocument.is_active).all()
 
-    web = db.query(KudosWebKnowledge).filter(
-        KudosWebKnowledge.is_approved == True, KudosWebKnowledge.is_active == True
-    ).all()
+    web = db.query(KudosWebKnowledge).filter(KudosWebKnowledge.is_approved, KudosWebKnowledge.is_active).all()
 
     pack_items = []
     for doc in docs:
         chunks = db.query(KudosChunk).filter(KudosChunk.document_id == doc.id).all()
-        pack_items.append({
-            "type": "document",
-            "title": doc.title,
-            "filename": doc.filename,
-            "file_type": doc.file_type,
-            "summary": doc.summary,
-            "tags": doc.tags,
-            "chunks": [
-                {"content": c.content, "keywords": c.keywords}
-                for c in chunks
-            ],
-        })
+        pack_items.append(
+            {
+                "type": "document",
+                "title": doc.title,
+                "filename": doc.filename,
+                "file_type": doc.file_type,
+                "summary": doc.summary,
+                "tags": doc.tags,
+                "chunks": [{"content": c.content, "keywords": c.keywords} for c in chunks],
+            }
+        )
 
     for item in web:
-        pack_items.append({
-            "type": "web",
-            "url": item.url,
-            "title": item.title,
-            "summary": item.summary,
-            "content": item.content[:5000],
-        })
+        pack_items.append(
+            {
+                "type": "web",
+                "url": item.url,
+                "title": item.title,
+                "summary": item.summary,
+                "content": item.content[:5000],
+            }
+        )
 
     pack_data = json.dumps(pack_items, ensure_ascii=False)
     pack = KudosKnowledgePack(
@@ -887,7 +941,7 @@ def list_knowledge_packs(
     """List available shared knowledge packs (public)."""
     return (
         db.query(KudosKnowledgePack)
-        .filter(KudosKnowledgePack.is_shared == True)
+        .filter(KudosKnowledgePack.is_shared)
         .order_by(KudosKnowledgePack.created_at.desc())
         .all()
     )
@@ -959,10 +1013,14 @@ def delete_knowledge_pack(
     current_user: User = Depends(get_current_user),
 ):
     """Delete a knowledge pack."""
-    pack = db.query(KudosKnowledgePack).filter(
-        KudosKnowledgePack.id == pack_id,
-        KudosKnowledgePack.created_by == current_user.id,
-    ).first()
+    pack = (
+        db.query(KudosKnowledgePack)
+        .filter(
+            KudosKnowledgePack.id == pack_id,
+            KudosKnowledgePack.created_by == current_user.id,
+        )
+        .first()
+    )
     if not pack:
         raise HTTPException(status_code=404, detail="Pack not found or not yours")
     db.delete(pack)
@@ -978,8 +1036,12 @@ def _store_web_knowledge(db, url, title, content, user_id, is_approved):
     """Store web knowledge and auto-chunk."""
     summary = simple_summarize(content)
     web = KudosWebKnowledge(
-        url=url, title=title[:255], content=content,
-        summary=summary, is_approved=is_approved, learned_by=user_id,
+        url=url,
+        title=title[:255],
+        content=content,
+        summary=summary,
+        is_approved=is_approved,
+        learned_by=user_id,
     )
     db.add(web)
     db.flush()
@@ -990,8 +1052,12 @@ def _store_document(db, title, filename, file_type, content, user_id, is_approve
     """Store a document with chunking."""
     summary = simple_summarize(content)
     doc = KudosDocument(
-        uploaded_by=user_id, title=title[:255], filename=filename,
-        file_type=file_type, content=content, summary=summary,
+        uploaded_by=user_id,
+        title=title[:255],
+        filename=filename,
+        file_type=file_type,
+        content=content,
+        summary=summary,
         is_approved=is_approved,
     )
     db.add(doc)
@@ -1000,7 +1066,8 @@ def _store_document(db, title, filename, file_type, content, user_id, is_approve
     chunks = chunk_text(content)
     for i, chunk_content in enumerate(chunks):
         chunk = KudosChunk(
-            document_id=doc.id, chunk_index=i,
+            document_id=doc.id,
+            chunk_index=i,
             content=chunk_content,
             word_count=len(chunk_content.split()),
             keywords=extract_keywords(chunk_content),

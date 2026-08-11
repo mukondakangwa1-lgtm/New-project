@@ -16,8 +16,7 @@ import os
 import sqlite3
 import subprocess
 import sys
-from datetime import datetime
-from typing import List
+from datetime import UTC, datetime
 
 from app.core import storage
 from app.core.config import settings
@@ -30,7 +29,7 @@ def backup_dir() -> str:
 
 
 def dump_filename(now: datetime | None = None) -> str:
-    now = now or datetime.now()
+    now = now or datetime.now(UTC)
     return f"digital_campus_{now.strftime('%Y%m%d_%H%M%S')}.dump"
 
 
@@ -40,7 +39,7 @@ def ensure_backup_dir() -> str:
     return path
 
 
-def _pg_cmd(url: str, which: str) -> List[str]:
+def _pg_cmd(url: str, which: str) -> list[str]:
     """Build env-driven pg_dump/pg_restore invocation pieces."""
     if url.startswith("sqlite"):
         raise ValueError("Backup/restore requires PostgreSQL (DATABASE_URL)")
@@ -57,15 +56,16 @@ def dump(database_url: str | None = None) -> str:
     """
     url = database_url or settings.DATABASE_URL
     dest = os.path.join(ensure_backup_dir(), dump_filename())
-    cmd = _pg_cmd(url, "pg_dump") + ["-F", "c", "-f", dest]
+    cmd = [*_pg_cmd(url, "pg_dump"), "-F", "c", "-f", dest]
     subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=600)
     if storage.backend_name() == "minio":
         try:
-            storage.upload_bytes(
-                BACKUPS_PREFIX + os.path.basename(dest),
-                open(dest, "rb").read(),
-                content_type="application/octet-stream",
-            )
+            with open(dest, "rb") as fh:
+                storage.upload_bytes(
+                    BACKUPS_PREFIX + os.path.basename(dest),
+                    fh.read(),
+                    content_type="application/octet-stream",
+                )
         except Exception:
             print("warning: dump written locally but MinIO upload failed", file=sys.stderr)
     return dest
@@ -80,7 +80,7 @@ def restore(dump_path: str, database_url: str | None = None) -> None:
     subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=900)
 
 
-def list_backups() -> List[str]:
+def list_backups() -> list[str]:
     path = backup_dir()
     if not os.path.isdir(path):
         return []
@@ -90,7 +90,7 @@ def list_backups() -> List[str]:
     )
 
 
-def prune_backups(keep: int | None = None) -> List[str]:
+def prune_backups(keep: int | None = None) -> list[str]:
     """Remove oldest dumps beyond ``keep``; return the removed paths."""
     keep = keep or settings.BACKUP_KEEP
     backups = list_backups()
@@ -110,12 +110,13 @@ def _prune_remote(keep: int) -> None:
         from minio import Minio
 
         client = Minio(
-            settings.MINIO_ENDPOINT, access_key=settings.MINIO_ACCESS_KEY,
-            secret_key=settings.MINIO_SECRET_KEY, secure=settings.MINIO_SECURE,
+            settings.MINIO_ENDPOINT,
+            access_key=settings.MINIO_ACCESS_KEY,
+            secret_key=settings.MINIO_SECRET_KEY,
+            secure=settings.MINIO_SECURE,
         )
         names = sorted(
-            (obj.object_name for obj in client.list_objects(
-                settings.MINIO_BUCKET, prefix=BACKUPS_PREFIX, recursive=True))
+            obj.object_name for obj in client.list_objects(settings.MINIO_BUCKET, prefix=BACKUPS_PREFIX, recursive=True)
         )
         for old in names[:-keep] if keep else []:
             client.remove_object(settings.MINIO_BUCKET, old)
@@ -147,11 +148,12 @@ def sqlite_dump(database_url: str | None = None) -> str:
 
     if storage.backend_name() == "minio":
         try:
-            storage.upload_bytes(
-                BACKUPS_PREFIX + os.path.basename(dest),
-                open(dest, "rb").read(),
-                content_type="application/octet-stream",
-            )
+            with open(dest, "rb") as fh:
+                storage.upload_bytes(
+                    BACKUPS_PREFIX + os.path.basename(dest),
+                    fh.read(),
+                    content_type="application/octet-stream",
+                )
         except Exception:
             print("warning: sqlite dump written locally but MinIO upload failed", file=sys.stderr)
     return dest

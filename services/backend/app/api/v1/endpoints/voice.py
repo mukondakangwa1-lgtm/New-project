@@ -19,7 +19,8 @@ Endpoints:
   POST /voice/tts                    — text in -> spoken audio (any authenticated user)
   POST /voice/chat                   — audio in -> transcript + answer + spoken reply
 """
-import base64
+
+import contextlib
 import uuid
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -53,8 +54,7 @@ def _signature_voice(db: Session, profile: VoiceProfile) -> dict:
     if profile.signature_voice_id:
         v = db.get(KudosVoice, profile.signature_voice_id)
         if v:
-            return {"id": v.id, "name": v.name, "provider": v.provider,
-                    "provider_voice_id": v.provider_voice_id}
+            return {"id": v.id, "name": v.name, "provider": v.provider, "provider_voice_id": v.provider_voice_id}
     return {}
 
 
@@ -93,12 +93,13 @@ def voice_status(user: User = Depends(get_current_user), db: Session = Depends(g
 # VOICE LIBRARY HELPERS
 # ──────────────────────────────────────────────
 
+
 def _gather_samples(db: Session, profile_id: int) -> list[dict]:
     """Download every captured sample from object storage as {data, mime}."""
     payload = []
-    samples = db.query(VoiceSample).filter(
-        VoiceSample.profile_id == profile_id
-    ).order_by(VoiceSample.created_at.asc()).all()
+    samples = (
+        db.query(VoiceSample).filter(VoiceSample.profile_id == profile_id).order_by(VoiceSample.created_at.asc()).all()
+    )
     for s in samples:
         try:
             data = storage.download(s.storage_key)
@@ -109,14 +110,13 @@ def _gather_samples(db: Session, profile_id: int) -> list[dict]:
 
 
 def _total_sample_seconds(db: Session, profile_id: int) -> int:
-    samples = db.query(VoiceSample).filter(
-        VoiceSample.profile_id == profile_id
-    ).all()
+    samples = db.query(VoiceSample).filter(VoiceSample.profile_id == profile_id).all()
     return sum(s.duration_seconds or 0 for s in samples)
 
 
-def _register_signature(db: Session, profile: VoiceProfile, voice_id: str, name: str,
-                        device_id: int | None = None, kind: str = "signature") -> KudosVoice:
+def _register_signature(
+    db: Session, profile: VoiceProfile, voice_id: str, name: str, device_id: int | None = None, kind: str = "signature"
+) -> KudosVoice:
     """Store a cloned voice in the library and make it KUDOS's signature voice."""
     entry = KudosVoice(
         name=name or "KUDOS",
@@ -177,8 +177,7 @@ def voice_toggle(body: VoiceToggle, admin: User = Depends(require_admin), db: Se
     return _status(profile, admin, db)
 
 
-async def _store_sample(content: bytes, mime: str, admin: User, db: Session,
-                        device_id: int | None = None) -> dict:
+async def _store_sample(content: bytes, mime: str, admin: User, db: Session, device_id: int | None = None) -> dict:
     """Persist a voice sample, mark the signature state, and auto-clone when
     the first feed is ready. Returns a status dict (may include preview audio)."""
     from app.core.voice import synthesize, transcribe
@@ -204,8 +203,15 @@ async def _store_sample(content: bytes, mime: str, admin: User, db: Session,
         profile.owner_device_id = device_id
     if not profile.signature_state or profile.signature_state == "none":
         profile.signature_state = "pending"  # first feed — this voice becomes the signature
-    db.add(VoiceSample(profile_id=profile.id, storage_key=key, mime=mime,
-                       transcribed=transcript[:400], duration_seconds=max(1, len(content) // 32000)))
+    db.add(
+        VoiceSample(
+            profile_id=profile.id,
+            storage_key=key,
+            mime=mime,
+            transcribed=transcript[:400],
+            duration_seconds=max(1, len(content) // 32000),
+        )
+    )
     db.commit()
 
     # Auto-clone once enough clear speech is captured.
@@ -221,8 +227,9 @@ async def _store_sample(content: bytes, mime: str, admin: User, db: Session,
     # Preview: let the superadmin hear KUDOS in the new signature voice.
     if auto.get("auto_cloned") and profile.tts_enabled:
         try:
-            speech = await synthesize("Hello! I am KUDOS. This is my signature voice, and it's yours.",
-                                      voice_id=profile.cloned_voice_id)
+            speech = await synthesize(
+                "Hello! I am KUDOS. This is my signature voice, and it's yours.", voice_id=profile.cloned_voice_id
+            )
             if speech.get("data"):
                 status["preview_b64"] = speech["data"]
                 status["preview_mime"] = speech.get("mime_type", "audio/mpeg")
@@ -260,24 +267,23 @@ async def feed_voice(
 
     device = None
     if device_id:
-        device = db.query(KudosDevice).filter(
-            KudosDevice.id == device_id, KudosDevice.user_id == admin.id
-        ).first()
+        device = db.query(KudosDevice).filter(KudosDevice.id == device_id, KudosDevice.user_id == admin.id).first()
         if not device:
             raise HTTPException(status_code=404, detail="Device not found")
 
     result = await _store_sample(content, mime, admin, db, device_id=device.id if device else None)
     if result.get("auto_cloned"):
-        result["message"] = (
-            "🎙️ Signature voice is READY — KUDOS now speaks with your voice "
-            "across every platform."
-        )
+        result["message"] = "🎙️ Signature voice is READY — KUDOS now speaks with your voice across every platform."
     else:
         reason = result.get("auto_clone_reason", "")
         if reason == "no_key":
-            result["message"] = "Voice captured and designated as the signature source. Add an ElevenLabs key to activate cloning."
+            result["message"] = (
+                "Voice captured and designated as the signature source. Add an ElevenLabs key to activate cloning."
+            )
         elif reason == "not_enough_audio":
-            result["message"] = f"Voice captured ({result.get('total_seconds', 0)}s). Keep feeding — KUDOS auto-clones once enough clear speech is captured."
+            result["message"] = (
+                f"Voice captured ({result.get('total_seconds', 0)}s). Keep feeding — KUDOS auto-clones once enough clear speech is captured."  # noqa: E501
+            )
         else:
             result["message"] = "Voice captured and designated as the signature source."
     return result
@@ -290,8 +296,11 @@ def list_voice_samples(admin: User = Depends(require_admin), db: Session = Depen
     return {
         "samples": [
             {
-                "id": s.id, "mime": s.mime, "transcribed": s.transcribed,
-                "duration_seconds": s.duration_seconds, "created_at": s.created_at.isoformat() if s.created_at else None,
+                "id": s.id,
+                "mime": s.mime,
+                "transcribed": s.transcribed,
+                "duration_seconds": s.duration_seconds,
+                "created_at": s.created_at.isoformat() if s.created_at else None,
             }
             for s in samples
         ],
@@ -379,20 +388,31 @@ async def list_voices_endpoint(user: User = Depends(get_current_user), db: Sessi
     library = db.query(KudosVoice).order_by(KudosVoice.created_at.asc()).all()
     voices = [
         {
-            "id": v.id, "name": v.name, "kind": v.kind, "provider": v.provider,
-            "provider_voice_id": v.provider_voice_id, "is_signature": bool(v.is_signature),
-            "source_device_id": v.source_device_id, "created_at": v.created_at.isoformat() if v.created_at else None,
+            "id": v.id,
+            "name": v.name,
+            "kind": v.kind,
+            "provider": v.provider,
+            "provider_voice_id": v.provider_voice_id,
+            "is_signature": bool(v.is_signature),
+            "source_device_id": v.source_device_id,
+            "created_at": v.created_at.isoformat() if v.created_at else None,
         }
         for v in library
     ]
 
-    stock = [{"id": -i, "name": name, "kind": "stock", "provider": "openai",
-              "provider_voice_id": name, "is_signature": False} for i, name in enumerate(
-                  __import__("app.core.voice", fromlist=["OPENAI_TTS_VOICES"]).OPENAI_TTS_VOICES)]
-    try:
+    stock = [
+        {
+            "id": -i,
+            "name": name,
+            "kind": "stock",
+            "provider": "openai",
+            "provider_voice_id": name,
+            "is_signature": False,
+        }
+        for i, name in enumerate(__import__("app.core.voice", fromlist=["OPENAI_TTS_VOICES"]).OPENAI_TTS_VOICES)
+    ]
+    with contextlib.suppress(Exception):
         stock += await list_eleven_voices()
-    except Exception:
-        pass
 
     profile = _get_profile(db)
     return {
@@ -445,8 +465,11 @@ async def speak_endpoint(body: TTSRequest, user: User = Depends(get_current_user
     profile = _get_profile(db)
     if not profile.tts_enabled:
         return {"tts_disabled": True, "message": "KUDOS speech is currently off"}
-    result = await synthesize(body.text, voice_id=profile.cloned_voice_id if profile.signature_active else body.voice_id,
-                              default_voice=profile.default_voice or "")
+    result = await synthesize(
+        body.text,
+        voice_id=profile.cloned_voice_id if profile.signature_active else body.voice_id,
+        default_voice=profile.default_voice or "",
+    )
     if result.get("error"):
         raise HTTPException(status_code=400, detail=result["error"])
     return {"audio_b64": result["data"], "mime_type": result["mime_type"], "provider": result.get("provider", "")}
@@ -468,7 +491,7 @@ async def voice_chat(
     """The full voice loop: user speaks -> KUDOS transcribes, answers, and
     speaks the answer back in its signature voice."""
     from app.core.privacy_guard import scrub_response
-    from app.core.quick_answers import is_short_question, get_short_answer
+    from app.core.quick_answers import get_short_answer, is_short_question
     from app.core.voice import synthesize, transcribe
 
     content = await file.read()
@@ -479,7 +502,9 @@ async def voice_chat(
         question = await transcribe(content, mime)
         question = (question or "").strip()
     if not question:
-        raise HTTPException(status_code=422, detail="Could not understand the audio — please speak clearly or type your question")
+        raise HTTPException(
+            status_code=422, detail="Could not understand the audio — please speak clearly or type your question"
+        )
 
     # Reuse the short-answer fast path when appropriate.
     if is_short_question(question):
@@ -492,9 +517,11 @@ async def voice_chat(
     speech = {"mime_type": "", "audio_b64": ""}
     if profile.tts_enabled:
         try:
-            speech = await synthesize(answer,
-                                      voice_id=profile.cloned_voice_id if profile.signature_active else "",
-                                      default_voice=profile.default_voice or "")
+            speech = await synthesize(
+                answer,
+                voice_id=profile.cloned_voice_id if profile.signature_active else "",
+                default_voice=profile.default_voice or "",
+            )
         except Exception:
             speech = {"mime_type": "", "audio_b64": ""}
 
@@ -511,45 +538,38 @@ async def _full_answer(db: Session, user: User, question: str) -> str:
     """Mirror of the main ask pipeline (knowledge + LLM + fallback)."""
     from app.api.v1.endpoints.kudos import search_chunks
     from app.core.llm_engine import get_llm_response
-    from app.core.soul import build_soul_context
-    from app.core.persona import build_persona_instructions, profile_dict
     from app.core.memory_store import build_memory_context
+    from app.core.persona import build_persona_instructions, profile_dict
+    from app.core.soul import build_soul_context
 
     sources = []
-    try:
+    with contextlib.suppress(Exception):
         sources = search_chunks(db, question)
-    except Exception:
-        pass
-    knowledge_context = "\n".join(
-        f"[{i}] {s.get('content', '')[:300]}" for i, s in enumerate(sources[:3], start=1)
-    )
+    knowledge_context = "\n".join(f"[{i}] {s.get('content', '')[:300]}" for i, s in enumerate(sources[:3], start=1))
     memory_context = ""
-    try:
+    with contextlib.suppress(Exception):
         memory_context = build_memory_context(db, user.id, query=question)
-    except Exception:
-        pass
     soul_context = ""
-    try:
+    with contextlib.suppress(Exception):
         soul_context = build_soul_context(db)
-    except Exception:
-        pass
     persona_instructions = ""
-    try:
+    with contextlib.suppress(Exception):
         persona_instructions = build_persona_instructions(profile_dict(db, user.id))
-    except Exception:
-        pass
 
     answer = ""
     try:
         answer = await get_llm_response(
-            question=question, knowledge_context=knowledge_context,
+            question=question,
+            knowledge_context=knowledge_context,
             user_name=user.full_name.split()[0] if user.full_name else "",
-            memory_context=memory_context, persona_instructions=persona_instructions,
+            memory_context=memory_context,
+            persona_instructions=persona_instructions,
             soul_context=soul_context,
         )
     except Exception:
         answer = ""
     if not answer or len(answer) < 10:
         from app.core.conversation_engine import generate_answer
+
         answer = generate_answer(question, sources)
     return answer or "I couldn't find a clear answer to that — could you rephrase it?"

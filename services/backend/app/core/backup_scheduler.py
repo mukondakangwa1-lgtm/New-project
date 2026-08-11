@@ -15,7 +15,7 @@ import argparse
 import os
 import sys
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from app.core import backup
 
@@ -30,10 +30,7 @@ def run_once() -> None:
     else:
         backup.dump()
     removed = backup.prune_backups()
-    print(
-        f"[{datetime.now(timezone.utc).isoformat()}] {mode} backup ok; "
-        f"pruned {len(removed)} old"
-    )
+    print(f"[{datetime.now(UTC).isoformat()}] {mode} backup ok; pruned {len(removed)} old")
 
 
 def _sqlite_url() -> bool:
@@ -64,7 +61,7 @@ def main() -> int:
 
     print(f"scheduler started — daily {hour:02d}:00 UTC", flush=True)
     while True:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         target = _next_fire(now, hour)
         time.sleep(max(0, int((target - now).total_seconds())))
         try:

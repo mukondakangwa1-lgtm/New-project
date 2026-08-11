@@ -11,8 +11,8 @@ Backends (auto-detected, in preference order):
   - Text-to-speech : ElevenLabs (supports voice cloning), falling back to
                      OpenAI TTS voices.
 """
+
 import base64
-from typing import Optional
 
 import httpx
 
@@ -26,13 +26,14 @@ _OPENAI_AUDIO = "https://api.openai.com/v1/audio"
 OPENAI_TTS_VOICES = ["alloy", "ash", "ballad", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer"]
 
 
-def _eleven_key() -> Optional[str]:
+def _eleven_key() -> str | None:
     return settings.ELEVENLABS_API_KEY or get_api_key("elevenlabs") or None
 
 
 # ──────────────────────────────────────────────
 # SPEECH-TO-TEXT
 # ──────────────────────────────────────────────
+
 
 async def transcribe(audio_bytes: bytes, mime: str = "audio/webm") -> str:
     """Transcribe speech to text (OpenAI Whisper, then Gemini)."""
@@ -72,13 +73,19 @@ async def _gemini_stt(audio_bytes: bytes, mime: str) -> str:
                 f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
                 params={"key": key},
                 json={
-                    "contents": [{
-                        "parts": [
-                            {"text": "Transcribe the speech in this audio exactly. Return only the transcript."},
-                            {"inline_data": {"mime_type": mime or "audio/webm",
-                                             "data": base64.b64encode(audio_bytes).decode()}},
-                        ]
-                    }],
+                    "contents": [
+                        {
+                            "parts": [
+                                {"text": "Transcribe the speech in this audio exactly. Return only the transcript."},
+                                {
+                                    "inline_data": {
+                                        "mime_type": mime or "audio/webm",
+                                        "data": base64.b64encode(audio_bytes).decode(),
+                                    }
+                                },
+                            ]
+                        }
+                    ],
                 },
             )
             if res.status_code == 200:
@@ -92,6 +99,7 @@ async def _gemini_stt(audio_bytes: bytes, mime: str) -> str:
 # ──────────────────────────────────────────────
 # TEXT-TO-SPEECH
 # ──────────────────────────────────────────────
+
 
 async def synthesize(text: str, voice_id: str = "", default_voice: str = "") -> dict:
     """Speak text. Prefers a cloned signature voice via ElevenLabs; falls back
@@ -151,7 +159,11 @@ async def _eleven_tts(text: str, voice_id: str) -> dict:
                 },
             )
             if res.status_code == 200:
-                return {"mime_type": "audio/mpeg", "data": base64.b64encode(res.content).decode(), "provider": "elevenlabs"}
+                return {
+                    "mime_type": "audio/mpeg",
+                    "data": base64.b64encode(res.content).decode(),
+                    "provider": "elevenlabs",
+                }
     except Exception:
         pass
     return {}
@@ -176,7 +188,11 @@ async def convert_voice(audio_bytes: bytes, mime: str, target_voice_id: str, mod
                 files={"audio": (f"clip.{ext}", audio_bytes, mime or "audio/webm")},
             )
             if res.status_code == 200:
-                return {"mime_type": "audio/mpeg", "data": base64.b64encode(res.content).decode(), "provider": "elevenlabs"}
+                return {
+                    "mime_type": "audio/mpeg",
+                    "data": base64.b64encode(res.content).decode(),
+                    "provider": "elevenlabs",
+                }
             return {"error": f"Voice conversion failed ({res.status_code}): {res.text[:200]}"}
     except Exception as e:
         return {"error": f"Voice conversion error: {e}"}
@@ -235,6 +251,7 @@ async def calibration_script(focus: str = "") -> str:
     user = f"Focus areas: {focus}" if focus else "General calibration script."
     try:
         from app.core.llm_engine import query_best_llm
+
         result = await query_best_llm(user, system)
         script = (result.get("response") or "").strip()
         if len(script) > 120:
@@ -256,7 +273,16 @@ async def add_cloned_voice(samples: list[dict], name: str = "KUDOS") -> dict:
 
     files = []
     for i, s in enumerate(samples):
-        files.append((f"files", (f"sample_{i}.{s.get('mime','audio/webm').split('/')[-1].split(';')[0]}", s["data"], s.get("mime", "audio/webm"))))
+        files.append(
+            (
+                "files",
+                (
+                    f"sample_{i}.{s.get('mime', 'audio/webm').split('/')[-1].split(';')[0]}",
+                    s["data"],
+                    s.get("mime", "audio/webm"),
+                ),
+            )
+        )
     try:
         async with httpx.AsyncClient(timeout=120) as client:
             res = await client.post(

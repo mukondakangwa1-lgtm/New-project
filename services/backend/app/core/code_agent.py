@@ -3,21 +3,21 @@ KUDOS Code Agent — Autonomous improvement engine
 Analyzes the codebase, proposes improvements, waits for approval before committing.
 Only the superadmin can approve changes.
 """
+
 import os
 import re
 import subprocess
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
-
 
 # ──────────────────────────────────────────────
 # CHANGE PROPOSAL SYSTEM
 # ──────────────────────────────────────────────
 
+
 class ChangeProposal:
     """A proposed change to the codebase."""
-    
+
     def __init__(self, proposal_id: int, title: str, description: str, category: str):
         import uuid as uuid_mod
 
@@ -28,10 +28,10 @@ class ChangeProposal:
         self.category = category  # feature, fix, improvement, security, performance
         self.files_changed: list[dict] = []  # [{path, action, content_preview}]
         self.status = "pending"  # pending, approved, rejected, committed
-        self.created_at = datetime.now(timezone.utc)
-        self.reviewed_at: Optional[datetime] = None
-        self.commit_hash: Optional[str] = None
-        self.git_branch: Optional[str] = None
+        self.created_at = datetime.now(UTC)
+        self.reviewed_at: datetime | None = None
+        self.commit_hash: str | None = None
+        self.git_branch: str | None = None
 
 
 # In-memory proposal store
@@ -60,6 +60,7 @@ def get_repo_path() -> str:
 # CODEBASE ANALYSIS
 # ──────────────────────────────────────────────
 
+
 def analyze_codebase() -> dict:
     """Analyze the codebase and find improvement opportunities."""
     repo = get_repo_path()
@@ -74,7 +75,7 @@ def analyze_codebase() -> dict:
                 continue
             filepath = os.path.join(root, f)
             try:
-                with open(filepath, "r") as fh:
+                with open(filepath) as fh:
                     content = fh.read()
                     lines = content.split("\n")
                     stats["files"] += 1
@@ -88,48 +89,59 @@ def analyze_codebase() -> dict:
                     if "TODO" in content or "FIXME" in content:
                         for i, line in enumerate(lines):
                             if "TODO" in line or "FIXME" in line:
-                                issues.append({
-                                    "type": "todo",
-                                    "file": rel_path,
-                                    "line": i + 1,
-                                    "text": line.strip()[:100],
-                                })
+                                issues.append(
+                                    {
+                                        "type": "todo",
+                                        "file": rel_path,
+                                        "line": i + 1,
+                                        "text": line.strip()[:100],
+                                    }
+                                )
 
                     # Check for long functions
-                    func_starts = [i for i, l in enumerate(lines) if re.match(r"^def ", l)]
+                    func_starts = [i for i, line in enumerate(lines) if re.match(r"^def ", line)]
                     for start in func_starts:
                         # Find end of function
                         end = start + 1
                         while end < len(lines) and (lines[end].startswith("    ") or lines[end].strip() == ""):
                             end += 1
                         if end - start > 100:
-                            issues.append({
-                                "type": "long_function",
-                                "file": rel_path,
-                                "line": start + 1,
-                                "text": f"Function is {end - start} lines (consider splitting)",
-                            })
+                            issues.append(
+                                {
+                                    "type": "long_function",
+                                    "file": rel_path,
+                                    "line": start + 1,
+                                    "text": f"Function is {end - start} lines (consider splitting)",
+                                }
+                            )
 
                     # Check for missing docstrings
                     for i, line in enumerate(lines):
-                        if re.match(r"^class ", line) or re.match(r"^def ", line):
-                            if i + 1 < len(lines) and '"""' not in lines[i + 1]:
-                                issues.append({
+                        if (
+                            (re.match(r"^class ", line) or re.match(r"^def ", line))
+                            and i + 1 < len(lines)
+                            and '"""' not in lines[i + 1]
+                        ):
+                            issues.append(
+                                {
                                     "type": "missing_docstring",
                                     "file": rel_path,
                                     "line": i + 1,
                                     "text": line.strip()[:60],
-                                })
+                                }
+                            )
 
                     # Check for hardcoded values
                     for i, line in enumerate(lines):
                         if re.search(r'["\']localhost:\d+["\']', line):
-                            issues.append({
-                                "type": "hardcoded",
-                                "file": rel_path,
-                                "line": i + 1,
-                                "text": line.strip()[:80],
-                            })
+                            issues.append(
+                                {
+                                    "type": "hardcoded",
+                                    "file": rel_path,
+                                    "line": i + 1,
+                                    "text": line.strip()[:80],
+                                }
+                            )
             except Exception:
                 continue
 
@@ -141,7 +153,7 @@ def analyze_codebase() -> dict:
                 continue
             filepath = os.path.join(root, f)
             try:
-                with open(filepath, "r") as fh:
+                with open(filepath) as fh:
                     content = fh.read()
                     lines = content.split("\n")
                     stats["files"] += 1
@@ -152,22 +164,26 @@ def analyze_codebase() -> dict:
                     # Check for TODO/FIXME
                     for i, line in enumerate(lines):
                         if "TODO" in line or "FIXME" in line:
-                            issues.append({
-                                "type": "todo",
-                                "file": rel_path,
-                                "line": i + 1,
-                                "text": line.strip()[:100],
-                            })
+                            issues.append(
+                                {
+                                    "type": "todo",
+                                    "file": rel_path,
+                                    "line": i + 1,
+                                    "text": line.strip()[:100],
+                                }
+                            )
 
                     # Check for console.log left in
                     for i, line in enumerate(lines):
                         if "console.log" in line and "debug" not in line.lower():
-                            issues.append({
-                                "type": "debug_code",
-                                "file": rel_path,
-                                "line": i + 1,
-                                "text": line.strip()[:80],
-                            })
+                            issues.append(
+                                {
+                                    "type": "debug_code",
+                                    "file": rel_path,
+                                    "line": i + 1,
+                                    "text": line.strip()[:80],
+                                }
+                            )
             except Exception:
                 continue
 
@@ -181,6 +197,7 @@ def analyze_codebase() -> dict:
 # ──────────────────────────────────────────────
 # IMPROVEMENT GENERATION
 # ──────────────────────────────────────────────
+
 
 def generate_improvements() -> list[dict]:
     """Generate improvement proposals based on codebase analysis."""
@@ -198,92 +215,110 @@ def generate_improvements() -> list[dict]:
     # Generate suggestions
     if "missing_docstring" in issue_types:
         count = len(issue_types["missing_docstring"])
-        files = set(i["file"] for i in issue_types["missing_docstring"])
-        suggestions.append({
-            "title": f"Add docstrings to {count} functions/classes",
-            "description": f"Missing docstrings in {len(files)} files. Adding docstrings improves code readability and auto-generated documentation.",
-            "category": "improvement",
-            "impact": "medium",
-            "files": list(files)[:10],
-            "auto_fixable": True,
-        })
+        files = {i["file"] for i in issue_types["missing_docstring"]}
+        suggestions.append(
+            {
+                "title": f"Add docstrings to {count} functions/classes",
+                "description": f"Missing docstrings in {len(files)} files. Adding docstrings improves code readability and auto-generated documentation.",  # noqa: E501
+                "category": "improvement",
+                "impact": "medium",
+                "files": list(files)[:10],
+                "auto_fixable": True,
+            }
+        )
 
     if "long_function" in issue_types:
-        suggestions.append({
-            "title": f"Refactor {len(issue_types['long_function'])} long functions",
-            "description": "Functions over 100 lines should be split into smaller, more focused functions.",
-            "category": "improvement",
-            "impact": "high",
-            "files": list(set(i["file"] for i in issue_types["long_function"])),
-            "auto_fixable": False,
-        })
+        suggestions.append(
+            {
+                "title": f"Refactor {len(issue_types['long_function'])} long functions",
+                "description": "Functions over 100 lines should be split into smaller, more focused functions.",
+                "category": "improvement",
+                "impact": "high",
+                "files": list({i["file"] for i in issue_types["long_function"]}),
+                "auto_fixable": False,
+            }
+        )
 
     if "todo" in issue_types:
-        suggestions.append({
-            "title": f"Address {len(issue_types['todo'])} TODO/FIXME items",
-            "description": "Unfinished work items that should be completed or removed.",
-            "category": "fix",
-            "impact": "medium",
-            "files": list(set(i["file"] for i in issue_types["todo"])),
-            "auto_fixable": False,
-        })
+        suggestions.append(
+            {
+                "title": f"Address {len(issue_types['todo'])} TODO/FIXME items",
+                "description": "Unfinished work items that should be completed or removed.",
+                "category": "fix",
+                "impact": "medium",
+                "files": list({i["file"] for i in issue_types["todo"]}),
+                "auto_fixable": False,
+            }
+        )
 
     if "debug_code" in issue_types:
-        suggestions.append({
-            "title": f"Remove {len(issue_types['debug_code'])} console.log statements",
-            "description": "Debug logging left in production code.",
-            "category": "cleanup",
-            "impact": "low",
-            "files": list(set(i["file"] for i in issue_types["debug_code"])),
-            "auto_fixable": True,
-        })
+        suggestions.append(
+            {
+                "title": f"Remove {len(issue_types['debug_code'])} console.log statements",
+                "description": "Debug logging left in production code.",
+                "category": "cleanup",
+                "impact": "low",
+                "files": list({i["file"] for i in issue_types["debug_code"]}),
+                "auto_fixable": True,
+            }
+        )
 
     if "hardcoded" in issue_types:
-        suggestions.append({
-            "title": f"Extract {len(issue_types['hardcoded'])} hardcoded values",
-            "description": "Hardcoded URLs/ports should be moved to environment variables or config.",
-            "category": "improvement",
-            "impact": "medium",
-            "files": list(set(i["file"] for i in issue_types["hardcoded"])),
-            "auto_fixable": False,
-        })
+        suggestions.append(
+            {
+                "title": f"Extract {len(issue_types['hardcoded'])} hardcoded values",
+                "description": "Hardcoded URLs/ports should be moved to environment variables or config.",
+                "category": "improvement",
+                "impact": "medium",
+                "files": list({i["file"] for i in issue_types["hardcoded"]}),
+                "auto_fixable": False,
+            }
+        )
 
     # General suggestions
-    suggestions.append({
-        "title": "Add API rate limiting",
-        "description": "Protect endpoints from abuse by adding rate limiting middleware.",
-        "category": "security",
-        "impact": "high",
-        "files": ["services/backend/app/main.py"],
-        "auto_fixable": True,
-    })
+    suggestions.append(
+        {
+            "title": "Add API rate limiting",
+            "description": "Protect endpoints from abuse by adding rate limiting middleware.",
+            "category": "security",
+            "impact": "high",
+            "files": ["services/backend/app/main.py"],
+            "auto_fixable": True,
+        }
+    )
 
-    suggestions.append({
-        "title": "Add database connection pooling",
-        "description": "Use connection pooling for better database performance under load.",
-        "category": "performance",
-        "impact": "medium",
-        "files": ["services/backend/app/core/database.py"],
-        "auto_fixable": True,
-    })
+    suggestions.append(
+        {
+            "title": "Add database connection pooling",
+            "description": "Use connection pooling for better database performance under load.",
+            "category": "performance",
+            "impact": "medium",
+            "files": ["services/backend/app/core/database.py"],
+            "auto_fixable": True,
+        }
+    )
 
-    suggestions.append({
-        "title": "Add input validation middleware",
-        "description": "Add request validation and sanitization middleware for security.",
-        "category": "security",
-        "impact": "high",
-        "files": ["services/backend/app/main.py"],
-        "auto_fixable": True,
-    })
+    suggestions.append(
+        {
+            "title": "Add input validation middleware",
+            "description": "Add request validation and sanitization middleware for security.",
+            "category": "security",
+            "impact": "high",
+            "files": ["services/backend/app/main.py"],
+            "auto_fixable": True,
+        }
+    )
 
-    suggestions.append({
-        "title": "Add health check endpoint improvements",
-        "description": "Add database connectivity check, memory usage, and uptime to health endpoint.",
-        "category": "improvement",
-        "impact": "low",
-        "files": ["services/backend/app/api/v1/endpoints/health.py"],
-        "auto_fixable": True,
-    })
+    suggestions.append(
+        {
+            "title": "Add health check endpoint improvements",
+            "description": "Add database connectivity check, memory usage, and uptime to health endpoint.",
+            "category": "improvement",
+            "impact": "low",
+            "files": ["services/backend/app/api/v1/endpoints/health.py"],
+            "auto_fixable": True,
+        }
+    )
 
     return suggestions
 
@@ -292,7 +327,10 @@ def generate_improvements() -> list[dict]:
 # PROPOSAL MANAGEMENT
 # ──────────────────────────────────────────────
 
-def create_proposal(title: str, description: str, category: str, file_changes: list[dict] = None) -> ChangeProposal:
+
+def create_proposal(
+    title: str, description: str, category: str, file_changes: list[dict] | None = None
+) -> ChangeProposal:
     """Create a new change proposal and mirror it to SQLite (Phase 4)."""
     import json
 
@@ -357,24 +395,26 @@ def _sync_proposal_row(proposal: "ChangeProposal") -> None:
         pass
 
 
-def get_proposals(status: Optional[str] = None) -> list[dict]:
+def get_proposals(status: str | None = None) -> list[dict]:
     """Get all proposals, optionally filtered by status."""
     results = []
     for p in _proposals:
         if status and p.status != status:
             continue
-        results.append({
-            "id": p.id,
-            "title": p.title,
-            "description": p.description,
-            "category": p.category,
-            "status": p.status,
-            "files_changed": p.files_changed,
-            "created_at": p.created_at.isoformat(),
-            "reviewed_at": p.reviewed_at.isoformat() if p.reviewed_at else None,
-            "commit_hash": p.commit_hash,
-            "git_branch": p.git_branch,
-        })
+        results.append(
+            {
+                "id": p.id,
+                "title": p.title,
+                "description": p.description,
+                "category": p.category,
+                "status": p.status,
+                "files_changed": p.files_changed,
+                "created_at": p.created_at.isoformat(),
+                "reviewed_at": p.reviewed_at.isoformat() if p.reviewed_at else None,
+                "commit_hash": p.commit_hash,
+                "git_branch": p.git_branch,
+            }
+        )
     return results
 
 
@@ -385,7 +425,7 @@ def approve_proposal(proposal_id: int) -> dict:
             if p.status != "pending":
                 return {"error": f"Proposal is already {p.status}"}
             p.status = "approved"
-            p.reviewed_at = datetime.now(timezone.utc)
+            p.reviewed_at = datetime.now(UTC)
             _sync_proposal_row(p)
             return {"status": "approved", "id": p.id, "title": p.title}
     return {"error": "Proposal not found"}
@@ -398,7 +438,7 @@ def reject_proposal(proposal_id: int) -> dict:
             if p.status != "pending":
                 return {"error": f"Proposal is already {p.status}"}
             p.status = "rejected"
-            p.reviewed_at = datetime.now(timezone.utc)
+            p.reviewed_at = datetime.now(UTC)
             _sync_proposal_row(p)
             return {"status": "rejected", "id": p.id, "title": p.title}
     return {"error": "Proposal not found"}
@@ -408,21 +448,25 @@ def reject_proposal(proposal_id: int) -> dict:
 # GIT OPERATIONS (safe workflow via gitops.py)
 # ──────────────────────────────────────────────
 
+
 def _repo() -> str:
     return get_repo_path()
 
 
 def get_git_status() -> dict:
     """Get current git status with branch protection info."""
-    from app.core import gitops
     from pathlib import Path
+
+    from app.core import gitops
 
     repo = Path(_repo())
     state = gitops.repo_state(repo)
-    log = subprocess.run(["git", "log", "--oneline", "-5"], cwd=repo,
-                         capture_output=True, text=True, timeout=30)
-    diff_stat = subprocess.run(["git", "diff", "--stat"], cwd=repo,
-                               capture_output=True, text=True, timeout=30)
+    log = subprocess.run(
+        ["git", "log", "--oneline", "-5"], cwd=repo, capture_output=True, text=True, timeout=30, check=False
+    )
+    diff_stat = subprocess.run(
+        ["git", "diff", "--stat"], cwd=repo, capture_output=True, text=True, timeout=30, check=False
+    )
 
     return {
         "branch": state.branch,
@@ -446,8 +490,9 @@ def commit_approved_changes(proposal_id: int, approval: bool = False) -> dict:
     Only the files listed in the proposal are staged — never ``git add -A``.
     Protected branches require explicit approval.
     """
-    from app.core import gitops
     from pathlib import Path
+
+    from app.core import gitops
 
     proposal = None
     for p in _proposals:
@@ -467,7 +512,7 @@ def commit_approved_changes(proposal_id: int, approval: bool = False) -> dict:
     repo = Path(_repo())
     try:
         gitops.assert_task_branch(repo, approval=approval)
-        commit_msg = f"kudos-improve: {proposal.title}\n\n{proposal.description}\n\nCategory: {proposal.category}\nApproved by: superadmin"
+        commit_msg = f"kudos-improve: {proposal.title}\n\n{proposal.description}\n\nCategory: {proposal.category}\nApproved by: superadmin"  # noqa: E501
         result = gitops.commit(repo, commit_msg, files, repo_root=repo)
     except gitops.GitOpsError as exc:
         return {"error": str(exc)}
@@ -486,8 +531,9 @@ def commit_approved_changes(proposal_id: int, approval: bool = False) -> dict:
 
 def push_changes(approved: bool = False) -> dict:
     """Push committed changes to remote (requires approval, no force)."""
-    from app.core import gitops
     from pathlib import Path
+
+    from app.core import gitops
 
     try:
         result = gitops.push(Path(_repo()), approved=approved)
@@ -498,8 +544,9 @@ def push_changes(approved: bool = False) -> dict:
 
 def get_git_diff() -> dict:
     """Get staged and unstaged diffs separately."""
-    from app.core import gitops
     from pathlib import Path
+
+    from app.core import gitops
 
     return gitops.diff_sections(Path(_repo()))
 
@@ -507,6 +554,7 @@ def get_git_diff() -> dict:
 # ──────────────────────────────────────────────
 # AUTO-IMPROVEMENT ENGINE
 # ──────────────────────────────────────────────
+
 
 def get_auto_improvement_status() -> dict:
     """Get status of auto-improvement engine."""

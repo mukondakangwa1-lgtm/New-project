@@ -15,11 +15,12 @@ Workspaces are ephemeral: they live under ``.kudos_workspaces/`` in the
 repository and are removed on ``destroy_workspace`` or when the process exits
 (see ``cleanup_all``).
 """
+
 import os
 import shutil
 import subprocess
+from datetime import UTC
 from pathlib import Path
-from typing import Optional
 
 WORKSPACES_DIR_NAME = ".kudos_workspaces"
 
@@ -67,8 +68,7 @@ def _limit_resources() -> None:
         pass
 
 
-def _run(cwd: Path, args: list[str], timeout: int = 60,
-         env: dict | None = None) -> subprocess.CompletedProcess:
+def _run(cwd: Path, args: list[str], timeout: int = 60, env: dict | None = None) -> subprocess.CompletedProcess:
     """Run a command inside a workspace with limits and a timeout.
 
     Secrets are always scrubbed from the inherited environment; ``env`` can
@@ -82,13 +82,14 @@ def _run(cwd: Path, args: list[str], timeout: int = 60,
         timeout=timeout,
         preexec_fn=_limit_resources,
         env=env if env is not None else _sandbox_env(),
+        check=False,
     )
 
 
 class Workspace:
     """A disposable git worktree for one agent task."""
 
-    def __init__(self, repo_root: str | Path, name: str, base_commit: Optional[str] = None):
+    def __init__(self, repo_root: str | Path, name: str, base_commit: str | None = None):
         self.repo_root = Path(repo_root).resolve()
         self.name = name
         self.path = self.repo_root / WORKSPACES_DIR_NAME / name
@@ -152,7 +153,7 @@ class Workspace:
     # ── git helpers ────────────────────────────────────────────
 
     def _git(self, args: list[str], timeout: int = 60) -> subprocess.CompletedProcess:
-        return _run(self.path, ["git"] + args, timeout=timeout)
+        return _run(self.path, ["git", *args], timeout=timeout)
 
     def status(self) -> str:
         """Short porcelain status of the workspace."""
@@ -211,9 +212,9 @@ class Workspace:
 
     @staticmethod
     def _now() -> str:
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        return datetime.now(timezone.utc).isoformat()
+        return datetime.now(UTC).isoformat()
 
     def __repr__(self) -> str:
         return f"<Workspace {self.name} at {self.path}>"

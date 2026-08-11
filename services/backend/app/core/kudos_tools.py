@@ -9,11 +9,12 @@ them to execute commands (TOOL_CALL marker). Safety rules:
 - Auth values are stored but never returned to clients or put in LLM context.
 - Responses are truncated and secret-shaped values are scrubbed.
 """
+
 import ipaddress
 import json
 import socket
 import urllib.parse
-from typing import Optional
+from datetime import UTC
 
 import httpx
 
@@ -33,7 +34,7 @@ def _ssrf_ok(url: str) -> bool:
         info = socket.getaddrinfo(host, None)
     except Exception:
         return False
-    for family, _, _, _, sockaddr in info[:4]:
+    for _family, _, _, _, sockaddr in info[:4]:
         try:
             ip = ipaddress.ip_address(sockaddr[0])
         except ValueError:
@@ -43,9 +44,18 @@ def _ssrf_ok(url: str) -> bool:
     return True
 
 
-def register_tool(db, name: str, method: str, url: str, headers: str = "{}",
-                  body_schema: str = "{}", auth_type: str = "none", auth_value: str = "",
-                  auth_header_name: str = "Authorization", description: str = "") -> dict:
+def register_tool(
+    db,
+    name: str,
+    method: str,
+    url: str,
+    headers: str = "{}",
+    body_schema: str = "{}",
+    auth_type: str = "none",
+    auth_value: str = "",
+    auth_header_name: str = "Authorization",
+    description: str = "",
+) -> dict:
     """Create or update a registered tool. Returns a public-safe description."""
     from app.models import KudosTool
 
@@ -87,7 +97,7 @@ def list_tools_public(db) -> list[dict]:
     """Tools without any secret material (auth values never exposed)."""
     from app.models import KudosTool
 
-    tools = db.query(KudosTool).filter(KudosTool.enabled == True).order_by(KudosTool.name).all()  # noqa: E712
+    tools = db.query(KudosTool).filter(KudosTool.enabled).order_by(KudosTool.name).all()
     return [
         {
             "id": t.id,
@@ -105,12 +115,13 @@ def list_tools_public(db) -> list[dict]:
     ]
 
 
-async def call_tool(db, tool_id: int, args: Optional[dict] = None) -> dict:
+async def call_tool(db, tool_id: int, args: dict | None = None) -> dict:
     """Execute a registered tool with the given args. Never returns secrets."""
-    from app.models import KudosTool
-    from datetime import datetime, timezone
+    from datetime import datetime
 
-    tool = db.query(KudosTool).filter(KudosTool.id == tool_id, KudosTool.enabled == True).first()  # noqa: E712
+    from app.models import KudosTool
+
+    tool = db.query(KudosTool).filter(KudosTool.id == tool_id, KudosTool.enabled).first()
     if not tool:
         return {"error": "Tool not found or disabled"}
 
@@ -155,9 +166,10 @@ async def call_tool(db, tool_id: int, args: Optional[dict] = None) -> dict:
     text = res.text or ""
     text = text[: settings.TOOL_CALL_MAX_RESPONSE_CHARS]
     from app.core.privacy_guard import scrub_response
+
     text = scrub_response(text, allow_emails=True)
 
-    tool.last_used_at = datetime.now(timezone.utc)
+    tool.last_used_at = datetime.now(UTC)
     db.commit()
 
     parsed = None
@@ -171,7 +183,11 @@ async def call_tool(db, tool_id: int, args: Optional[dict] = None) -> dict:
         except Exception:
             parsed = None
 
-    return {"ok": res.status_code < 400, "status_code": res.status_code, "response": parsed if parsed is not None else text}
+    return {
+        "ok": res.status_code < 400,
+        "status_code": res.status_code,
+        "response": parsed if parsed is not None else text,
+    }
 
 
 async def handle_tool_marker(db, line: str, current_user) -> dict:
@@ -192,8 +208,5 @@ async def handle_tool_marker(db, line: str, current_user) -> dict:
     if result.get("error"):
         return {"reply": f"Tool '{name}' failed: {result['error']}"}
     resp = result.get("response")
-    if isinstance(resp, dict):
-        summary = json.dumps(resp, ensure_ascii=False)[:1500]
-    else:
-        summary = str(resp)[:1500]
+    summary = json.dumps(resp, ensure_ascii=False)[:1500] if isinstance(resp, dict) else str(resp)[:1500]
     return {"reply": f"I called **{name}** ({result.get('status_code')}): {summary}"}

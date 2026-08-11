@@ -14,10 +14,11 @@ and every path goes through :mod:`app.core.pathguard`. Supported operations:
 - move_file          — move/rename a file
 - verify_changed     — confirm exactly the intended files changed
 """
+
 import ast
 import re
 import shutil
-from typing import Iterable, Optional
+from collections.abc import Iterable
 
 from app.core.pathguard import PathError, resolve_inside
 from app.core.workspace import Workspace
@@ -59,7 +60,7 @@ def apply_patch(ws: Workspace, patch_text: str) -> dict:
         try:
             resolve_inside(ws.path, path, allow_missing=True)
         except PathError as exc:
-            raise EditError(f"Patch touches a disallowed path: {exc}")
+            raise EditError(f"Patch touches a disallowed path: {exc}") from exc
 
     check = _run_stdin(ws, ["git", "apply", "--check", "--whitespace=nowarn", "-"], patch_text)
     if check.returncode != 0:
@@ -84,12 +85,14 @@ def _run_stdin(ws: Workspace, args: list[str], stdin_text: str):
         text=True,
         timeout=60,
         preexec_fn=_limit_resources,
+        check=False,
     )
 
 
 # ──────────────────────────────────────────────
 # SYMBOL EDITS
 # ──────────────────────────────────────────────
+
 
 def _read(ws: Workspace, relpath: str) -> str:
     path = resolve_inside(ws.path, relpath)
@@ -103,7 +106,7 @@ def _write(ws: Workspace, relpath: str, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
-def _python_symbol_segment(content: str, symbol: str) -> Optional[tuple[int, int, str]]:
+def _python_symbol_segment(content: str, symbol: str) -> tuple[int, int, str] | None:
     """Return (start, end, text) of a top-level def/class, or None."""
     tree = ast.parse(content)
     for node in tree.body:
@@ -128,7 +131,7 @@ def replace_symbol(ws: Workspace, relpath: str, symbol: str, new_definition: str
         try:
             segment = _python_symbol_segment(content, symbol)
         except SyntaxError as exc:
-            raise EditError(f"Cannot parse {relpath}: {exc}")
+            raise EditError(f"Cannot parse {relpath}: {exc}") from exc
     else:
         segment = _ts_symbol_segment(content, symbol)
 
@@ -142,7 +145,7 @@ def replace_symbol(ws: Workspace, relpath: str, symbol: str, new_definition: str
     return {"replaced": symbol, "file": relpath}
 
 
-def _ts_symbol_segment(content: str, symbol: str) -> Optional[tuple[int, int, str]]:
+def _ts_symbol_segment(content: str, symbol: str) -> tuple[int, int, str] | None:
     """Find a top-level TS/JS definition block by name."""
     patterns = [
         rf"^(export\s+)?(?:async\s+)?function\s+{re.escape(symbol)}\s*\(",  # function foo(
@@ -162,7 +165,7 @@ def _ts_symbol_segment(content: str, symbol: str) -> Optional[tuple[int, int, st
 def _block_end(lines: list[str], start: int) -> int:
     """End index of the block starting at ``start`` (brace/bracket aware)."""
     depth = 0
-    in_string: Optional[str] = None
+    in_string: str | None = None
     for i in range(start, len(lines)):
         line = lines[i]
         for ch in line:
@@ -185,6 +188,7 @@ def _block_end(lines: list[str], start: int) -> int:
 # RENAME
 # ──────────────────────────────────────────────
 
+
 def rename_symbol(ws: Workspace, relpath: str, old_name: str, new_name: str) -> dict:
     """Rename ``old_name`` to ``new_name`` in one file (word boundaries).
 
@@ -202,7 +206,7 @@ def rename_symbol(ws: Workspace, relpath: str, old_name: str, new_name: str) -> 
     return {"renamed": old_name, "to": new_name, "file": relpath}
 
 
-def search_references(ws: Workspace, symbol: str, relpath: Optional[str] = None) -> list[dict]:
+def search_references(ws: Workspace, symbol: str, relpath: str | None = None) -> list[dict]:
     """Find every reference to ``symbol`` (ripgrep, grep fallback)."""
     target = resolve_inside(ws.path, relpath) if relpath else ws.path
     pattern = r"\b" + re.escape(symbol) + r"\b"
@@ -235,12 +239,13 @@ def _have_rg() -> bool:
 # FILE OPERATIONS
 # ──────────────────────────────────────────────
 
+
 def create_file(ws: Workspace, relpath: str, content: str) -> dict:
     """Create a file inside the workspace (parent dirs created)."""
     try:
         path = resolve_inside(ws.path, relpath, allow_missing=True)
     except PathError as exc:
-        raise EditError(str(exc))
+        raise EditError(str(exc)) from exc
     if path.exists():
         raise EditError(f"File already exists: {relpath}")
     path.parent.mkdir(parents=True, exist_ok=True)

@@ -9,6 +9,7 @@ Keeps KUDOS safe and protective of registered users' data:
    (API keys, tokens, passwords, private keys, bearer headers, internal
    credentials) before they reach the user or the frontend.
 """
+
 import re
 
 # ──────────────────────────────────────────────
@@ -48,12 +49,12 @@ SECURITY & PRIVACY (non-negotiable, always obey):
 
 _SECRET_PATTERNS = [
     re.compile(r"(?i)\b(bearer|token|api[_-]?key|secret|password|passwd|pwd|auth)\s*[:=]\s*\S{6,}"),
-    re.compile(r"ghp_[A-Za-z0-9]{20,}"),                      # GitHub PAT
-    re.compile(r"sk-[A-Za-z0-9]{20,}"),                      # OpenAI-style
-    re.compile(r"AIza[A-Za-z0-9_\-]{20,}"),                  # Google API key
+    re.compile(r"ghp_[A-Za-z0-9]{20,}"),  # GitHub PAT
+    re.compile(r"sk-[A-Za-z0-9]{20,}"),  # OpenAI-style
+    re.compile(r"AIza[A-Za-z0-9_\-]{20,}"),  # Google API key
     re.compile(r"-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----[\s\S]*?-----END (RSA |EC |OPENSSH )?PRIVATE KEY-----"),
     re.compile(r"(?i)tsk-[A-Za-z0-9]{20,}"),
-    re.compile(r"AKIA[0-9A-Z]{16}"),                          # AWS access key
+    re.compile(r"AKIA[0-9A-Z]{16}"),  # AWS access key
     re.compile(r"(?i)\bBearer [A-Za-z0-9._\-]{16,}\b"),
     re.compile(r"(?i)\bx-requested-with[:=]\s*[^\s,]+"),
 ]

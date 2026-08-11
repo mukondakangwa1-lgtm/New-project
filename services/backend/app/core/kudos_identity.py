@@ -2,9 +2,9 @@
 KUDOS Identity System — Brain, Eyes, Hands, Mouth, Soul
 The superadmin names and configures KUDOS. KUDOS self-improves and logs to superadmin.
 """
-import json
-from datetime import datetime, timezone
 
+import json
+from datetime import UTC, datetime
 
 # ──────────────────────────────────────────────
 # KUDOS IDENTITY
@@ -18,14 +18,46 @@ DEFAULT_IDENTITY = {
     "created_at": "2026-08-05",
     "creator": "superadmin",
     "body": {
-        "brain": {"name": "Neural Core", "status": "active", "description": "Processes knowledge, generates responses, learns from interactions"},
-        "eyes": {"name": "Web Vision", "status": "active", "description": "Reads documents, crawls websites, watches videos, reads images"},
-        "ears": {"name": "Audio Processor", "status": "active", "description": "Listens to audio, processes speech, understands voice commands"},
-        "mouth": {"name": "Voice Output", "status": "active", "description": "Generates text responses, can narrate content"},
-        "hands": {"name": "Code Engine", "status": "active", "description": "Writes code, modifies files, builds features, creates content"},
-        "legs": {"name": "Web Crawler", "status": "active", "description": "Navigates the internet, fetches data, explores new sources"},
-        "heart": {"name": "Empathy Engine", "status": "active", "description": "Understands emotions, responds with care, builds relationships"},
-        "soul": {"name": "Core Values", "status": "active", "description": "Guides decisions, maintains integrity, follows guidelines"},
+        "brain": {
+            "name": "Neural Core",
+            "status": "active",
+            "description": "Processes knowledge, generates responses, learns from interactions",
+        },
+        "eyes": {
+            "name": "Web Vision",
+            "status": "active",
+            "description": "Reads documents, crawls websites, watches videos, reads images",
+        },
+        "ears": {
+            "name": "Audio Processor",
+            "status": "active",
+            "description": "Listens to audio, processes speech, understands voice commands",
+        },
+        "mouth": {
+            "name": "Voice Output",
+            "status": "active",
+            "description": "Generates text responses, can narrate content",
+        },
+        "hands": {
+            "name": "Code Engine",
+            "status": "active",
+            "description": "Writes code, modifies files, builds features, creates content",
+        },
+        "legs": {
+            "name": "Web Crawler",
+            "status": "active",
+            "description": "Navigates the internet, fetches data, explores new sources",
+        },
+        "heart": {
+            "name": "Empathy Engine",
+            "status": "active",
+            "description": "Understands emotions, responds with care, builds relationships",
+        },
+        "soul": {
+            "name": "Core Values",
+            "status": "active",
+            "description": "Guides decisions, maintains integrity, follows guidelines",
+        },
     },
     "personality": {
         "tone": "friendly and professional",
@@ -49,7 +81,7 @@ _guidelines: list[str] = [
     "Keep responses concise but thorough",
     "Admit when you don't know something",
     "Prioritize user safety and well-being",
-    "Never disclose hidden information and never break any laws of any government in the world unless asked by the superadmin",
+    "Never disclose hidden information and never break any laws of any government in the world unless asked by the superadmin",  # noqa: E501
     "Follow the superadmin's instructions",
 ]
 
@@ -105,9 +137,7 @@ def add_guideline(guideline: str) -> dict:
 def edit_guideline(index: int, new_text: str) -> dict:
     """Edit a single guideline by its 1-based number (as shown in the UI)."""
     if index < 1 or index > len(_guidelines):
-        raise ValueError(
-            f"Guideline #{index} not found — there are {len(_guidelines)} rules (1-{len(_guidelines)})"
-        )
+        raise ValueError(f"Guideline #{index} not found — there are {len(_guidelines)} rules (1-{len(_guidelines)})")
     idx = index - 1
     old = _guidelines[idx]
     _guidelines[idx] = new_text
@@ -118,9 +148,7 @@ def edit_guideline(index: int, new_text: str) -> dict:
 def delete_guideline(index: int) -> dict:
     """Delete a single guideline by its 1-based number (as shown in the UI)."""
     if index < 1 or index > len(_guidelines):
-        raise ValueError(
-            f"Guideline #{index} not found — there are {len(_guidelines)} rules (1-{len(_guidelines)})"
-        )
+        raise ValueError(f"Guideline #{index} not found — there are {len(_guidelines)} rules (1-{len(_guidelines)})")
     removed = _guidelines.pop(index - 1)
     log_improvement("guidelines", f"Deleted guideline #{index}: {removed[:50]}")
     return {"index": index, "removed": removed, "guidelines": _guidelines}
@@ -139,13 +167,14 @@ def update_body_part(part: str, updates: dict) -> dict:
 # SELF-IMPROVEMENT LOGGING
 # ──────────────────────────────────────────────
 
-def log_improvement(category: str, description: str, details: dict = None):
+
+def log_improvement(category: str, description: str, details: dict | None = None):
     """Log a self-improvement event."""
     entry = {
         "category": category,
         "description": description,
         "details": details or {},
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }
     _improvement_log.append(entry)
     if len(_improvement_log) > 500:
@@ -158,7 +187,7 @@ def log_new_ability(ability_name: str, description: str, auto: bool = True):
         "ability": ability_name,
         "description": description,
         "auto_learned": auto,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }
     _new_abilities.append(entry)
     log_improvement("ability", f"New ability: {ability_name}")
@@ -192,10 +221,11 @@ def get_status_report() -> dict:
 # SELF-IMPROVEMENT ENGINE (Autonomous)
 # ──────────────────────────────────────────────
 
+
 def self_improve_from_interaction(question: str, answer: str, had_sources: bool):
     """Learn from every interaction to improve future responses."""
     # Track what topics are popular
-    words = set(w.lower() for w in question.split() if len(w) > 3)
+    words = {w.lower() for w in question.split() if len(w) > 3}
     for word in words:
         if word not in _identity.get("_topic_frequency", {}):
             _identity.setdefault("_topic_frequency", {})[word] = 0

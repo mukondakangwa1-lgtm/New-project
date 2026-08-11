@@ -1,8 +1,8 @@
 """
 Digital Campus - Security Utilities
 """
+
 from datetime import UTC, datetime, timedelta
-from typing import Optional
 
 from fastapi import Response
 from jose import jwt
@@ -28,15 +28,13 @@ def get_password_hash(password: str) -> str:
 
 def create_access_token(
     data: dict,
-    expires_delta: Optional[timedelta] = None,
-    user_id: Optional[int] = None,
+    expires_delta: timedelta | None = None,
+    user_id: int | None = None,
 ) -> str:
     to_encode = data.copy()
     if user_id is not None:
         to_encode["user_id"] = int(user_id)
-    expire = datetime.now(UTC) + (
-        expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    )
+    expire = datetime.now(UTC) + (expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 

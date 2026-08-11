@@ -21,13 +21,14 @@ application code never branches on the backend for basic read/write.
 
 from __future__ import annotations
 
+import contextlib
 import io
 import os
 import time
 import uuid
+from collections.abc import Iterator
 from datetime import timedelta
 from pathlib import Path
-from typing import Iterator, Optional
 
 from app.core.config import settings
 from app.core.paths import project_root
@@ -43,11 +44,7 @@ class StorageUnavailableError(RuntimeError):
 
 
 def _minio_configured() -> bool:
-    return bool(
-        settings.MINIO_ENDPOINT
-        and settings.MINIO_ACCESS_KEY
-        and settings.MINIO_SECRET_KEY
-    )
+    return bool(settings.MINIO_ENDPOINT and settings.MINIO_ACCESS_KEY and settings.MINIO_SECRET_KEY)
 
 
 def backend_name() -> str:
@@ -76,9 +73,7 @@ _client = None
 
 def _check_key(key: str) -> None:
     if not key.startswith(BUCKET_PREFIXES):
-        raise StorageUnavailableError(
-            f"object key must live under {BUCKET_PREFIXES}: {key}"
-        )
+        raise StorageUnavailableError(f"object key must live under {BUCKET_PREFIXES}: {key}")
 
 
 def _get_client():
@@ -87,8 +82,7 @@ def _get_client():
     global _client
     if backend_name() != "minio":
         raise StorageUnavailableError(
-            "MinIO is not configured (set MINIO_ENDPOINT, MINIO_ACCESS_KEY, "
-            "MINIO_SECRET_KEY and STORAGE_BACKEND=minio)"
+            "MinIO is not configured (set MINIO_ENDPOINT, MINIO_ACCESS_KEY, MINIO_SECRET_KEY and STORAGE_BACKEND=minio)"
         )
     if not settings.MINIO_ENDPOINT:
         raise StorageUnavailableError("MINIO_ENDPOINT is empty")
@@ -97,9 +91,7 @@ def _get_client():
     try:
         from minio import Minio
     except ImportError as exc:  # pragma: no cover - dependency missing
-        raise StorageUnavailableError(
-            "minio SDK is not installed (pip install minio)"
-        ) from exc
+        raise StorageUnavailableError("minio SDK is not installed (pip install minio)") from exc
 
     _client = Minio(
         settings.MINIO_ENDPOINT,
@@ -114,9 +106,7 @@ def _get_client():
 def _local_path(key: str) -> Path:
     key = key.replace("/", os.sep)
     path = os.path.normpath(os.path.join(_local_dir(), key))
-    if not path == str(_local_dir()) and not path.startswith(
-        str(_local_dir()) + os.sep
-    ):
+    if not path == str(_local_dir()) and not path.startswith(str(_local_dir()) + os.sep):
         raise StorageUnavailableError(f"refusing unsafe storage key: {key}")
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -166,9 +156,7 @@ def ensure_buckets() -> bool:
 # ──────────────────────────────────────────────
 
 
-def upload_bytes(
-    key: str, data: bytes, content_type: str = "application/octet-stream"
-) -> None:
+def upload_bytes(key: str, data: bytes, content_type: str = "application/octet-stream") -> None:
     """Write an object; ``key`` must live under one of the bucket prefixes."""
     _check_key(key)
     if backend_name() == "minio":
@@ -221,10 +209,8 @@ def stream(key: str, chunk_size: int = 1024 * 1024) -> Iterator[bytes]:
 def delete(key: str) -> None:
     """Remove an object; missing objects are treated as success."""
     if backend_name() == "minio":
-        try:
+        with contextlib.suppress(Exception):
             _get_client().remove_object(settings.MINIO_BUCKET, key)
-        except Exception:
-            pass
     else:
         path = _local_path(key)
         if path.is_file():
@@ -241,7 +227,7 @@ def exists(key: str) -> bool:
     return _local_path(key).is_file()
 
 
-def presigned_url(key: str, expires_seconds: int = 15 * 60) -> Optional[str]:
+def presigned_url(key: str, expires_seconds: int = 15 * 60) -> str | None:
     """Short-lived GET URL for direct browser download (MinIO only)."""
     if backend_name() != "minio":
         return None
@@ -267,7 +253,7 @@ def new_key(prefix: str, filename: str = "") -> str:
     return f"{prefix}{uuid.uuid4().hex}{ext}"
 
 
-def local_path(key: str) -> Optional[Path]:
+def local_path(key: str) -> Path | None:
     """Expose the on-disk path for the local backend (None on MinIO)."""
     if backend_name() == "minio":
         return None
@@ -334,10 +320,8 @@ def usage() -> dict:
                 for fp in pdir.rglob("*"):
                     if fp.is_file():
                         objects += 1
-                        try:
+                        with contextlib.suppress(OSError):
                             bytes_ += fp.stat().st_size
-                        except OSError:
-                            pass
             by_prefix[prefix] = {"objects": objects, "bytes": bytes_}
             total_objects += objects
             total_bytes += bytes_

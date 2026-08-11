@@ -8,14 +8,14 @@ it and keeps KUDOS's memory in sync (system-layer preference memories).
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List
+from typing import Any
 
 from app.models import UserProfile
 
 TONE_STYLES = ("concise", "friendly", "detailed", "formal")
 VERBOSITY_LEVELS = ("brief", "normal", "detailed")
 
-DEFAULT_PROFILE: Dict[str, Any] = {
+DEFAULT_PROFILE: dict[str, Any] = {
     "tone": "friendly",
     "verbosity": "normal",
     "emoji_enabled": False,
@@ -24,7 +24,7 @@ DEFAULT_PROFILE: Dict[str, Any] = {
 }
 
 
-def default_profile() -> Dict[str, Any]:
+def default_profile() -> dict[str, Any]:
     return dict(DEFAULT_PROFILE)
 
 
@@ -33,7 +33,7 @@ def get_profile(db, user_id: int) -> UserProfile:
     return db.query(UserProfile).filter(UserProfile.user_id == user_id).first()
 
 
-def profile_dict(db, user_id: int) -> Dict[str, Any]:
+def profile_dict(db, user_id: int) -> dict[str, Any]:
     """Merged effective profile — defaults overlaid with saved values."""
     profile = get_profile(db, user_id)
     merged = default_profile()
@@ -43,7 +43,7 @@ def profile_dict(db, user_id: int) -> Dict[str, Any]:
     return merged
 
 
-def profile_to_dict(profile: UserProfile) -> Dict[str, Any]:
+def profile_to_dict(profile: UserProfile) -> dict[str, Any]:
     interests = []
     try:
         interests = json.loads(profile.interests or "[]")
@@ -59,7 +59,7 @@ def profile_to_dict(profile: UserProfile) -> Dict[str, Any]:
     }
 
 
-def save_profile(db, user_id: int, updates: Dict[str, Any]) -> UserProfile:
+def save_profile(db, user_id: int, updates: dict[str, Any]) -> UserProfile:
     """Create or update the user's profile. Unknown keys are ignored."""
     profile = get_profile(db, user_id)
     if profile is None:
@@ -95,9 +95,9 @@ def save_profile(db, user_id: int, updates: Dict[str, Any]) -> UserProfile:
     return profile
 
 
-def build_persona_instructions(profile: Dict[str, Any]) -> str:
+def build_persona_instructions(profile: dict[str, Any]) -> str:
     """System-prompt-ready instructions from an effective profile."""
-    sections: List[str] = []
+    sections: list[str] = []
 
     tone = profile.get("tone", "friendly")
     tone_lines = {

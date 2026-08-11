@@ -13,18 +13,19 @@ Policies honoured:
     user's private knowledge to another.
   * Only is_approved + is_active entries are ever retrievable or searched.
 """
+
 from __future__ import annotations
 
 import math
 import re
-from datetime import datetime, timezone
-from typing import Any, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy.orm import Session
 
 from app.core.kudos_brain import brain_terms
+from app.models import KudosDocument, KudosMemory, KudosWebKnowledge
 from app.models_extended import KudosVaultEntry
-from app.models import KudosDocument, KudosWebKnowledge, KudosMemory
 
 _SLUG_REGEX = re.compile(r"[^a-z0-9]+")
 _BM25_K1 = 1.2
@@ -40,12 +41,14 @@ def slugify(text: str, fallback: str = "entry") -> str:
 
 
 def _search_text(title: str, summary: str, content: str, tags: str) -> str:
-    return " ".join([
-        (title or "")[:300],
-        (summary or "")[:700],
-        (content or ""),
-        (tags or "").replace(",", " "),
-    ])
+    return " ".join(
+        [
+            (title or "")[:300],
+            (summary or "")[:700],
+            (content or ""),
+            (tags or "").replace(",", " "),
+        ]
+    )
 
 
 def _bm25_score(terms: list[str], doc_tokens: list[str], avgdl: float, doc_len: float, idf: dict[str, float]) -> float:
@@ -68,7 +71,7 @@ def _bm25_score(terms: list[str], doc_tokens: list[str], avgdl: float, doc_len: 
 def vault_search(
     db: Session,
     query: str = "",
-    user_id: Optional[int] = None,
+    user_id: int | None = None,
     category: str = "",
     source_type: str = "",
     q: str = "",  # alias for query
@@ -115,10 +118,7 @@ def vault_search(
             for t in set(toks):
                 corpus_terms[t] = corpus_terms.get(t, 0) + 1
         n = len(docs)
-        idf = {
-            t: math.log(1 + (n - df + 0.5) / (df + 0.5))
-            for t, df in corpus_terms.items()
-        }
+        idf = {t: math.log(1 + (n - df + 0.5) / (df + 0.5)) for t, df in corpus_terms.items()}
         avgdl = sum(len(d["toks"]) for d in docs) / max(n, 1)
         scored = []
         for d in docs:
@@ -126,13 +126,19 @@ def vault_search(
             if sc > 0:
                 scored.append((sc, d["row"]))
         scored.sort(key=lambda x: (-x[0], -x[1].importance))
-        for sc, row in scored[offset: offset + limit]:
+        for sc, row in scored[offset : offset + limit]:
             d = _as_dict(row)
             d["score"] = round(sc, 4)
             results.append(d)
     else:
-        ordered = sorted(visible, key=lambda r: (-(r.importance or 0), -((r.updated_at or datetime.min).timestamp() or r.id)))
-        for row in ordered[offset: offset + limit]:
+        ordered = sorted(
+            visible,
+            key=lambda r: (
+                -(r.importance or 0),
+                -((r.updated_at or datetime.min.replace(tzinfo=UTC)).timestamp() or r.id),
+            ),
+        )
+        for row in ordered[offset : offset + limit]:
             results.append(_as_dict(row))
 
     return results
@@ -162,7 +168,7 @@ def _as_dict(row: KudosVaultEntry) -> dict:
     }
 
 
-def get_entry(db: Session, entry_id: int) -> Optional[KudosVaultEntry]:
+def get_entry(db: Session, entry_id: int) -> KudosVaultEntry | None:
     return db.query(KudosVaultEntry).filter(KudosVaultEntry.id == entry_id).first()
 
 
@@ -175,12 +181,12 @@ def upsert_curated(
     tags: str = "",
     summary: str = "",
     importance: int = 0,
-    author_id: Optional[int] = None,
+    author_id: int | None = None,
     key: str = "",
-    source_id: Optional[int] = None,
+    source_id: int | None = None,
     is_approved: bool = True,
-    entry_id: Optional[int] = None,
-) -> Optional[KudosVaultEntry]:
+    entry_id: int | None = None,
+) -> KudosVaultEntry | None:
     """Create or update a curated vault entry. Editing bumps the version."""
     title = (title or "").strip()
     if not title:
@@ -200,7 +206,7 @@ def upsert_curated(
             row.author_id = author_id
             row.search_text = _search_text(title, summary, content, tags)
             row.version = (row.version or 1) + 1
-            row.updated_at = datetime.now(timezone.utc)
+            row.updated_at = datetime.now(UTC)
             db.commit()
             db.refresh(row)
             return row
@@ -208,9 +214,17 @@ def upsert_curated(
     existing = db.query(KudosVaultEntry).filter(KudosVaultEntry.key == key).first()
     if existing:
         return upsert_curated(
-            db, title=title, content=content, category=category, tags=tags,
-            summary=summary, importance=importance, author_id=author_id,
-            key=key, source_id=source_id, is_approved=is_approved,
+            db,
+            title=title,
+            content=content,
+            category=category,
+            tags=tags,
+            summary=summary,
+            importance=importance,
+            author_id=author_id,
+            key=key,
+            source_id=source_id,
+            is_approved=is_approved,
             entry_id=existing.id,
         )
 
@@ -230,9 +244,9 @@ def upsert_curated(
         is_approved=is_approved,
         is_active=True,
         search_text=_search_text(title, summary, content, tags),
-        created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc),
-        approved_at=datetime.now(timezone.utc) if is_approved else None,
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+        approved_at=datetime.now(UTC) if is_approved else None,
     )
     db.add(row)
     try:
@@ -257,7 +271,8 @@ def delete_entry(db: Session, entry_id: int) -> bool:
 # INDEXING — mirror external sources into the vault
 # ──────────────────────────────────────────────
 
-def index_source(db: Session, source_type: str, source_id: int, *, force: bool = False) -> Optional[KudosVaultEntry]:
+
+def index_source(db: Session, source_type: str, source_id: int, *, force: bool = False) -> KudosVaultEntry | None:
     """Create (or refresh) the vault mirror of one external source.
 
     source_type: document | web | memory
@@ -302,7 +317,7 @@ def index_source(db: Session, source_type: str, source_id: int, *, force: bool =
         existing.tags = (tags or "")[:500]
         existing.user_id = user_id
         existing.search_text = _search_text(title, summary, content, tags)
-        existing.updated_at = datetime.now(timezone.utc)
+        existing.updated_at = datetime.now(UTC)
         existing.is_active = True
         db.commit()
         db.refresh(existing)
@@ -324,9 +339,9 @@ def index_source(db: Session, source_type: str, source_id: int, *, force: bool =
         is_approved=True,
         is_active=True,
         search_text=_search_text(title, summary, content, tags),
-        created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc),
-        approved_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+        approved_at=datetime.now(UTC),
     )
     db.add(row)
     try:
@@ -343,25 +358,34 @@ def reindex_all(db: Session, limit_docs: int = 500, limit_web: int = 500, limit_
     into the vault. Idempotent (keyed upserts); safe to re-run."""
     indexed = {"document": 0, "web": 0, "memory": 0}
     try:
-        for doc in db.query(KudosDocument).filter(
-            KudosDocument.is_approved.is_(True), KudosDocument.is_active.is_(True)
-        ).limit(limit_docs).all():
+        for doc in (
+            db.query(KudosDocument)
+            .filter(KudosDocument.is_approved.is_(True), KudosDocument.is_active.is_(True))
+            .limit(limit_docs)
+            .all()
+        ):
             if index_source(db, "document", doc.id):
                 indexed["document"] += 1
     except Exception:
         pass
     try:
-        for item in db.query(KudosWebKnowledge).filter(
-            KudosWebKnowledge.is_approved.is_(True), KudosWebKnowledge.is_active.is_(True)
-        ).limit(limit_web).all():
+        for item in (
+            db.query(KudosWebKnowledge)
+            .filter(KudosWebKnowledge.is_approved.is_(True), KudosWebKnowledge.is_active.is_(True))
+            .limit(limit_web)
+            .all()
+        ):
             if index_source(db, "web", item.id):
                 indexed["web"] += 1
     except Exception:
         pass
     try:
-        for mem in db.query(KudosMemory).filter(
-            KudosMemory.layer.in_(("knowledge", "long_term", "system"))
-        ).limit(limit_memories).all():
+        for mem in (
+            db.query(KudosMemory)
+            .filter(KudosMemory.layer.in_(("knowledge", "long_term", "system")))
+            .limit(limit_memories)
+            .all()
+        ):
             if mem.user_id and index_source(db, "memory", mem.id):
                 indexed["memory"] += 1
     except Exception:
@@ -372,6 +396,7 @@ def reindex_all(db: Session, limit_docs: int = 500, limit_web: int = 500, limit_
 # ──────────────────────────────────────────────
 # STATUS & HELPERS
 # ──────────────────────────────────────────────
+
 
 def vault_stats(db: Session) -> dict[str, Any]:
     stats = {"total": 0, "by_source_type": {}, "by_category": {}, "approved": 0, "active": 0}
@@ -392,7 +417,7 @@ def vault_stats(db: Session) -> dict[str, Any]:
     return stats
 
 
-def vault_context(db: Session, query: str = "", user_id: Optional[int] = None, limit: int = 3) -> str:
+def vault_context(db: Session, query: str = "", user_id: int | None = None, limit: int = 3) -> str:
     """Prompt-injection block: the top vault entries for a question. Empty
     string when nothing relevant is found — never forces content in."""
     entries = vault_search(db, query=query, user_id=user_id, limit=limit) if query else []

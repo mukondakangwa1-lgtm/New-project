@@ -43,8 +43,7 @@ def recommend_endpoint(
 
 
 @router.get("/knowledge")
-def sandbox_knowledge_endpoint(db: Session = Depends(get_db),
-                               current_user: User = Depends(get_current_user)):
+def sandbox_knowledge_endpoint(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """KUDOS's knowledge base about how sandboxes and the internet work."""
     try:
         seeded = seed_sandbox_knowledge(db)

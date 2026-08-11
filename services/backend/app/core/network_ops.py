@@ -5,6 +5,7 @@ Talks to the `networkops` sidecar container (docker CLI + docker.sock) so
 KUDOS can diagnose and heal the network (Tailscale funnel, TLS probe, DERP,
 container health). Disabled when NETWORKOPS_URL is empty.
 """
+
 import httpx
 
 from app.core.config import settings

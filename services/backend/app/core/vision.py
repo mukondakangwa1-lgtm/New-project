@@ -6,6 +6,7 @@ then turn that understanding into searchable knowledge. Uses whatever vision-
 capable provider is configured (Gemini handles images + video natively;
 OpenAI handles images).
 """
+
 import base64
 import mimetypes
 import re
@@ -36,13 +37,101 @@ def _chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OV
 
 def _extract_keywords(text: str, max_keywords: int = 20) -> str:
     words = re.findall(r"[a-zA-Z]{3,}", text.lower())
-    stop = set(
-        "the a an and or but in on at to for of is it that this with from by as are was were be been "
-        "being have has had do does did will would shall should may might can could i me my we our you "
-        "your he she they them their its not no nor so if than too very just about above after again all "
-        "any because before between both each few more most other some such then there these through "
-        "under until when where which while who whom why how".split()
-    )
+    stop = {
+        "the",
+        "a",
+        "an",
+        "and",
+        "or",
+        "but",
+        "in",
+        "on",
+        "at",
+        "to",
+        "for",
+        "of",
+        "is",
+        "it",
+        "that",
+        "this",
+        "with",
+        "from",
+        "by",
+        "as",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "being",
+        "have",
+        "has",
+        "had",
+        "do",
+        "does",
+        "did",
+        "will",
+        "would",
+        "shall",
+        "should",
+        "may",
+        "might",
+        "can",
+        "could",
+        "i",
+        "me",
+        "my",
+        "we",
+        "our",
+        "you",
+        "your",
+        "he",
+        "she",
+        "they",
+        "them",
+        "their",
+        "its",
+        "not",
+        "no",
+        "nor",
+        "so",
+        "if",
+        "than",
+        "too",
+        "very",
+        "just",
+        "about",
+        "above",
+        "after",
+        "again",
+        "all",
+        "any",
+        "because",
+        "before",
+        "between",
+        "both",
+        "each",
+        "few",
+        "more",
+        "most",
+        "other",
+        "some",
+        "such",
+        "then",
+        "there",
+        "these",
+        "through",
+        "under",
+        "until",
+        "when",
+        "where",
+        "which",
+        "while",
+        "who",
+        "whom",
+        "why",
+        "how",
+    }
     freq: dict[str, int] = {}
     for w in words:
         if w not in stop:
@@ -115,10 +204,15 @@ async def describe_and_ingest(db: Session, media: list, uploaded_by: int, title:
     db.add(doc)
     db.flush()
     for i, chunk_content in enumerate(_chunk_text(text)):
-        db.add(KudosChunk(
-            document_id=doc.id, chunk_index=i, content=chunk_content,
-            word_count=len(chunk_content.split()), keywords=_extract_keywords(chunk_content),
-        ))
+        db.add(
+            KudosChunk(
+                document_id=doc.id,
+                chunk_index=i,
+                content=chunk_content,
+                word_count=len(chunk_content.split()),
+                keywords=_extract_keywords(chunk_content),
+            )
+        )
     doc.chunk_count = len(_chunk_text(text))
     db.commit()
     db.refresh(doc)

@@ -8,10 +8,10 @@ from bs4 import BeautifulSoup
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from app.api.v1.endpoints.kudos import simple_summarize
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models import KudosWebKnowledge, User
-from app.api.v1.endpoints.kudos import simple_summarize
 
 router = APIRouter()
 
@@ -19,6 +19,7 @@ router = APIRouter()
 # ──────────────────────────────────────────────
 # GOOGLE SEARCH (requires API key)
 # ──────────────────────────────────────────────
+
 
 @router.post("/google")
 async def google_search_learn(
@@ -136,6 +137,7 @@ async def _fallback_search_learn(query: str, max_results: int, db, current_user)
 
                 if "uddg=" in href:
                     import urllib.parse
+
                     href = urllib.parse.parse_qs(urllib.parse.urlparse(href).query).get("uddg", [href])[0]
 
                 try:
@@ -175,6 +177,7 @@ async def _fallback_search_learn(query: str, max_results: int, db, current_user)
 # ──────────────────────────────────────────────
 # SOCIAL MEDIA LEARNING
 # ──────────────────────────────────────────────
+
 
 @router.post("/learn-social")
 async def learn_social_interaction(
@@ -245,6 +248,7 @@ async def learn_social_interaction(
                     href = links[0].get("href", "")
                     if "uddg=" in href:
                         import urllib.parse
+
                         href = urllib.parse.parse_qs(urllib.parse.urlparse(href).query).get("uddg", [href])[0]
 
                     page_res = await client.get(href, timeout=8, follow_redirects=True)
@@ -278,6 +282,7 @@ async def learn_social_interaction(
 # ──────────────────────────────────────────────
 # REDDIT LEARNING (public posts)
 # ──────────────────────────────────────────────
+
 
 @router.post("/learn-reddit")
 async def learn_from_reddit(
@@ -364,6 +369,7 @@ async def learn_from_reddit(
 # HUMAN EMOTION LEARNING
 # ──────────────────────────────────────────────
 
+
 @router.post("/learn-emotions")
 async def learn_human_emotions(
     db: Session = Depends(get_db),
@@ -397,6 +403,7 @@ async def learn_human_emotions(
                     href = links[0].get("href", "")
                     if "uddg=" in href:
                         import urllib.parse
+
                         href = urllib.parse.parse_qs(urllib.parse.urlparse(href).query).get("uddg", [href])[0]
 
                     page_res = await client.get(href, timeout=8, follow_redirects=True)
@@ -430,6 +437,7 @@ async def learn_human_emotions(
 # WIKIPEDIA LEARNING (broad knowledge)
 # ──────────────────────────────────────────────
 
+
 @router.post("/learn-wikipedia-batch")
 async def learn_wikipedia_batch(
     topics: str = "artificial intelligence,machine learning,psychology,sociology,communication,education",
@@ -453,7 +461,13 @@ async def learn_wikipedia_batch(
                     title = results[0]["title"]
                     article = await client.get(
                         "https://en.wikipedia.org/w/api.php",
-                        params={"action": "query", "titles": title, "prop": "extracts", "explaintext": True, "format": "json"},
+                        params={
+                            "action": "query",
+                            "titles": title,
+                            "prop": "extracts",
+                            "explaintext": True,
+                            "format": "json",
+                        },
                     )
                     pages = article.json().get("query", {}).get("pages", {})
                     for _, page in pages.items():

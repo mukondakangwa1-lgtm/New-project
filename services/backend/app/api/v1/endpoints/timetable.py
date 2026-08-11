@@ -1,15 +1,16 @@
 """
 Digital Campus - Timetable & Attendance Endpoints
 """
-from datetime import date, timedelta
-from typing import Optional
+
+from datetime import UTC, date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.database import get_db
 from app.core.deps import get_current_user, require_admin
-from app.models import Attendance, Course, Session as SessionModel, TimetableEntry, User
+from app.models import Attendance, Course, TimetableEntry, User
+from app.models import Session as SessionModel
 from app.schemas import (
     AttendanceCheckIn,
     AttendanceMark,
@@ -40,7 +41,7 @@ DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
 
 @router.get("/timetable", response_model=list[TimetableEntryWithCourse])
 def list_timetable(
-    course_id: Optional[int] = None,
+    course_id: int | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -126,7 +127,7 @@ def generate_sessions(
     for a date range. Skips dates that already have sessions.
     """
     # Get relevant timetable entries
-    q = db.query(TimetableEntry).filter(TimetableEntry.is_active == True)
+    q = db.query(TimetableEntry).filter(TimetableEntry.is_active)
     if body.course_id:
         q = q.filter(TimetableEntry.course_id == body.course_id)
     entries = q.all()
@@ -178,10 +179,10 @@ def generate_sessions(
 
 @router.get("/sessions", response_model=list[SessionWithCourse])
 def list_sessions(
-    course_id: Optional[int] = None,
-    date_from: Optional[date] = None,
-    date_to: Optional[date] = None,
-    is_open: Optional[bool] = None,
+    course_id: int | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    is_open: bool | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -204,7 +205,7 @@ def today_sessions(
     current_user: User = Depends(get_current_user),
 ):
     """Get all sessions scheduled for today."""
-    today = date.today()
+    today = datetime.now(UTC).date()
     return (
         db.query(SessionModel)
         .options(joinedload(SessionModel.course))
@@ -223,7 +224,7 @@ def active_sessions(
     return (
         db.query(SessionModel)
         .options(joinedload(SessionModel.course))
-        .filter(SessionModel.is_open == True, SessionModel.is_cancelled == False)
+        .filter(SessionModel.is_open, ~SessionModel.is_cancelled)
         .order_by(SessionModel.session_date, SessionModel.start_time)
         .all()
     )
@@ -237,10 +238,7 @@ def get_session(
 ):
     """Get a specific session."""
     session = (
-        db.query(SessionModel)
-        .options(joinedload(SessionModel.course))
-        .filter(SessionModel.id == session_id)
-        .first()
+        db.query(SessionModel).options(joinedload(SessionModel.course)).filter(SessionModel.id == session_id).first()
     )
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -354,10 +352,7 @@ def session_attendance(
 ):
     """List all attendance records for a session."""
     return (
-        db.query(Attendance)
-        .options(joinedload(Attendance.student))
-        .filter(Attendance.session_id == session_id)
-        .all()
+        db.query(Attendance).options(joinedload(Attendance.student)).filter(Attendance.session_id == session_id).all()
     )
 
 
@@ -407,7 +402,7 @@ def admin_mark_attendance(
 
 @router.get("/attendance/my", response_model=list[AttendanceResponse])
 def my_attendance(
-    course_id: Optional[int] = None,
+    course_id: int | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -430,21 +425,15 @@ def attendance_report(
         raise HTTPException(status_code=404, detail="Course not found")
 
     # Get all sessions for this course
-    sessions = (
-        db.query(SessionModel)
-        .filter(SessionModel.course_id == course_id, SessionModel.is_cancelled == False)
-        .all()
-    )
+    sessions = db.query(SessionModel).filter(SessionModel.course_id == course_id, ~SessionModel.is_cancelled).all()
     total_sessions = len(sessions)
     session_ids = [s.id for s in sessions]
 
     # Get enrolled students
     from app.models import Enrollment
+
     enrollments = (
-        db.query(Enrollment)
-        .options(joinedload(Enrollment.student))
-        .filter(Enrollment.course_id == course_id)
-        .all()
+        db.query(Enrollment).options(joinedload(Enrollment.student)).filter(Enrollment.course_id == course_id).all()
     )
 
     reports = []

@@ -10,11 +10,12 @@ Guards:
 
 from __future__ import annotations
 
+import contextlib
 import ipaddress
 import socket
 import time
 from html.parser import HTMLParser
-from typing import Any, Dict, Optional
+from typing import Any
 
 import httpx
 
@@ -22,7 +23,7 @@ MAX_RESPONSE_BYTES = 256 * 1024
 FETCH_TIMEOUT_SECONDS = 15.0
 MAX_REDIRECTS = 4
 BLOCKED_HOST_PREFIXES = ("127.", "169.254.", "10.", "192.168.")
-_HOSTNAME_CACHE: Dict[str, bool] = {}
+_HOSTNAME_CACHE: dict[str, bool] = {}
 
 
 class _LinkStripper(HTMLParser):
@@ -49,10 +50,8 @@ class _LinkStripper(HTMLParser):
 def sanitize_html(html: str, limit: int = 4000) -> str:
     """Strip tags/scripts and collapse whitespace to plain text."""
     parser = _LinkStripper()
-    try:
+    with contextlib.suppress(Exception):
         parser.feed(html)
-    except Exception:
-        pass
     text = " ".join(" ".join(parser.parts).split())
     return text[:limit]
 
@@ -79,7 +78,7 @@ def _host_is_safe(host: str) -> bool:
     return safe
 
 
-def validate_url(url: str, allow_http: bool = False) -> Optional[str]:
+def validate_url(url: str, allow_http: bool = False) -> str | None:
     """Validate a URL for outbound fetch; returns an error message or None."""
     if not url or len(url) > 2000:
         return "URL is missing or too long"
@@ -105,7 +104,7 @@ def validate_url(url: str, allow_http: bool = False) -> Optional[str]:
     return None
 
 
-def _check_response_ssrf(response: httpx.Response) -> Optional[str]:
+def _check_response_ssrf(response: httpx.Response) -> str | None:
     """Re-validate the final address after redirects (scheme already https)."""
     try:
         error = validate_url(str(response.url), allow_http=True)
@@ -116,7 +115,7 @@ def _check_response_ssrf(response: httpx.Response) -> Optional[str]:
     return None
 
 
-def fetch_url(url: str, allow_http: bool = False, headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+def fetch_url(url: str, allow_http: bool = False, headers: dict[str, str] | None = None) -> dict[str, Any]:
     """Fetch and sanitize a remote page. Returns an error dict on failure.
 
     Never raises: every failure path returns {"ok": False, "error": ...}.

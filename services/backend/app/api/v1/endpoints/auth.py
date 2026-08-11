@@ -1,6 +1,7 @@
 """
 Digital Campus - Auth Endpoints
 """
+
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
@@ -30,6 +31,7 @@ def _issue_token(user: User, response: Response, db: Session) -> dict:
     if user.is_admin:
         try:
             from app.core.kudos_governance import ensure_superadmin_identity
+
             ensure_superadmin_identity(db, user)
         except Exception:
             pass
@@ -109,4 +111,3 @@ def login_for_swagger(
 def logout(response: Response):
     """Clear the session cookie."""
     clear_auth_cookie(response)
-    return None

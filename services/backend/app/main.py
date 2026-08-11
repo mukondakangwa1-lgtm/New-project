@@ -1,6 +1,7 @@
 """
 Digital Campus Unified API — FastAPI Entry Point
 """
+
 import time
 from contextlib import asynccontextmanager
 
@@ -19,9 +20,10 @@ from app.core.logging import (
     configure_logging,
     get_request_id,
 )
+
 # Import all models so tables get created
-from app.models import *  # noqa
-from app.models_extended import *  # noqa
+from app.models import *  # noqa: F403
+from app.models_extended import *  # noqa: F403
 
 configure_logging()
 
@@ -36,8 +38,10 @@ class ShieldMiddleware(BaseHTTPMiddleware):
         # Check if IP is blocked
         try:
             from app.core.kudos_shield import is_blocked
+
             if is_blocked(client_ip):
                 from fastapi.responses import JSONResponse
+
                 return JSONResponse(
                     status_code=429,
                     content={"detail": "Too many requests. You have been temporarily blocked."},
@@ -51,7 +55,8 @@ class ShieldMiddleware(BaseHTTPMiddleware):
         # Track performance, intrusion detection, and device fingerprinting
         duration_ms = (time.time() - start_time) * 1000
         try:
-            from app.core.kudos_shield import track_request, track_performance
+            from app.core.kudos_shield import track_performance, track_request
+
             track_request(client_ip, request.url.path, request.method, response.status_code)
             track_performance(duration_ms, is_error=response.status_code >= 500)
         except ImportError:
@@ -60,12 +65,15 @@ class ShieldMiddleware(BaseHTTPMiddleware):
         # Fingerprint connecting devices
         try:
             from app.core.device_analyzer import fingerprint_request
-            fingerprint_request({
-                "ip": client_ip,
-                "user_agent": request.headers.get("user-agent", ""),
-                "accept_language": request.headers.get("accept-language", ""),
-                "accept_encoding": request.headers.get("accept-encoding", ""),
-            })
+
+            fingerprint_request(
+                {
+                    "ip": client_ip,
+                    "user_agent": request.headers.get("user-agent", ""),
+                    "accept_language": request.headers.get("accept-language", ""),
+                    "accept_encoding": request.headers.get("accept-encoding", ""),
+                }
+            )
         except ImportError:
             pass
 
@@ -83,6 +91,7 @@ async def lifespan(app: FastAPI):
         import logging
 
         from app.core import storage
+
         if not storage.ensure_buckets():
             logging.getLogger("storage").warning(
                 "object storage on local disk (MinIO not configured/unreachable) — "
@@ -93,6 +102,7 @@ async def lifespan(app: FastAPI):
     # Auto-activate shield
     try:
         from app.core.kudos_shield import start_shield
+
         start_shield()
     except Exception:
         pass
@@ -124,11 +134,9 @@ app.add_middleware(ShieldMiddleware)
 
 # CORS — explicit origins only (no wildcard default). The frontend runs
 # same-origin through the Next.js proxy; add other origins to CORS_ORIGINS.
-_cors_origins = [
-    origin.strip()
-    for origin in settings.CORS_ORIGINS.split(",")
-    if origin.strip()
-] or ["http://localhost:3000"]
+_cors_origins = [origin.strip() for origin in settings.CORS_ORIGINS.split(",") if origin.strip()] or [
+    "http://localhost:3000"
+]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
@@ -190,9 +198,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
     """Last resort — log the traceback, hide internals from the client."""
     import logging
 
-    logging.getLogger("digital_campus").exception(
-        "unhandled exception %s %s", request.method, request.url.path
-    )
+    logging.getLogger("digital_campus").exception("unhandled exception %s %s", request.method, request.url.path)
     return JSONResponse(
         status_code=500,
         content={

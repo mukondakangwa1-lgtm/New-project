@@ -2,7 +2,8 @@
 Digital Campus - Chat Endpoints
 WebSocket real-time messaging + REST for history & offline sync.
 """
-from typing import Optional
+
+import contextlib
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from jose import JWTError, jwt
@@ -54,10 +55,8 @@ class ConnectionManager:
         """Send message to all connected users in a room."""
         if room_id in self.active_connections:
             for ws in self.active_connections[room_id].values():
-                try:
+                with contextlib.suppress(Exception):
                     await ws.send_json(message)
-                except Exception:
-                    pass
 
     def get_online_users(self, room_id: int) -> list[int]:
         return list(self.active_connections.get(room_id, {}).keys())
@@ -66,7 +65,7 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
-def _authenticate_ws_token(token: str, cookie: str = "") -> Optional[User]:
+def _authenticate_ws_token(token: str, cookie: str = "") -> User | None:
     """Validate JWT from WebSocket query param or session cookie."""
     db = SessionLocal()
     try:
@@ -101,12 +100,7 @@ def list_rooms(
     current_user: User = Depends(get_current_user),
 ):
     """List chat rooms the current user belongs to."""
-    rooms = (
-        db.query(ChatRoom)
-        .join(ChatMember)
-        .filter(ChatMember.user_id == current_user.id)
-        .all()
-    )
+    rooms = db.query(ChatRoom).join(ChatMember).filter(ChatMember.user_id == current_user.id).all()
     return rooms
 
 
@@ -152,9 +146,7 @@ def get_room(
         raise HTTPException(status_code=404, detail="Room not found")
 
     membership = (
-        db.query(ChatMember)
-        .filter(ChatMember.room_id == room_id, ChatMember.user_id == current_user.id)
-        .first()
+        db.query(ChatMember).filter(ChatMember.room_id == room_id, ChatMember.user_id == current_user.id).first()
     )
     if not membership:
         raise HTTPException(status_code=403, detail="Not a member of this room")
@@ -178,11 +170,7 @@ def join_room(
     if not room:
         raise HTTPException(status_code=404, detail="Room not found")
 
-    existing = (
-        db.query(ChatMember)
-        .filter(ChatMember.room_id == room_id, ChatMember.user_id == current_user.id)
-        .first()
-    )
+    existing = db.query(ChatMember).filter(ChatMember.room_id == room_id, ChatMember.user_id == current_user.id).first()
     if existing:
         return {"message": "Already a member"}
 
@@ -201,9 +189,7 @@ def get_messages(
 ):
     """Get message history for a room."""
     membership = (
-        db.query(ChatMember)
-        .filter(ChatMember.room_id == room_id, ChatMember.user_id == current_user.id)
-        .first()
+        db.query(ChatMember).filter(ChatMember.room_id == room_id, ChatMember.user_id == current_user.id).first()
     )
     if not membership:
         raise HTTPException(status_code=403, detail="Not a member of this room")
@@ -229,9 +215,7 @@ def send_message_rest(
 ):
     """Send a message via REST (fallback when WebSocket unavailable)."""
     membership = (
-        db.query(ChatMember)
-        .filter(ChatMember.room_id == room_id, ChatMember.user_id == current_user.id)
-        .first()
+        db.query(ChatMember).filter(ChatMember.room_id == room_id, ChatMember.user_id == current_user.id).first()
     )
     if not membership:
         raise HTTPException(status_code=403, detail="Not a member of this room")
@@ -258,9 +242,7 @@ def sync_offline_messages(
 ):
     """Sync messages created offline when coming back online."""
     membership = (
-        db.query(ChatMember)
-        .filter(ChatMember.room_id == room_id, ChatMember.user_id == current_user.id)
-        .first()
+        db.query(ChatMember).filter(ChatMember.room_id == room_id, ChatMember.user_id == current_user.id).first()
     )
     if not membership:
         raise HTTPException(status_code=403, detail="Not a member of this room")
@@ -317,11 +299,7 @@ async def websocket_chat(websocket: WebSocket, room_id: int, token: str = ""):
     # Verify membership
     db = SessionLocal()
     try:
-        membership = (
-            db.query(ChatMember)
-            .filter(ChatMember.room_id == room_id, ChatMember.user_id == user.id)
-            .first()
-        )
+        membership = db.query(ChatMember).filter(ChatMember.room_id == room_id, ChatMember.user_id == user.id).first()
         if not membership:
             await websocket.close(code=4003, reason="Not a member")
             return
@@ -331,15 +309,21 @@ async def websocket_chat(websocket: WebSocket, room_id: int, token: str = ""):
     await manager.connect(room_id, user.id, websocket)
 
     # Announce join
-    await manager.broadcast(room_id, {
-        "type": "join",
-        "user_id": user.id,
-        "user_name": user.full_name,
-    })
-    await manager.broadcast(room_id, {
-        "type": "online",
-        "user_ids": manager.get_online_users(room_id),
-    })
+    await manager.broadcast(
+        room_id,
+        {
+            "type": "join",
+            "user_id": user.id,
+            "user_name": user.full_name,
+        },
+    )
+    await manager.broadcast(
+        room_id,
+        {
+            "type": "online",
+            "user_ids": manager.get_online_users(room_id),
+        },
+    )
 
     try:
         while True:
@@ -370,26 +354,35 @@ async def websocket_chat(websocket: WebSocket, room_id: int, token: str = ""):
                 db.close()
 
             # Broadcast to room
-            await manager.broadcast(room_id, {
-                "type": "message",
-                "id": msg_id,
-                "room_id": room_id,
-                "user_id": user.id,
-                "user_name": user.full_name,
-                "content": content,
-                "message_type": message_type,
-                "is_offline": is_offline,
-                "created_at": msg_created,
-            })
+            await manager.broadcast(
+                room_id,
+                {
+                    "type": "message",
+                    "id": msg_id,
+                    "room_id": room_id,
+                    "user_id": user.id,
+                    "user_name": user.full_name,
+                    "content": content,
+                    "message_type": message_type,
+                    "is_offline": is_offline,
+                    "created_at": msg_created,
+                },
+            )
 
     except WebSocketDisconnect:
         manager.disconnect(room_id, user.id)
-        await manager.broadcast(room_id, {
-            "type": "leave",
-            "user_id": user.id,
-            "user_name": user.full_name,
-        })
-        await manager.broadcast(room_id, {
-            "type": "online",
-            "user_ids": manager.get_online_users(room_id),
-        })
+        await manager.broadcast(
+            room_id,
+            {
+                "type": "leave",
+                "user_id": user.id,
+                "user_name": user.full_name,
+            },
+        )
+        await manager.broadcast(
+            room_id,
+            {
+                "type": "online",
+                "user_ids": manager.get_online_users(room_id),
+            },
+        )

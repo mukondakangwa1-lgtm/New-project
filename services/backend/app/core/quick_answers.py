@@ -10,45 +10,94 @@ Two strategies, in order:
   2. A concise LLM call (brevity-instructed) for short-but-real questions.
   3. Extractive fallback if no LLM is configured or reachable.
 """
+
 import heapq
 import re
 
 from app.core.llm_engine import query_best_llm
 
 _DEEP_HINTS = [
-    "explain", "how do i", "how to", "why is", "why do", "what is the difference",
-    "compare", "write an essay", "essay", "essay about", "detailed", "in depth",
-    "analyze", "analyze", "summarize", "summarise", "research", "report on",
-    "describe", "steps to", "guide me", "tutorial", "outline", "long", "50 pages",
-    "full", "everything you know", "teach me", "learn about", "advantages and",
-    "pros and cons", "formula", "equation", "code", "program", "fix", "debug",
-    "why didn't", "what happens if",
+    "explain",
+    "how do i",
+    "how to",
+    "why is",
+    "why do",
+    "what is the difference",
+    "compare",
+    "write an essay",
+    "essay",
+    "essay about",
+    "detailed",
+    "in depth",
+    "analyze",
+    "analyze",
+    "summarize",
+    "summarise",
+    "research",
+    "report on",
+    "describe",
+    "steps to",
+    "guide me",
+    "tutorial",
+    "outline",
+    "long",
+    "50 pages",
+    "full",
+    "everything you know",
+    "teach me",
+    "learn about",
+    "advantages and",
+    "pros and cons",
+    "formula",
+    "equation",
+    "code",
+    "program",
+    "fix",
+    "debug",
+    "why didn't",
+    "what happens if",
 ]
 
 # Questions that KUDOS can answer instantly without an LLM at all.
 _CANNED = [
-    (re.compile(r"^(hi|hey|hello|yo|howdy|sup|good (morning|afternoon|evening))\b.*$", re.I),
-     "Hey there! 👋 I'm KUDOS — ask me about courses, assignments, campus life, "
-     "or anything you're curious about. What's on your mind?"),
-    (re.compile(r"^(how are you|how r u|how do you do|whats up|what's up|wassup|hows it going|how's it going)\b.*$", re.I),
-     "I'm doing great, thanks for asking! 🧠 Always learning, always curious. "
-     "What can I help you with today?"),
-    (re.compile(r"^(who are you|what are you|tell me about yourself|what is kudos)\b.*$", re.I),
-     "I'm KUDOS — Digital Campus' friendly AI assistant. I learn from documents, "
-     "web pages, and conversations, remember things you tell me, and can even "
-     "write essays, create images, and play radio from anywhere in the world. "
-     "How can I help?"),
-    (re.compile(r"^(thank(s| you)?|thanks a lot|thx|ty|much appreciated)\b.*$", re.I),
-     "You're welcome! 😊 Glad to help. Anything else you'd like to know?"),
-    (re.compile(r"^(ok|okay|fine|sure|got it|alright|nice|great|cool|good)\b\.?$", re.I),
-     "Great! Let me know if you need anything else. 👍"),
-    (re.compile(r"^(bye|goodbye|see you|see ya|later|gn|good night)\b.*$", re.I),
-     "Bye! 👋 Come back any time — I'll be right here when you need me."),
-    (re.compile(r"^(what can you do|what do you do|help me|what are your features)\b.*$", re.I),
-     "I can answer questions from documents and web pages I've learned, remember "
-     "what you tell me, write long essays (up to 50 pages), summarize text, "
-     "generate images, play live radio from anywhere on Earth, and help with "
-     "everyday campus questions. Just ask!"),
+    (
+        re.compile(r"^(hi|hey|hello|yo|howdy|sup|good (morning|afternoon|evening))\b.*$", re.IGNORECASE),
+        "Hey there! 👋 I'm KUDOS — ask me about courses, assignments, campus life, "
+        "or anything you're curious about. What's on your mind?",
+    ),
+    (
+        re.compile(
+            r"^(how are you|how r u|how do you do|whats up|what's up|wassup|hows it going|how's it going)\b.*$",
+            re.IGNORECASE,
+        ),
+        "I'm doing great, thanks for asking! 🧠 Always learning, always curious. What can I help you with today?",
+    ),
+    (
+        re.compile(r"^(who are you|what are you|tell me about yourself|what is kudos)\b.*$", re.IGNORECASE),
+        "I'm KUDOS — Digital Campus' friendly AI assistant. I learn from documents, "
+        "web pages, and conversations, remember things you tell me, and can even "
+        "write essays, create images, and play radio from anywhere in the world. "
+        "How can I help?",
+    ),
+    (
+        re.compile(r"^(thank(s| you)?|thanks a lot|thx|ty|much appreciated)\b.*$", re.IGNORECASE),
+        "You're welcome! 😊 Glad to help. Anything else you'd like to know?",
+    ),
+    (
+        re.compile(r"^(ok|okay|fine|sure|got it|alright|nice|great|cool|good)\b\.?$", re.IGNORECASE),
+        "Great! Let me know if you need anything else. 👍",
+    ),
+    (
+        re.compile(r"^(bye|goodbye|see you|see ya|later|gn|good night)\b.*$", re.IGNORECASE),
+        "Bye! 👋 Come back any time — I'll be right here when you need me.",
+    ),
+    (
+        re.compile(r"^(what can you do|what do you do|help me|what are your features)\b.*$", re.IGNORECASE),
+        "I can answer questions from documents and web pages I've learned, remember "
+        "what you tell me, write long essays (up to 50 pages), summarize text, "
+        "generate images, play live radio from anywhere on Earth, and help with "
+        "everyday campus questions. Just ask!",
+    ),
 ]
 
 
@@ -68,10 +117,7 @@ def is_short_question(text: str) -> bool:
 
 
 def _is_smalltalk(low: str) -> bool:
-    for pattern, _ in _CANNED:
-        if pattern.match(low):
-            return True
-    return False
+    return any(pattern.match(low) for pattern, _ in _CANNED)
 
 
 def _canned_reply(text: str) -> str | None:
@@ -115,12 +161,81 @@ async def get_short_answer(question: str, user_name: str = "") -> str:
 # SUMMARIZATION
 # ──────────────────────────────────────────────
 
-_STOP = set("""
-a an and are as at be but by for from has have he her his i in is it its of on or
-that the their they this to was were will with you your we our they do does did
-not so such than then there these those when where which who whom why how all any
-because before between each few more most other some no nor too very just about
-""".split())
+_STOP = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "be",
+    "but",
+    "by",
+    "for",
+    "from",
+    "has",
+    "have",
+    "he",
+    "her",
+    "his",
+    "i",
+    "in",
+    "is",
+    "it",
+    "its",
+    "of",
+    "on",
+    "or",
+    "that",
+    "the",
+    "their",
+    "they",
+    "this",
+    "to",
+    "was",
+    "were",
+    "will",
+    "with",
+    "you",
+    "your",
+    "we",
+    "our",
+    "do",
+    "does",
+    "did",
+    "not",
+    "so",
+    "such",
+    "than",
+    "then",
+    "there",
+    "these",
+    "those",
+    "when",
+    "where",
+    "which",
+    "who",
+    "whom",
+    "why",
+    "how",
+    "all",
+    "any",
+    "because",
+    "before",
+    "between",
+    "each",
+    "few",
+    "more",
+    "most",
+    "other",
+    "some",
+    "no",
+    "nor",
+    "too",
+    "very",
+    "just",
+    "about",
+}
 
 
 def _tokenize(text: str) -> list[str]:

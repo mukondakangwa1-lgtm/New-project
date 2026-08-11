@@ -2,6 +2,7 @@
 KUDOS Shield — Self-protection, self-healing, intrusion detection, backup
 Makes KUDOS truly capable of protecting itself and any device it runs on.
 """
+
 import hashlib
 import json
 import os
@@ -9,16 +10,15 @@ import shutil
 import threading
 import time
 from collections import defaultdict, deque
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Optional
 
 # ──────────────────────────────────────────────
 # SHIELD STATE
 # ──────────────────────────────────────────────
 
 _shield_active = False
-_shield_thread: Optional[threading.Thread] = None
+_shield_thread: threading.Thread | None = None
 _shield_log: list[dict] = []
 _threat_log: list[dict] = []
 _backup_log: list[dict] = []
@@ -53,14 +53,14 @@ def _get_repo_path():
     return str(Path(__file__).parent.parent.parent.parent)
 
 
-def _log_shield(category: str, message: str, severity: str = "info", details: dict = None):
+def _log_shield(category: str, message: str, severity: str = "info", details: dict | None = None):
     """Log a shield event."""
     entry = {
         "category": category,
         "message": message,
         "severity": severity,
         "details": details or {},
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }
     _shield_log.append(entry)
     if len(_shield_log) > 1000:
@@ -75,6 +75,7 @@ def _log_shield(category: str, message: str, severity: str = "info", details: di
 # ──────────────────────────────────────────────
 # FILE INTEGRITY MONITORING
 # ──────────────────────────────────────────────
+
 
 def _compute_hash(filepath: str) -> str:
     """Compute SHA-256 hash of a file."""
@@ -103,15 +104,20 @@ def _check_integrity() -> list[dict]:
         full_path = os.path.join(repo, rel_path)
         actual_hash = _compute_hash(full_path)
         if actual_hash != expected_hash:
-            violations.append({
-                "file": rel_path,
-                "expected": expected_hash[:16],
-                "actual": actual_hash[:16],
-                "status": "TAMPERED" if actual_hash != "MISSING" else "DELETED",
-            })
-            _log_shield("integrity", f"File tampered: {rel_path}", "critical", {
-                "expected": expected_hash[:16], "actual": actual_hash[:16]
-            })
+            violations.append(
+                {
+                    "file": rel_path,
+                    "expected": expected_hash[:16],
+                    "actual": actual_hash[:16],
+                    "status": "TAMPERED" if actual_hash != "MISSING" else "DELETED",
+                }
+            )
+            _log_shield(
+                "integrity",
+                f"File tampered: {rel_path}",
+                "critical",
+                {"expected": expected_hash[:16], "actual": actual_hash[:16]},
+            )
     return violations
 
 
@@ -125,34 +131,38 @@ def update_baseline():
 # INTRUSION DETECTION
 # ──────────────────────────────────────────────
 
+
 def track_request(ip: str, path: str, method: str, status_code: int):
     """Track a request for intrusion detection."""
     now = time.time()
-    _request_tracker[ip].append({
-        "path": path,
-        "method": method,
-        "status": status_code,
-        "time": now,
-    })
+    _request_tracker[ip].append(
+        {
+            "path": path,
+            "method": method,
+            "status": status_code,
+            "time": now,
+        }
+    )
 
     # Clean old entries
     while _request_tracker[ip] and _request_tracker[ip][0]["time"] < now - _RATE_WINDOW:
         _request_tracker[ip].popleft()
 
     # Rate limit check
-    if len(_request_tracker[ip]) > _RATE_LIMIT:
-        if ip not in _blocked_ips:
-            _blocked_ips.add(ip)
-            _log_shield("intrusion", f"IP {ip} rate limited ({len(_request_tracker[ip])} requests/min)", "warning")
+    if len(_request_tracker[ip]) > _RATE_LIMIT and ip not in _blocked_ips:
+        _blocked_ips.add(ip)
+        _log_shield("intrusion", f"IP {ip} rate limited ({len(_request_tracker[ip])} requests/min)", "warning")
 
     # Detect suspicious patterns
     recent = list(_request_tracker[ip])
     failed_logins = sum(1 for r in recent if r["path"] == "/api/v1/auth/login" and r["status"] == 401)
     if failed_logins > 5:
-        _log_shield("intrusion", f"Brute force attempt from {ip}: {failed_logins} failed logins", "critical", {"ip": ip})
+        _log_shield(
+            "intrusion", f"Brute force attempt from {ip}: {failed_logins} failed logins", "critical", {"ip": ip}
+        )
 
     # Detect path scanning
-    unique_paths = set(r["path"] for r in recent)
+    unique_paths = {r["path"] for r in recent}
     if len(unique_paths) > 30:
         _log_shield("intrusion", f"Path scanning from {ip}: {len(unique_paths)} unique paths", "warning", {"ip": ip})
 
@@ -182,6 +192,7 @@ def get_threat_log(limit: int = 50) -> list[dict]:
 # SELF-HEALING
 # ──────────────────────────────────────────────
 
+
 def _check_and_heal():
     """Self-diagnosis and healing cycle."""
     repo = _get_repo_path()
@@ -189,6 +200,7 @@ def _check_and_heal():
     # 1. Check database integrity
     try:
         from app.core.database import SessionLocal
+
         db = SessionLocal()
         db.execute("SELECT 1")
         db.close()
@@ -200,7 +212,7 @@ def _check_and_heal():
     # 2. Check disk space
     try:
         stat = shutil.disk_usage(repo)
-        free_gb = stat.free / (1024 ** 3)
+        free_gb = stat.free / (1024**3)
         if free_gb < 1:
             _log_shield("health", f"Low disk space: {free_gb:.1f}GB free", "warning")
             _cleanup_disk(repo)
@@ -212,6 +224,7 @@ def _check_and_heal():
     # 3. Check memory usage
     try:
         import psutil
+
         mem = psutil.virtual_memory()
         if mem.percent > 90:
             _log_shield("health", f"High memory usage: {mem.percent}%", "warning")
@@ -236,7 +249,8 @@ def _check_and_heal():
 def _heal_database():
     """Attempt to heal database issues."""
     try:
-        from app.core.database import engine, Base
+        from app.core.database import Base, engine
+
         Base.metadata.create_all(bind=engine)
         _log_shield("healing", "Database tables recreated", "info")
     except Exception as e:
@@ -247,7 +261,7 @@ def _cleanup_disk(repo: str):
     """Clean up disk space."""
     cleaned = 0
     # Remove __pycache__
-    for root, dirs, files in os.walk(repo):
+    for root, dirs, _files in os.walk(repo):
         if "__pycache__" in dirs:
             pycache = os.path.join(root, "__pycache__")
             try:
@@ -274,13 +288,14 @@ def _cleanup_disk(repo: str):
 # BACKUP SYSTEM
 # ──────────────────────────────────────────────
 
+
 def _create_backup():
     """Create a backup of the knowledge base and critical data."""
     repo = _get_repo_path()
     backup_dir = os.path.join(repo, BACKUP_DIR)
     os.makedirs(backup_dir, exist_ok=True)
 
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     backup_file = os.path.join(backup_dir, f"kudos_backup_{timestamp}.json")
 
     try:
@@ -299,23 +314,27 @@ def _create_backup():
 
         # Backup documents
         for doc in db.query(KudosDocument).all():
-            backup_data["documents"].append({
-                "title": doc.title,
-                "filename": doc.filename,
-                "file_type": doc.file_type,
-                "content": doc.content[:10000],  # Limit size
-                "summary": doc.summary,
-                "tags": doc.tags,
-            })
+            backup_data["documents"].append(
+                {
+                    "title": doc.title,
+                    "filename": doc.filename,
+                    "file_type": doc.file_type,
+                    "content": doc.content[:10000],  # Limit size
+                    "summary": doc.summary,
+                    "tags": doc.tags,
+                }
+            )
 
         # Backup web knowledge
-        for wk in db.query(KudosWebKnowledge).filter(KudosWebKnowledge.is_approved == True).all():
-            backup_data["web_knowledge"].append({
-                "url": wk.url,
-                "title": wk.title,
-                "summary": wk.summary,
-                "content": wk.content[:5000],
-            })
+        for wk in db.query(KudosWebKnowledge).filter(KudosWebKnowledge.is_approved).all():
+            backup_data["web_knowledge"].append(
+                {
+                    "url": wk.url,
+                    "title": wk.title,
+                    "summary": wk.summary,
+                    "content": wk.content[:5000],
+                }
+            )
 
         db.close()
 
@@ -360,29 +379,33 @@ def restore_backup(backup_file: str) -> dict:
         for doc_data in data.get("documents", []):
             existing = db.query(KudosDocument).filter(KudosDocument.title == doc_data["title"]).first()
             if not existing:
-                db.add(KudosDocument(
-                    uploaded_by=1,  # admin
-                    title=doc_data["title"],
-                    filename=doc_data.get("filename", ""),
-                    file_type=doc_data.get("file_type", ""),
-                    content=doc_data.get("content", ""),
-                    summary=doc_data.get("summary", ""),
-                    tags=doc_data.get("tags", ""),
-                    is_approved=True,
-                ))
+                db.add(
+                    KudosDocument(
+                        uploaded_by=1,  # admin
+                        title=doc_data["title"],
+                        filename=doc_data.get("filename", ""),
+                        file_type=doc_data.get("file_type", ""),
+                        content=doc_data.get("content", ""),
+                        summary=doc_data.get("summary", ""),
+                        tags=doc_data.get("tags", ""),
+                        is_approved=True,
+                    )
+                )
                 restored += 1
 
         for wk_data in data.get("web_knowledge", []):
             existing = db.query(KudosWebKnowledge).filter(KudosWebKnowledge.url == wk_data["url"]).first()
             if not existing:
-                db.add(KudosWebKnowledge(
-                    url=wk_data["url"],
-                    title=wk_data["title"],
-                    summary=wk_data.get("summary", ""),
-                    content=wk_data.get("content", ""),
-                    is_approved=True,
-                    learned_by=1,
-                ))
+                db.add(
+                    KudosWebKnowledge(
+                        url=wk_data["url"],
+                        title=wk_data["title"],
+                        summary=wk_data.get("summary", ""),
+                        content=wk_data.get("content", ""),
+                        is_approved=True,
+                        learned_by=1,
+                    )
+                )
                 restored += 1
 
         db.commit()
@@ -406,11 +429,13 @@ def list_backups() -> list[dict]:
     for f in sorted(os.listdir(backup_dir)):
         if f.endswith(".json"):
             full = os.path.join(backup_dir, f)
-            backups.append({
-                "filename": f,
-                "size_mb": round(os.path.getsize(full) / (1024 * 1024), 1),
-                "created": datetime.fromtimestamp(os.path.getctime(full)).isoformat(),
-            })
+            backups.append(
+                {
+                    "filename": f,
+                    "size_mb": round(os.path.getsize(full) / (1024 * 1024), 1),
+                    "created": datetime.fromtimestamp(os.path.getctime(full), UTC).isoformat(),
+                }
+            )
     return backups
 
 
@@ -454,6 +479,7 @@ def get_performance_stats() -> dict:
 # SHIELD CONTROL
 # ──────────────────────────────────────────────
 
+
 def _shield_cycle():
     """Main shield monitoring cycle."""
     while _shield_active:
@@ -464,16 +490,15 @@ def _shield_cycle():
                 _log_shield("integrity", f"Found {len(violations)} integrity violations", "critical")
 
             # Auto-backup every hour
-            if len(_backup_log) == 0 or _backup_log[-1]["timestamp"] < (datetime.now(timezone.utc) - timedelta(seconds=BACKUP_INTERVAL)).strftime("%Y%m%d_%H%M%S"):
+            if len(_backup_log) == 0 or _backup_log[-1]["timestamp"] < (
+                datetime.now(UTC) - timedelta(seconds=BACKUP_INTERVAL)
+            ).strftime("%Y%m%d_%H%M%S"):
                 _create_backup()
 
         except Exception as e:
             _log_shield("shield", f"Shield cycle error: {str(e)[:100]}", "warning")
 
         time.sleep(300)  # Check every 5 minutes
-
-
-from datetime import timedelta
 
 
 def start_shield():

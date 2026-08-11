@@ -9,7 +9,7 @@ secrets load no matter where the process is launched from. Override with the
 import json
 import os
 import re
-from typing import Annotated, Any, List, Optional
+from typing import Annotated, Any
 
 from pydantic import ConfigDict, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode
@@ -77,8 +77,8 @@ class Settings(BaseSettings):
     STORAGE_BACKEND: str = "auto"
     STORAGE_LOCAL_DIR: str = "uploads"  # relative to storage-local/ when not absolute
     MINIO_ENDPOINT: str = ""  # host:port, e.g. minio:9000
-    MINIO_ACCESS_KEY: Optional[str] = None  # scoped app user (not root)
-    MINIO_SECRET_KEY: Optional[str] = None
+    MINIO_ACCESS_KEY: str | None = None  # scoped app user (not root)
+    MINIO_SECRET_KEY: str | None = None
     MINIO_BUCKET: str = "kudos"
     MINIO_SECURE: bool = False  # True for TLS against MinIO
     MINIO_REGION: str = "us-east-1"
@@ -91,7 +91,7 @@ class Settings(BaseSettings):
     GROQ_MODEL: str = "llama-3.3-70b-versatile"
     OLLAMA_ENABLED: bool = False
     OLLAMA_BASE_URL: str = "http://localhost:11434"
-    OLLAMA_API_KEY: Optional[str] = None
+    OLLAMA_API_KEY: str | None = None
     OLLAMA_MODEL: str = "llama3.2"
     LLM_TIMEOUT_SECONDS: float = 30.0
     LLM_COOLDOWN_SECONDS: float = 60.0
@@ -135,14 +135,14 @@ class Settings(BaseSettings):
     MCP_URL: str = "http://mcp:8765/mcp"
     MCP_HOST: str = "0.0.0.0"
     MCP_PORT: int = 8765
-    MCP_AUTH_TOKEN: Optional[str] = None
+    MCP_AUTH_TOKEN: str | None = None
     MCP_REQUIRE_AUTH: bool = True
     MCP_ALLOW_MUTATIONS: bool = False
 
     # Optional LLM providers
-    OPENAI_API_KEY: Optional[str] = None
-    GOOGLE_GEMINI_API_KEY: Optional[str] = None
-    GROQ_API_KEY: Optional[str] = None
+    OPENAI_API_KEY: str | None = None
+    GOOGLE_GEMINI_API_KEY: str | None = None
+    GROQ_API_KEY: str | None = None
 
     # KUDOS Terminal: auto-open a session during ask when the question looks
     # like code KUDOS should test. Agent shell commands always require
@@ -162,7 +162,7 @@ class Settings(BaseSettings):
     # and replaced by a grounded (or honestly-refusing) answer when unsupported.
     KUDOS_OFFLINE_FIRST: bool = False
     KUDOS_GROUNDED_ONLY: bool = True
-    KUDOS_BRAIN_MIN_SCORE: float = 0.6   # minimum confidence for a grounded reply
+    KUDOS_BRAIN_MIN_SCORE: float = 0.6  # minimum confidence for a grounded reply
     KUDOS_BRAIN_CONSOLIDATE_LIMIT: int = 300
 
     # KUDOS Governance & Continuity — rotating superadmin identity and the
@@ -176,11 +176,11 @@ class Settings(BaseSettings):
 
     # Additional application API keys. Both comma- and newline-separated
     # values are accepted in environment variables and .env files.
-    API_KEYS: Annotated[List[str], NoDecode] = []
+    API_KEYS: Annotated[list[str], NoDecode] = []
 
     @field_validator("API_KEYS", mode="before")
     @classmethod
-    def parse_api_keys(cls, value: Any) -> List[str]:
+    def parse_api_keys(cls, value: Any) -> list[str]:
         """Normalize API_KEYS from either a list or a delimited string."""
         if value is None:
             return []
@@ -201,11 +201,7 @@ class Settings(BaseSettings):
                     if isinstance(value, list):
                         return [str(key).strip() for key in value if str(key).strip()]
 
-            return [
-                key.strip()
-                for key in re.split(r"[,\r\n]+", raw_value)
-                if key.strip()
-            ]
+            return [key.strip() for key in re.split(r"[,\r\n]+", raw_value) if key.strip()]
 
         if isinstance(value, (list, tuple, set)):
             return [str(key).strip() for key in value if str(key).strip()]
@@ -218,13 +214,9 @@ class Settings(BaseSettings):
         development, replace the known default secret with a random key."""
         if self.APP_ENV == "production":
             if not self.SECRET_KEY or self.SECRET_KEY == "changeme-in-production":
-                raise ValueError(
-                    "SECRET_KEY must be a strong random value when APP_ENV=production"
-                )
+                raise ValueError("SECRET_KEY must be a strong random value when APP_ENV=production")
             if len(self.SECRET_KEY) < 32:
-                raise ValueError(
-                    "SECRET_KEY must be at least 32 characters when APP_ENV=production"
-                )
+                raise ValueError("SECRET_KEY must be at least 32 characters when APP_ENV=production")
             if self.DEBUG:
                 raise ValueError("DEBUG must be false when APP_ENV=production")
         else:

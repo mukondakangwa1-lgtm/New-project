@@ -20,7 +20,6 @@ from app.core.config import settings
 from app.core.database import SessionLocal
 from app.models import KudosConnector, KudosDocument, KudosWebKnowledge
 
-
 mcp = FastMCP(
     name="KUDOS Tools",
     instructions=(
@@ -116,9 +115,7 @@ def kudos_list_connectors() -> list[dict[str, Any]]:
                 "source_url": connector.source_url,
                 "status": connector.status,
                 "items_learned": connector.items_learned,
-                "last_synced_at": connector.last_synced_at.isoformat()
-                if connector.last_synced_at
-                else None,
+                "last_synced_at": connector.last_synced_at.isoformat() if connector.last_synced_at else None,
             }
             for connector in connectors
         ]
@@ -161,15 +158,12 @@ class MCPTokenMiddleware:
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] == "http" and settings.MCP_REQUIRE_AUTH:
             headers = {
-                key.decode("latin-1").lower(): value.decode("latin-1")
-                for key, value in scope.get("headers", [])
+                key.decode("latin-1").lower(): value.decode("latin-1") for key, value in scope.get("headers", [])
             }
             supplied = headers.get("x-mcp-token", "")
             expected = settings.MCP_AUTH_TOKEN or ""
             if not expected or not hmac.compare_digest(supplied, expected):
-                response = JSONResponse(
-                    {"error": "MCP authentication required"}, status_code=401
-                )
+                response = JSONResponse({"error": "MCP authentication required"}, status_code=401)
                 await response(scope, receive, send)
                 return
         await self.app(scope, receive, send)

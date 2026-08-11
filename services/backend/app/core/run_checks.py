@@ -14,13 +14,13 @@ Distinguishes failure categories so the agent can react correctly:
 - infrastructure    — Docker/service/port failures
 - success           — gate passed
 """
+
 import os
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
-from app.core.tooling import QualityCommand, discover_commands, _rl
+from app.core.tooling import QualityCommand, _rl, discover_commands
 
 
 @dataclass
@@ -93,7 +93,7 @@ def classify(name: str, kind: str, exit_code: int, stdout: str, stderr: str, tim
     return "code_error"
 
 
-def run_gate(root: str | Path, gate: QualityCommand, timeout: Optional[int] = None) -> GateResult:
+def run_gate(root: str | Path, gate: QualityCommand, timeout: int | None = None) -> GateResult:
     """Run a single discovered gate inside the project (or workspace) root."""
     root = Path(root).resolve()
     cwd = root / gate.cwd if gate.cwd and gate.cwd != "." else root
@@ -107,15 +107,14 @@ def run_gate(root: str | Path, gate: QualityCommand, timeout: Optional[int] = No
             timeout=budget,
             preexec_fn=_rl,
             env={**os.environ},
+            check=False,
         )
         timed_out = False
     except subprocess.TimeoutExpired as exc:
         result = subprocess.CompletedProcess(gate.command, 124, str(exc), "")
         timed_out = True
 
-    category = classify(
-        gate.name, gate.kind, result.returncode, result.stdout or "", result.stderr or "", timed_out
-    )
+    category = classify(gate.name, gate.kind, result.returncode, result.stdout or "", result.stderr or "", timed_out)
     return GateResult(
         name=gate.name,
         kind=gate.kind,
@@ -130,9 +129,9 @@ def run_gate(root: str | Path, gate: QualityCommand, timeout: Optional[int] = No
 def run_quality_gates(
     root: str | Path,
     *,
-    kinds: Optional[list[str]] = None,
+    kinds: list[str] | None = None,
     include_ci: bool = False,
-    timeout: Optional[int] = None,
+    timeout: int | None = None,
 ) -> dict:
     """Run all discovered quality gates and return structured results.
 
@@ -142,7 +141,7 @@ def run_quality_gates(
     root = Path(root).resolve()
     commands = discover_commands(root)
     if not include_ci:
-        commands = [c for c in commands if not c.framework == "ci"]
+        commands = [c for c in commands if c.framework != "ci"]
     if kinds:
         commands = [c for c in commands if c.kind in kinds]
     if not kinds and commands:
@@ -172,6 +171,7 @@ def summarize(results: dict) -> str:
 # PROVIDER-DISABLED MODE CHECK
 # ──────────────────────────────────────────────
 
+
 def provider_disabled_ok(repo_root: str | Path) -> dict:
     """Verify the backend can start without AI provider credentials.
 
@@ -193,6 +193,7 @@ def provider_disabled_ok(repo_root: str | Path) -> dict:
             text=True,
             timeout=90,
             env=env,
+            check=False,
         )
         if "APP_OK" in result.stdout:
             return {"ok": True, "detail": "app imports with providers disabled"}

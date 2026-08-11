@@ -2,9 +2,9 @@
 Digital Campus - Speaking, Broadcasting, Radio, Video Calls, Journal
 Persistence via SQLAlchemy; WebRTC signaling via database-backed queues.
 """
+
 import json
-import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
@@ -43,7 +43,16 @@ _MIME_TO_EXT = {
     "audio/x-wav": "wav",
 }
 _EXT_TO_MIME = {ext: mime for mime, ext in _MIME_TO_EXT.items()}
-_EXT_TO_MIME.update({"m4a": "audio/mp4", "webm": "audio/webm", "ogg": "audio/ogg", "opus": "audio/opus", "mp3": "audio/mpeg", "wav": "audio/wav"})
+_EXT_TO_MIME.update(
+    {
+        "m4a": "audio/mp4",
+        "webm": "audio/webm",
+        "ogg": "audio/ogg",
+        "opus": "audio/opus",
+        "mp3": "audio/mpeg",
+        "wav": "audio/wav",
+    }
+)
 
 
 def _normalize_audio_mime(content_type: str) -> str:
@@ -132,6 +141,7 @@ def get_prompts(difficulty: str = "beginner"):
 def random_prompt(difficulty: str = "beginner"):
     """Get a random speaking prompt."""
     import random
+
     prompts = SPEAKING_PROMPTS.get(difficulty, SPEAKING_PROMPTS["beginner"])
     return {"prompt": random.choice(prompts), "difficulty": difficulty}
 
@@ -154,14 +164,14 @@ def start_practice(body: PracticeSession, user: User = Depends(get_current_user)
 
 @router.post("/speaking/session/{session_id}/complete")
 def complete_practice(
-    session_id: int, body: PracticeResult,
-    user: User = Depends(get_current_user), db: Session = Depends(get_db),
+    session_id: int,
+    body: PracticeResult,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
     """Complete a speaking practice session with self-assessment."""
     session = (
-        db.query(SpeakingSession)
-        .filter(SpeakingSession.id == session_id, SpeakingSession.user_id == user.id)
-        .first()
+        db.query(SpeakingSession).filter(SpeakingSession.id == session_id, SpeakingSession.user_id == user.id).first()
     )
     if not session:
         raise HTTPException(404, "Session not found")
@@ -169,7 +179,7 @@ def complete_practice(
     session.duration_spoken = body.duration_spoken
     session.self_rating = body.self_rating
     session.notes = body.notes
-    session.completed_at = datetime.now(timezone.utc)
+    session.completed_at = datetime.now(UTC)
     db.commit()
     db.refresh(session)
     return _session_dict(session, user)
@@ -177,14 +187,14 @@ def complete_practice(
 
 @router.post("/speaking/session/{session_id}/audio", status_code=200)
 async def upload_practice_audio(
-    session_id: int, file: UploadFile = File(...),
-    user: User = Depends(get_current_user), db: Session = Depends(get_db),
+    session_id: int,
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
     """Upload the recorded audio for a speaking session."""
     session = (
-        db.query(SpeakingSession)
-        .filter(SpeakingSession.id == session_id, SpeakingSession.user_id == user.id)
-        .first()
+        db.query(SpeakingSession).filter(SpeakingSession.id == session_id, SpeakingSession.user_id == user.id).first()
     )
     if not session:
         raise HTTPException(404, "Session not found")
@@ -208,12 +218,12 @@ async def upload_practice_audio(
 
 
 @router.get("/speaking/session/{session_id}/audio")
-def get_practice_audio(session_id: int, dl: int = 0, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def get_practice_audio(
+    session_id: int, dl: int = 0, user: User = Depends(get_current_user), db: Session = Depends(get_db)
+):
     """Stream (or download with ?dl=1) a speaking session recording."""
     session = (
-        db.query(SpeakingSession)
-        .filter(SpeakingSession.id == session_id, SpeakingSession.user_id == user.id)
-        .first()
+        db.query(SpeakingSession).filter(SpeakingSession.id == session_id, SpeakingSession.user_id == user.id).first()
     )
     if not session or not session.audio_url:
         raise HTTPException(404, "No recording for this session")
@@ -234,10 +244,12 @@ def get_practice_audio(session_id: int, dl: int = 0, user: User = Depends(get_cu
         return FileResponse(path, media_type=mime, filename=filename, headers=headers)
     try:
         return StreamingResponse(
-            storage.stream(key), media_type=mime, headers=headers,
+            storage.stream(key),
+            media_type=mime,
+            headers=headers,
         )
     except FileNotFoundError:
-        raise HTTPException(404, "Recording file missing")
+        raise HTTPException(404, "Recording file missing") from None
 
 
 @router.get("/speaking/history")
@@ -273,13 +285,9 @@ def _session_dict(session: SpeakingSession, user: User | None = None) -> dict:
         "duration_spoken": session.duration_spoken,
         "self_rating": session.self_rating,
         "notes": session.notes,
-        "audio_url": (
-            f"/api/v1/studio/speaking/session/{session.id}/audio"
-            if session.audio_url else None
-        ),
+        "audio_url": (f"/api/v1/studio/speaking/session/{session.id}/audio" if session.audio_url else None),
         "audio_download_url": (
-            f"/api/v1/studio/speaking/session/{session.id}/audio?dl=1"
-            if session.audio_url else None
+            f"/api/v1/studio/speaking/session/{session.id}/audio?dl=1" if session.audio_url else None
         ),
         "audio_mime": session.audio_mime or "",
         "started_at": session.started_at.isoformat() if session.started_at else None,
@@ -291,6 +299,7 @@ def _session_dict(session: SpeakingSession, user: User | None = None) -> dict:
 # LIVE BROADCASTING (Radio-style + WebRTC mesh)
 # ──────────────────────────────────────────────
 
+
 class BroadcastCreate(BaseModel):
     title: str
     description: str = ""
@@ -301,11 +310,7 @@ class BroadcastCreate(BaseModel):
 @router.post("/broadcast/start", status_code=201)
 def start_broadcast(body: BroadcastCreate, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Start a live radio-style broadcast."""
-    existing = (
-        db.query(Broadcast)
-        .filter(Broadcast.host_id == user.id, Broadcast.status == "live")
-        .first()
-    )
+    existing = db.query(Broadcast).filter(Broadcast.host_id == user.id, Broadcast.status == "live").first()
     if existing:
         raise HTTPException(400, "You already have an active broadcast")
 
@@ -326,15 +331,11 @@ def start_broadcast(body: BroadcastCreate, user: User = Depends(get_current_user
 @router.post("/broadcast/stop")
 def stop_broadcast(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Stop your active broadcast."""
-    broadcast = (
-        db.query(Broadcast)
-        .filter(Broadcast.host_id == user.id, Broadcast.status == "live")
-        .first()
-    )
+    broadcast = db.query(Broadcast).filter(Broadcast.host_id == user.id, Broadcast.status == "live").first()
     if not broadcast:
         raise HTTPException(404, "No active broadcast")
     broadcast.status = "ended"
-    broadcast.ended_at = datetime.now(timezone.utc)
+    broadcast.ended_at = datetime.now(UTC)
     db.commit()
     db.refresh(broadcast)
     return _broadcast_dict(broadcast, user)
@@ -343,12 +344,7 @@ def stop_broadcast(user: User = Depends(get_current_user), db: Session = Depends
 @router.get("/broadcast/active")
 def list_broadcasts(db: Session = Depends(get_db)):
     """List all active broadcasts."""
-    broadcasts = (
-        db.query(Broadcast)
-        .filter(Broadcast.status == "live")
-        .order_by(Broadcast.started_at.desc())
-        .all()
-    )
+    broadcasts = db.query(Broadcast).filter(Broadcast.status == "live").order_by(Broadcast.started_at.desc()).all()
     result = []
     for b in broadcasts:
         host = db.get(User, b.host_id)
@@ -389,6 +385,7 @@ def _broadcast_dict(broadcast: Broadcast, host: User | None = None) -> dict:
 # LIVE VIDEO CALLS (P2P mesh + whiteboard)
 # ──────────────────────────────────────────────
 
+
 class CallCreate(BaseModel):
     title: str = "Video Call"
     is_group: bool = False
@@ -426,12 +423,7 @@ def create_call(body: CallCreate, user: User = Depends(get_current_user), db: Se
 @router.get("/calls/active")
 def list_calls(db: Session = Depends(get_db)):
     """List active video calls."""
-    calls = (
-        db.query(VideoCall)
-        .filter(VideoCall.status == "active")
-        .order_by(VideoCall.created_at.desc())
-        .all()
-    )
+    calls = db.query(VideoCall).filter(VideoCall.status == "active").order_by(VideoCall.created_at.desc()).all()
     return {"calls": [_call_dict(c, db) for c in calls], "count": len(calls)}
 
 
@@ -455,9 +447,7 @@ def join_call(call_id: int, user: User = Depends(get_current_user), db: Session 
         raise HTTPException(400, "Call is full")
 
     existing = (
-        db.query(CallParticipant)
-        .filter(CallParticipant.call_id == call_id, CallParticipant.user_id == user.id)
-        .first()
+        db.query(CallParticipant).filter(CallParticipant.call_id == call_id, CallParticipant.user_id == user.id).first()
     )
     if not existing:
         db.add(CallParticipant(call_id=call_id, user_id=user.id, role="participant"))
@@ -472,12 +462,10 @@ def leave_call(call_id: int, user: User = Depends(get_current_user), db: Session
     if not call:
         raise HTTPException(404, "Call not found")
     participant = (
-        db.query(CallParticipant)
-        .filter(CallParticipant.call_id == call_id, CallParticipant.user_id == user.id)
-        .first()
+        db.query(CallParticipant).filter(CallParticipant.call_id == call_id, CallParticipant.user_id == user.id).first()
     )
     if participant:
-        participant.left_at = datetime.now(timezone.utc)
+        participant.left_at = datetime.now(UTC)
         db.delete(participant)
         db.flush()
     remaining = db.query(CallParticipant).filter(CallParticipant.call_id == call_id).count()
@@ -491,17 +479,25 @@ def leave_call(call_id: int, user: User = Depends(get_current_user), db: Session
 
 # ── WebRTC signaling (database-backed queue) ──
 
+
 @router.post("/calls/{call_id}/signal", status_code=201)
-def send_call_signal(call_id: int, body: SignalIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def send_call_signal(
+    call_id: int, body: SignalIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)
+):
     """Queue a WebRTC signal (offer/answer/ice) for another participant."""
     call = db.query(VideoCall).filter(VideoCall.id == call_id, VideoCall.status == "active").first()
     if not call:
         raise HTTPException(404, "Call not found")
-    db.add(WebRtcSignal(
-        room_type="call", room_id=call_id,
-        sender_id=user.id, recipient_id=body.recipient_id,
-        signal_type=body.signal_type, payload=body.payload,
-    ))
+    db.add(
+        WebRtcSignal(
+            room_type="call",
+            room_id=call_id,
+            sender_id=user.id,
+            recipient_id=body.recipient_id,
+            signal_type=body.signal_type,
+            payload=body.payload,
+        )
+    )
     db.commit()
     return {"status": "queued"}
 
@@ -524,12 +520,14 @@ def poll_call_signals(call_id: int, user: User = Depends(get_current_user), db: 
     out = []
     for s in signals:
         s.is_consumed = True
-        out.append({
-            "id": s.id,
-            "sender_id": s.sender_id,
-            "signal_type": s.signal_type,
-            "payload": s.payload,
-        })
+        out.append(
+            {
+                "id": s.id,
+                "sender_id": s.sender_id,
+                "signal_type": s.signal_type,
+                "payload": s.payload,
+            }
+        )
     db.commit()
     return {"signals": out}
 
@@ -542,10 +540,13 @@ def save_whiteboard(call_id: int, data: dict, user: User = Depends(get_current_u
         raise HTTPException(404, "Call not found")
     strokes = data.get("strokes", [])
     if strokes:
-        db.add(WhiteboardStroke(
-            call_id=call_id, author_id=user.id,
-            data=json.dumps(strokes),
-        ))
+        db.add(
+            WhiteboardStroke(
+                call_id=call_id,
+                author_id=user.id,
+                data=json.dumps(strokes),
+            )
+        )
         db.commit()
     return {"status": "saved", "strokes": len(strokes)}
 
@@ -576,10 +577,7 @@ def _participants(call: VideoCall, db: Session) -> list[dict]:
         .filter(CallParticipant.call_id == call.id, CallParticipant.left_at.is_(None))
         .all()
     )
-    return [
-        {"user_id": u.id, "name": u.full_name, "role": p.role}
-        for p, u in rows
-    ]
+    return [{"user_id": u.id, "name": u.full_name, "role": p.role} for p, u in rows]
 
 
 def _call_dict(call: VideoCall, db: Session, current_user: User | None = None) -> dict:
@@ -595,15 +593,14 @@ def _call_dict(call: VideoCall, db: Session, current_user: User | None = None) -
         "participants": _participants(call, db),
         "status": call.status,
         "created_at": call.created_at.isoformat() if call.created_at else None,
-        "is_joined": bool(current_user) and any(
-            p["user_id"] == current_user.id for p in _participants(call, db)
-        ),
+        "is_joined": bool(current_user) and any(p["user_id"] == current_user.id for p in _participants(call, db)),
     }
 
 
 # ──────────────────────────────────────────────
 # BROADCAST SIGNALING (WebRTC mesh, audio-only)
 # ──────────────────────────────────────────────
+
 
 class BroadcastSignal(BaseModel):
     recipient_id: int
@@ -613,18 +610,25 @@ class BroadcastSignal(BaseModel):
 
 @router.post("/broadcast/{broadcast_id}/signal", status_code=201)
 def send_broadcast_signal(
-    broadcast_id: int, body: BroadcastSignal,
-    user: User = Depends(get_current_user), db: Session = Depends(get_db),
+    broadcast_id: int,
+    body: BroadcastSignal,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
     """Queue a WebRTC signal for a broadcast participant."""
     broadcast = db.query(Broadcast).filter(Broadcast.id == broadcast_id, Broadcast.status == "live").first()
     if not broadcast:
         raise HTTPException(404, "Broadcast not found or ended")
-    db.add(WebRtcSignal(
-        room_type="broadcast", room_id=broadcast_id,
-        sender_id=user.id, recipient_id=body.recipient_id,
-        signal_type=body.signal_type, payload=body.payload,
-    ))
+    db.add(
+        WebRtcSignal(
+            room_type="broadcast",
+            room_id=broadcast_id,
+            sender_id=user.id,
+            recipient_id=body.recipient_id,
+            signal_type=body.signal_type,
+            payload=body.payload,
+        )
+    )
     db.commit()
     return {"status": "queued"}
 
@@ -647,12 +651,14 @@ def poll_broadcast_signals(broadcast_id: int, user: User = Depends(get_current_u
     out = []
     for s in signals:
         s.is_consumed = True
-        out.append({
-            "id": s.id,
-            "sender_id": s.sender_id,
-            "signal_type": s.signal_type,
-            "payload": s.payload,
-        })
+        out.append(
+            {
+                "id": s.id,
+                "sender_id": s.sender_id,
+                "signal_type": s.signal_type,
+                "payload": s.payload,
+            }
+        )
     db.commit()
     return {"signals": out}
 
@@ -660,6 +666,7 @@ def poll_broadcast_signals(broadcast_id: int, user: User = Depends(get_current_u
 # ──────────────────────────────────────────────
 # JOURNALIST JOURNAL PAGE
 # ──────────────────────────────────────────────
+
 
 class JournalBlockIn(BaseModel):
     title: str
@@ -705,11 +712,7 @@ def add_journal_block(body: JournalBlockIn, user: User = Depends(get_current_use
 @router.delete("/journal/blocks/{block_id}", status_code=204)
 def delete_journal_block(block_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Delete a journal block."""
-    block = (
-        db.query(JournalBlock)
-        .filter(JournalBlock.id == block_id, JournalBlock.user_id == user.id)
-        .first()
-    )
+    block = db.query(JournalBlock).filter(JournalBlock.id == block_id, JournalBlock.user_id == user.id).first()
     if block:
         db.delete(block)
         db.commit()
@@ -718,12 +721,7 @@ def delete_journal_block(block_id: int, user: User = Depends(get_current_user), 
 @router.get("/journal/{user_id}")
 def view_journal(user_id: int, db: Session = Depends(get_db)):
     """View another user's public journal page."""
-    blocks = (
-        db.query(JournalBlock)
-        .filter(JournalBlock.user_id == user_id)
-        .order_by(JournalBlock.position.asc())
-        .all()
-    )
+    blocks = db.query(JournalBlock).filter(JournalBlock.user_id == user_id).order_by(JournalBlock.position.asc()).all()
     return {"blocks": [_journal_dict(b) for b in blocks], "user_id": user_id}
 
 

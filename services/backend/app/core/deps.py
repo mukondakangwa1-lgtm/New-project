@@ -1,11 +1,11 @@
 """
 Digital Campus - Shared Dependencies
 """
+
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
-from typing import Optional
 
 from app.core.config import settings
 from app.core.database import get_db
@@ -18,12 +18,10 @@ _CSRF_HEADER = "x-requested-with"
 _SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
 
-def _decode_token(token: str) -> Optional[str]:
+def _decode_token(token: str) -> str | None:
     """Decode a JWT; returns the subject email or None."""
     try:
-        payload = jwt.decode(
-            token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
-        )
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         email: str = payload.get("sub")
         return email if email else None
     except JWTError:
@@ -60,11 +58,7 @@ def get_current_user(
     if email is None:
         raise credentials_exception
 
-    if (
-        used_cookie
-        and request.method not in _SAFE_METHODS
-        and not request.headers.get(_CSRF_HEADER)
-    ):
+    if used_cookie and request.method not in _SAFE_METHODS and not request.headers.get(_CSRF_HEADER):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="CSRF guard: state-changing request requires X-Requested-With header",

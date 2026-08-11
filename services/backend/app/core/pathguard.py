@@ -17,6 +17,7 @@ Example paths that are always rejected:
     /etc/passwd
     /root/.ssh/id_rsa
 """
+
 import os
 from pathlib import Path
 
@@ -51,22 +52,16 @@ PROTECTED_PREFIXES = ("/etc/", "/root/", "/home/", "/usr/", "/var/", "/proc/", "
 def _is_protected_name(name: str) -> bool:
     if name in PROTECTED_NAMES:
         return True
-    if name.startswith(".env.") or name.startswith(".env-"):
+    if name.startswith((".env.", ".env-")):
         return True
     if name.startswith(".git"):
         return True
-    for suffix in PROTECTED_SUFFIXES:
-        if name.endswith(suffix):
-            return True
-    return False
+    return any(name.endswith(suffix) for suffix in PROTECTED_SUFFIXES)
 
 
 def _is_protected_path(path: Path) -> bool:
     """Check any path component (including the target) for protected names."""
-    for part in path.parts:
-        if _is_protected_name(part):
-            return True
-    return False
+    return any(_is_protected_name(part) for part in path.parts)
 
 
 def is_inside(root: Path, path: Path) -> bool:
@@ -97,10 +92,7 @@ def resolve_inside(workspace_root, relpath: str, *, allow_missing: bool = False)
     """
     root = Path(workspace_root).resolve()
     raw = Path(str(relpath))
-    if not raw.is_absolute():
-        candidate = root / raw
-    else:
-        candidate = raw
+    candidate = root / raw if not raw.is_absolute() else raw
     resolved = candidate.resolve(strict=False) if allow_missing else candidate.resolve()
 
     if not is_inside(root, candidate):

@@ -2,14 +2,15 @@
 LLM adapter — thin wrapper around existing llm_engine to provide a smaller interface
 for endpoints and services. Keeps code decoupled in case of future LLM provider changes.
 """
-from __future__ import annotations
 
-from typing import Optional, List
+from __future__ import annotations
 
 from app.core import llm_engine
 
 
-async def get_response(question: str, knowledge_context: str = "", conversation_history: List[dict] | None = None, user_name: str = "") -> Optional[str]:
+async def get_response(
+    question: str, knowledge_context: str = "", conversation_history: list[dict] | None = None, user_name: str = ""
+) -> str | None:
     return await llm_engine.get_llm_response(
         question=question,
         knowledge_context=knowledge_context,

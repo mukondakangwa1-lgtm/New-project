@@ -11,8 +11,8 @@ from __future__ import annotations
 import hashlib
 import json
 import secrets
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import func, select
 
@@ -24,7 +24,7 @@ DEFAULT_CAPACITY_BYTES = 512 * 1024 * 1024
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _hash_seed(seed: str) -> int:
@@ -37,16 +37,20 @@ def register_device(
     name: str,
     platform: str = "generic",
     storage_bytes: int = DEFAULT_CAPACITY_BYTES,
-    api_token: Optional[str] = None,
+    api_token: str | None = None,
 ) -> KudosDevice:
     """Register a device that lends its storage to KUDOS."""
-    existing = db.execute(
-        select(KudosDevice).where(
-            KudosDevice.user_id == user_id,
-            KudosDevice.name == name,
-            KudosDevice.status != "retired",
+    existing = (
+        db.execute(
+            select(KudosDevice).where(
+                KudosDevice.user_id == user_id,
+                KudosDevice.name == name,
+                KudosDevice.status != "retired",
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     if existing:
         device = existing[0]
         if not device.api_token:
@@ -69,29 +73,37 @@ def register_device(
     return device
 
 
-def get_device_by_token(db, token: str) -> Optional[KudosDevice]:
+def get_device_by_token(db, token: str) -> KudosDevice | None:
     if not token:
         return None
-    return db.execute(
-        select(KudosDevice).where(
-            KudosDevice.api_token == token,
-            KudosDevice.status != "retired",
+    return (
+        db.execute(
+            select(KudosDevice).where(
+                KudosDevice.api_token == token,
+                KudosDevice.status != "retired",
+            )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
 
 
-def _ring(db, user_id: int) -> List[KudosDevice]:
+def _ring(db, user_id: int) -> list[KudosDevice]:
     """Active devices sorted by hashed ID — the consistent-hash ring."""
-    devices = db.execute(
-        select(KudosDevice).where(
-            KudosDevice.user_id == user_id,
-            KudosDevice.status == "online",
+    devices = (
+        db.execute(
+            select(KudosDevice).where(
+                KudosDevice.user_id == user_id,
+                KudosDevice.status == "online",
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return sorted(devices, key=lambda d: _hash_seed(f"device:{d.id}"))
 
 
-def _pick_targets(ring: List[KudosDevice], memory_id: int, copies: int) -> List[KudosDevice]:
+def _pick_targets(ring: list[KudosDevice], memory_id: int, copies: int) -> list[KudosDevice]:
     """Deterministically pick `copies` devices from the ring for a memory."""
     if not ring:
         return []
@@ -115,9 +127,9 @@ def assign_replicas(db, memory: KudosMemory) -> int:
     policy = (memory.device_policy or "replicated").lower()
     if policy == "local":
         # local-only memories never leave the authoritative store
-        for replica in db.execute(
-            select(KudosMemoryReplica).where(KudosMemoryReplica.memory_id == memory.id)
-        ).scalars().all():
+        for replica in (
+            db.execute(select(KudosMemoryReplica).where(KudosMemoryReplica.memory_id == memory.id)).scalars().all()
+        ):
             db.delete(replica)
         db.commit()
         return 0
@@ -126,9 +138,7 @@ def assign_replicas(db, memory: KudosMemory) -> int:
     targets = _pick_targets(ring, memory.id, copies)
 
     target_ids = {d.id for d in targets}
-    current = db.execute(
-        select(KudosMemoryReplica).where(KudosMemoryReplica.memory_id == memory.id)
-    ).scalars().all()
+    current = db.execute(select(KudosMemoryReplica).where(KudosMemoryReplica.memory_id == memory.id)).scalars().all()
 
     for replica in current:
         if replica.device_id not in target_ids:
@@ -138,19 +148,21 @@ def assign_replicas(db, memory: KudosMemory) -> int:
     created = 0
     for idx, device in enumerate(targets):
         if device.id not in existing_device_ids:
-            db.add(KudosMemoryReplica(
-                memory_id=memory.id,
-                device_id=device.id,
-                user_id=memory.user_id,
-                role="primary" if idx == 0 else "replica",
-                status="pending",
-            ))
+            db.add(
+                KudosMemoryReplica(
+                    memory_id=memory.id,
+                    device_id=device.id,
+                    user_id=memory.user_id,
+                    role="primary" if idx == 0 else "replica",
+                    status="pending",
+                )
+            )
             created += 1
     db.commit()
     return created
 
 
-def pull_manifest(db, device: KudosDevice) -> List[Dict[str, Any]]:
+def pull_manifest(db, device: KudosDevice) -> list[dict[str, Any]]:
     """Entries this device must have locally: pending or stale replicas."""
     rows = db.execute(
         select(KudosMemoryReplica, KudosMemory)
@@ -163,7 +175,7 @@ def pull_manifest(db, device: KudosDevice) -> List[Dict[str, Any]]:
     ).all()
     entries = []
     for replica, memory in rows:
-        entry: Dict[str, Any] = {
+        entry: dict[str, Any] = {
             "memory_id": memory.id,
             "content": memory.content,
             "layer": memory.layer,
@@ -188,15 +200,19 @@ def pull_manifest(db, device: KudosDevice) -> List[Dict[str, Any]]:
     return entries
 
 
-def ack_pull(db, device: KudosDevice, memory_ids: List[int]) -> int:
+def ack_pull(db, device: KudosDevice, memory_ids: list[int]) -> int:
     """Mark replicas as acknowledged after the device stored them."""
-    rows = db.execute(
-        select(KudosMemoryReplica).where(
-            KudosMemoryReplica.device_id == device.id,
-            KudosMemoryReplica.user_id == device.user_id,
-            KudosMemoryReplica.memory_id.in_(memory_ids),
+    rows = (
+        db.execute(
+            select(KudosMemoryReplica).where(
+                KudosMemoryReplica.device_id == device.id,
+                KudosMemoryReplica.user_id == device.user_id,
+                KudosMemoryReplica.memory_id.in_(memory_ids),
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     for row in rows:
         row.status = "current"
         row.synced_at = _now()
@@ -216,9 +232,7 @@ def retire_device(db, device: KudosDevice) -> int:
     Returns the number of memories whose replicas were released."""
     device.status = "retired"
     device.api_token = ""
-    replicas = db.execute(
-        select(KudosMemoryReplica).where(KudosMemoryReplica.device_id == device.id)
-    ).scalars().all()
+    replicas = db.execute(select(KudosMemoryReplica).where(KudosMemoryReplica.device_id == device.id)).scalars().all()
     released = len(replicas)
     for r in replicas:
         db.delete(r)
@@ -227,32 +241,29 @@ def retire_device(db, device: KudosDevice) -> int:
 
 
 def purge_memory_replicas(db, memory_id: int) -> int:
-    rows = db.execute(
-        select(KudosMemoryReplica).where(KudosMemoryReplica.memory_id == memory_id)
-    ).scalars().all()
+    rows = db.execute(select(KudosMemoryReplica).where(KudosMemoryReplica.memory_id == memory_id)).scalars().all()
     for row in rows:
         db.delete(row)
     db.commit()
     return len(rows)
 
 
-def reconcile(db, user_id: int) -> Dict[str, int]:
+def reconcile(db, user_id: int) -> dict[str, int]:
     """Ensure every memory has its policy-defined replica set on live devices."""
-    memories = db.execute(
-        select(KudosMemory).where(KudosMemory.user_id == user_id)
-    ).scalars().all()
+    memories = db.execute(select(KudosMemory).where(KudosMemory.user_id == user_id)).scalars().all()
     created = 0
     for memory in memories:
         created += assign_replicas(db, memory)
-    row_count = db.execute(
-        select(func.count()).select_from(KudosMemoryReplica).where(
-            KudosMemoryReplica.user_id == user_id
-        )
-    ).scalar() or 0
+    row_count = (
+        db.execute(
+            select(func.count()).select_from(KudosMemoryReplica).where(KudosMemoryReplica.user_id == user_id)
+        ).scalar()
+        or 0
+    )
     return {"created": created, "replicas": int(row_count)}
 
 
-def memory_replica_map(db, user_id: int, memory_ids: List[int]) -> Dict[int, List[dict]]:
+def memory_replica_map(db, user_id: int, memory_ids: list[int]) -> dict[int, list[dict]]:
     """Device info per memory for the retrieval view."""
     rows = db.execute(
         select(KudosMemoryReplica, KudosDevice)
@@ -262,50 +273,55 @@ def memory_replica_map(db, user_id: int, memory_ids: List[int]) -> Dict[int, Lis
             KudosMemoryReplica.memory_id.in_(memory_ids),
         )
     ).all()
-    out: Dict[int, List[dict]] = {}
+    out: dict[int, list[dict]] = {}
     for replica, device in rows:
-        out.setdefault(replica.memory_id, []).append({
-            "device_id": device.id,
-            "device_name": device.name,
-            "role": replica.role,
-            "status": replica.status,
-        })
+        out.setdefault(replica.memory_id, []).append(
+            {
+                "device_id": device.id,
+                "device_name": device.name,
+                "role": replica.role,
+                "status": replica.status,
+            }
+        )
     return out
 
 
-def sync_status(db, user_id: int) -> Dict[str, Any]:
+def sync_status(db, user_id: int) -> dict[str, Any]:
     """Storage/replication health for a user's device fleet."""
-    devices = db.execute(
-        select(KudosDevice).where(KudosDevice.user_id == user_id)
-    ).scalars().all()
+    devices = db.execute(select(KudosDevice).where(KudosDevice.user_id == user_id)).scalars().all()
     device_rows = []
     for device in devices:
-        replicas = db.execute(
-            select(KudosMemoryReplica).where(KudosMemoryReplica.device_id == device.id)
-        ).scalars().all()
-        device_rows.append({
-            "id": device.id,
-            "name": device.name,
-            "status": device.status,
-            "replicas_held": len(replicas),
-            "pending": sum(1 for r in replicas if r.status == "pending"),
-            "storage_used_bytes": device.used_storage_bytes or 0,
-            "storage_capacity_bytes": device.storage_bytes or 0,
-        })
+        replicas = (
+            db.execute(select(KudosMemoryReplica).where(KudosMemoryReplica.device_id == device.id)).scalars().all()
+        )
+        device_rows.append(
+            {
+                "id": device.id,
+                "name": device.name,
+                "status": device.status,
+                "replicas_held": len(replicas),
+                "pending": sum(1 for r in replicas if r.status == "pending"),
+                "storage_used_bytes": device.used_storage_bytes or 0,
+                "storage_capacity_bytes": device.storage_bytes or 0,
+            }
+        )
 
-    memories = db.execute(
-        select(KudosMemory).where(KudosMemory.user_id == user_id)
-    ).scalars().all()
+    memories = db.execute(select(KudosMemory).where(KudosMemory.user_id == user_id)).scalars().all()
     healthy = 0
     for memory in memories:
         if memory.device_policy == "local":
             continue
-        copies = db.execute(
-            select(func.count()).select_from(KudosMemoryReplica).where(
-                KudosMemoryReplica.memory_id == memory.id,
-                KudosMemoryReplica.status == "current",
-            )
-        ).scalar() or 0
+        copies = (
+            db.execute(
+                select(func.count())
+                .select_from(KudosMemoryReplica)
+                .where(
+                    KudosMemoryReplica.memory_id == memory.id,
+                    KudosMemoryReplica.status == "current",
+                )
+            ).scalar()
+            or 0
+        )
         needed = REPLICA_COPIES.get(memory.device_policy or "replicated", 1)
         if int(copies) >= needed:
             healthy += 1

@@ -76,6 +76,7 @@ class AgentRequest(BaseModel):
 # USER / ADMIN SESSION ENDPOINTS
 # ──────────────────────────────────────────────
 
+
 @router.post("/sessions", status_code=201)
 def open_session_endpoint(
     body: SessionCreate,
@@ -85,13 +86,16 @@ def open_session_endpoint(
     """Open a terminal on a device, or online (superadmin)."""
     try:
         session = create_session(
-            db, current_user.id, device_id=body.device_id, name=body.name,
+            db,
+            current_user.id,
+            device_id=body.device_id,
+            name=body.name,
             admin=current_user.is_admin,
         )
     except PermissionError as exc:
-        raise HTTPException(status_code=403, detail=str(exc))
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     return session_to_dict(session)
 
 
@@ -112,9 +116,9 @@ def session_transcript_endpoint(
     try:
         return transcript(db, session_id, current_user.id)
     except PermissionError as exc:
-        raise HTTPException(status_code=403, detail=str(exc))
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/sessions/{session_id}/command")
@@ -128,13 +132,18 @@ def issue_command_endpoint(
     for superadmin approval (unless it is a code run with a language)."""
     try:
         cmd = enqueue_command(
-            db, session_id, current_user.id, body.command,
-            source=body.source, language=body.language, admin=current_user.is_admin,
+            db,
+            session_id,
+            current_user.id,
+            body.command,
+            source=body.source,
+            language=body.language,
+            admin=current_user.is_admin,
         )
     except PermissionError as exc:
-        raise HTTPException(status_code=403, detail=str(exc))
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     if cmd.status == "queued":
         session = _session_row(db, cmd.session_id)
@@ -153,16 +162,21 @@ def run_code_endpoint(
     """Write the code into the session workspace and run it."""
     try:
         cmd = enqueue_command(
-            db, session_id, current_user.id, body.code,
-            source="user", language=body.language, admin=current_user.is_admin,
+            db,
+            session_id,
+            current_user.id,
+            body.code,
+            source="user",
+            language=body.language,
+            admin=current_user.is_admin,
         )
         session = _session_row(db, cmd.session_id)
         if session and session.kind == "online":
             return execute_online(db, cmd)
     except PermissionError as exc:
-        raise HTTPException(status_code=403, detail=str(exc))
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     return _command_payload(cmd)
 
 
@@ -175,9 +189,9 @@ def close_session_endpoint(
     try:
         return close_session(db, session_id, current_user.id, admin=current_user.is_admin)
     except PermissionError as exc:
-        raise HTTPException(status_code=403, detail=str(exc))
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/sessions/{session_id}/agent")
@@ -195,14 +209,15 @@ async def agent_round_endpoint(
     try:
         return await run_agent_round(db, session_id, body.task, admin.id)
     except PermissionError as exc:
-        raise HTTPException(status_code=403, detail=str(exc))
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 # ──────────────────────────────────────────────
 # APPROVALS (superadmin)
 # ──────────────────────────────────────────────
+
 
 @router.get("/approvals")
 def approvals_endpoint(
@@ -221,7 +236,7 @@ def approve_command_endpoint(
     try:
         cmd = approve_command(db, command_id, admin.id)
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     # Online sessions execute approved commands right away; device sessions
     # wait for the device agent to claim them on its next poll.
@@ -237,6 +252,7 @@ def approve_command_endpoint(
 # DEVICE CHANNEL
 # ──────────────────────────────────────────────
 
+
 @router.get("/commands")
 def device_claim_endpoint(
     device_token: str = Header(..., alias="X-Device-Token"),
@@ -246,7 +262,7 @@ def device_claim_endpoint(
     try:
         return {"commands": claim_next_for_device(db, device_token)}
     except PermissionError as exc:
-        raise HTTPException(status_code=401, detail=str(exc))
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
 
 
 @router.post("/commands/{command_id}/result")
@@ -259,14 +275,15 @@ def device_result_endpoint(
     try:
         return submit_result(db, device_token, command_id, body.exit_code, body.output)
     except PermissionError as exc:
-        raise HTTPException(status_code=401, detail=str(exc))
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 # ──────────────────────────────────────────────
 # HELPERS
 # ──────────────────────────────────────────────
+
 
 def _session_row(db: Session, session_id: int):
     from app.models import KudosTerminalSession
