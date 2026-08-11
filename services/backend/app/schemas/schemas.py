@@ -15,6 +15,8 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     password: str
+    is_student: bool = False
+    school: str | None = None
 
 
 class UserResponse(UserBase):
@@ -24,6 +26,8 @@ class UserResponse(UserBase):
     is_active: bool
     is_admin: bool
     is_approved: bool
+    is_student: bool
+    school: str | None = None
     created_at: datetime
 
 

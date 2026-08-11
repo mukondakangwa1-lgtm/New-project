@@ -662,3 +662,25 @@ class KudosConstitution(Base):
     updated_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(UTC))
     updated_at = Column(DateTime, default=lambda: datetime.now(UTC))
+
+
+class ContentProgress(Base):
+    """Tracks where a user left off in a movie, book or audio track so the
+    dashboard can show 'continue where you left off'. One row per user +
+    content key; position_pct is the resume point (0-100)."""
+
+    __tablename__ = "content_progress"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    content_key = Column(String(255), nullable=False, index=True)  # stable id/url/slug
+    kind = Column(String(20), default="movie")  # movie | book | audio | document
+    title = Column(String(300), default="")
+    url = Column(String(600), default="")
+    position_pct = Column(Float, default=0.0)
+    detail = Column(String(600), default="")  # e.g. book page or chapter label
+    source = Column(String(60), default="library")  # media | library | studio | radio
+    updated_at = Column(DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
+
+    user = relationship("User")

@@ -78,3 +78,30 @@ def require_admin(current_user: User = Depends(get_current_user)) -> User:
             detail="Admin access required",
         )
     return current_user
+
+
+def get_current_user_optional(
+    request: Request,
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+) -> User | None:
+    """Like get_current_user but returns None when there is no session —
+    used for guest-friendly endpoints (device registration, link reports)."""
+    email = _decode_token(token) if token else None
+    used_cookie = False
+    if email is None:
+        cookie_token = request.cookies.get(AUTH_COOKIE_NAME)
+        if cookie_token:
+            email = _decode_token(cookie_token)
+            used_cookie = email is not None
+
+    if email is None:
+        return None
+
+    if used_cookie and request.method not in _SAFE_METHODS and not request.headers.get(_CSRF_HEADER):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="CSRF guard: state-changing request requires X-Requested-With header",
+        )
+
+    return db.query(User).filter(User.email == email).first()

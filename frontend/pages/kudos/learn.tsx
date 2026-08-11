@@ -1,9 +1,11 @@
 import { useState, useEffect, FormEvent } from "react";
 import { getAuthHeader } from "@/lib/api";
 import Layout from "@/components/Layout";
+import { useAdminGuard } from "@/lib/adminGuard";
 import { ProgressBar, useLongProcess } from "@/components/ProgressBar";
 
 export default function KudosLearn() {
+  const allowed = useAdminGuard();
   const [url, setUrl] = useState("");
   const [title, setTitle] = useState("");
   const [message, setMessage] = useState({ text: "", type: "" });
@@ -52,6 +54,7 @@ export default function KudosLearn() {
     setLoading(false);
   };
 
+  if (!allowed) return null;
   return (
     <Layout>
       <h2 className="text-3xl font-bold mb-2">🌐 Teach KUDOS — Web Pages</h2>

@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, get_current_user_optional
 from app.core.device_storage import (
     ack_pull,
     get_device_by_token,
@@ -48,12 +48,17 @@ def _device_from_token(
 def register_device_endpoint(
     body: DeviceCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_current_user_optional),
 ):
-    """Register a device whose storage KUDOS can use for memory replicas."""
+    """Register a device whose storage KUDOS can use for memory replicas.
+
+    Anonymous callers (no session) register a guest device bound only to its
+    API token — used for automatic network-link reporting from any browser
+    running KUDOS.
+    """
     device = register_device(
         db,
-        user_id=current_user.id,
+        user_id=current_user.id if current_user else None,
         name=body.name,
         platform=body.platform,
         storage_bytes=body.storage_bytes,

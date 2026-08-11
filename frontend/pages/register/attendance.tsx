@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { getAuthHeader } from "@/lib/api";
 import Layout from "@/components/Layout";
+import RequireRole from "@/components/RequireRole";
 
 interface Session {
   id: number;
@@ -113,7 +114,8 @@ export default function AttendanceRegister() {
   const timeStr = (t: string) => t?.substring(0, 5);
 
   return (
-    <Layout>
+    <RequireRole roles={["student", "admin"]} redirectTo="/kudos">
+      <Layout>
       <h2 className="text-3xl font-bold mb-2">📋 Digital Register</h2>
       <p className="text-gray-600 mb-8">Today&apos;s attendance sessions</p>
 
@@ -301,6 +303,7 @@ export default function AttendanceRegister() {
           )}
         </div>
       </div>
-    </Layout>
+          </Layout>
+    </RequireRole>
   );
 }

@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { getAuthHeader } from "@/lib/api";
 import Layout from "@/components/Layout";
+import RequireRole from "@/components/RequireRole";
 
 interface Source {
   name: string;
@@ -85,7 +86,8 @@ export default function MediaHub() {
   ];
 
   return (
-    <Layout>
+    <RequireRole roles={["user", "student", "admin"]} redirectTo="/kudos">
+      <Layout>
       <div className="flex justify-between items-center mb-6">
         <div>
           <h2 className="text-2xl md:text-3xl font-bold">🎬 Media Hub</h2>
@@ -356,6 +358,7 @@ export default function MediaHub() {
           </div>
         </div>
       )}
-    </Layout>
+      </Layout>
+    </RequireRole>
   );
 }

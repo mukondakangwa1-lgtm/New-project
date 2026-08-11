@@ -23,7 +23,7 @@ def _setup():
     return headers
 
 
-def test_recommend_heuristic_recommends_clean_tests():
+def test_recommend_heuristic_recommends_clean_tests(monkeypatch):
     headers = _setup()
     prop = sandbox.create_proposal(
         title="Dark mode",
@@ -38,6 +38,13 @@ def test_recommend_heuristic_recommends_clean_tests():
             {"name": "syntax_dark.py", "status": "PASS"},
         ],
     }
+    # Hermetic: no LLM verdict — the deterministic heuristic must decide.
+    from app.core import llm_engine
+
+    async def no_llm(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(llm_engine, "query_best_llm", no_llm)
     r = client.post("/api/v1/kudos/sandbox/recommend", json={"proposal_id": prop["id"]}, headers=headers)
     assert r.status_code == 200
     body = r.json()
@@ -45,7 +52,7 @@ def test_recommend_heuristic_recommends_clean_tests():
     assert body["recommendation"]["decision"] == "recommend"
 
 
-def test_recommend_never_recommends_failing_tests():
+def test_recommend_never_recommends_failing_tests(monkeypatch):
     headers = _setup()
     prop = sandbox.create_proposal(
         title="Broken feature",
@@ -57,6 +64,12 @@ def test_recommend_never_recommends_failing_tests():
         "failed": 2,
         "tests": [{"name": "existing_tests", "status": "FAIL", "details": "boom"}],
     }
+    from app.core import llm_engine
+
+    async def no_llm(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(llm_engine, "query_best_llm", no_llm)
     r = client.post("/api/v1/kudos/sandbox/recommend", json={"proposal_id": prop["id"]}, headers=headers)
     assert r.status_code == 200
     body = r.json()

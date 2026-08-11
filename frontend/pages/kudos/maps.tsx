@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import Layout from "@/components/Layout";
+import RequireRole from "@/components/RequireRole";
 import { apiFetch } from "@/lib/api";
 import {
   MapsStatus,
@@ -152,12 +154,13 @@ export default function KudosMaps() {
   };
 
   return (
-    <Layout>
-      <div className="min-h-screen bg-gray-50">
+    <RequireRole roles={["user", "student", "admin"]} redirectTo="/kudos">
+      <Layout>
+        <div className="min-h-screen bg-gray-50">
         <div className="max-w-6xl mx-auto px-4 py-6">
           <div className="flex items-center justify-between mb-2">
             <h1 className="text-2xl font-bold text-gray-800">🗺️ KUDOS Maps</h1>
-            <a href="/kudos" className="text-sm text-purple-600 hover:underline">← back to KUDOS</a>
+            <Link href="/kudos" className="text-sm text-purple-600 hover:underline">← back to KUDOS</Link>
           </div>
           <p className="text-sm text-gray-500 mb-4">
             KUDOS&apos;s own offline map of the world — radio towers, crowdsourced device networks and seeded places.
@@ -347,6 +350,7 @@ export default function KudosMaps() {
           )}
         </div>
       </div>
-    </Layout>
+      </Layout>
+    </RequireRole>
   );
 }

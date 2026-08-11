@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import Layout from "@/components/Layout";
+import RequireRole from "@/components/RequireRole";
 import { apiFetch } from "@/lib/api";
 import {
   networkLinks,
@@ -109,12 +111,13 @@ export default function KudosNetworks() {
   };
 
   return (
-    <Layout>
-      <div className="min-h-screen bg-gray-50">
-        <div className="max-w-6xl mx-auto px-4 py-6">
+    <RequireRole roles={["admin"]} redirectTo="/kudos">
+      <Layout>
+        <div className="min-h-screen bg-gray-50">
+          <div className="max-w-6xl mx-auto px-4 py-6">
           <div className="flex items-center justify-between mb-2">
             <h1 className="text-2xl font-bold text-gray-800">📡 KUDOS Networks</h1>
-            <a href="/kudos" className="text-sm text-purple-600 hover:underline">← back to KUDOS</a>
+            <Link href="/kudos" className="text-sm text-purple-600 hover:underline">← back to KUDOS</Link>
           </div>
           <p className="text-sm text-gray-500 mb-4">
             Terrestrial ↔ satellite link switching. KUDOS measures what your device actually has and applies Auto /
@@ -271,8 +274,9 @@ export default function KudosNetworks() {
               No devices in the mesh yet. Report your link above — KUDOS registers this browser as a device.
             </div>
           )}
+          </div>
         </div>
-      </div>
-    </Layout>
+      </Layout>
+    </RequireRole>
   );
 }

@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { getAuthHeader } from "@/lib/api";
 import Layout from "@/components/Layout";
+import { useAdminGuard } from "@/lib/adminGuard";
 import { ProgressBar, useLongProcess } from "@/components/ProgressBar";
 
 export default function InternetArchive() {
+  const allowed = useAdminGuard();
   const [waybackUrl, setWaybackUrl] = useState("");
   const [waybackYear, setWaybackYear] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -114,6 +116,7 @@ export default function InternetArchive() {
     finishLoading();
   };
 
+  if (!allowed) return null;
   return (
     <Layout>
       <div className="flex justify-between items-center mb-6">

@@ -1,5 +1,6 @@
 import { useState, FormEvent } from "react";
 import { useRouter } from "next/router";
+import Link from "next/link";
 import Layout from "@/components/Layout";
 import PasswordInput from "@/components/PasswordInput";
 
@@ -89,7 +90,7 @@ export default function Login() {
 
           <p className="text-center text-sm text-gray-500 mt-4">
             Don&apos;t have an account?{" "}
-            <a href="/register" className="text-primary underline">Register</a>
+            <Link href="/register" className="text-primary underline">Register</Link>
           </p>
         </div>
       </div>

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import Link from "next/link";
 import { getAuthHeader, signOut } from "@/lib/api";
 import Layout from "@/components/Layout";
 import { ProgressBar, useLongProcess } from "@/components/ProgressBar";
@@ -363,65 +364,65 @@ export default function KudosChat() {
           >
             🚪 Log out
           </button>
-          <a href="/kudos/upload"
+          <Link href="/kudos/upload"
             className="bg-white border px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition"
           >
             📄 Upload Doc
-          </a>
-          <a
+          </Link>
+          <Link
             href="/kudos/learn"
             className="bg-white border px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition"
           >
             🌐 Teach Web
-          </a>
-          <a
+          </Link>
+          <Link
             href="/kudos/admin"
             className="bg-white border px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition"
           >
             ⚙️ Admin
-          </a>
-          <a
+          </Link>
+          <Link
             href="/kudos/guardian"
             className="bg-red-50 border border-red-200 px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-100 transition text-red-700"
           >
             🛡️ Guardian
-          </a>
-          <a
+          </Link>
+          <Link
             href="/kudos/llm"
             className="bg-yellow-50 border border-yellow-200 px-4 py-2 rounded-lg text-sm font-medium hover:bg-yellow-100 transition text-yellow-700"
           >
             ✨ LLM
-          </a>
-          <a
+          </Link>
+          <Link
             href="/kudos/agent"
             className="bg-indigo-50 border border-indigo-200 px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-100 transition text-indigo-700"
           >
             🤖 Agent
-          </a>
-          <a
+          </Link>
+          <Link
             href="/kudos/archive"
             className="bg-amber-50 border border-amber-200 px-4 py-2 rounded-lg text-sm font-medium hover:bg-amber-100 transition text-amber-700"
           >
             🕰️ Archive
-          </a>
-          <a
+          </Link>
+          <Link
             href="/kudos/autolearn"
             className="bg-green-50 border border-green-200 px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-100 transition text-green-700"
           >
             🚀 Auto-Learn
-          </a>
-          <a
+          </Link>
+          <Link
             href="/kudos/maps"
             className="bg-cyan-50 border border-cyan-200 px-4 py-2 rounded-lg text-sm font-medium hover:bg-cyan-100 transition text-cyan-700"
           >
             🗺️ Maps
-          </a>
-          <a
+          </Link>
+          <Link
             href="/kudos/networks"
             className="bg-purple-50 border border-purple-200 px-4 py-2 rounded-lg text-sm font-medium hover:bg-purple-100 transition text-purple-700"
           >
             📡 Networks
-          </a>
+          </Link>
         </div>
       </div>
 

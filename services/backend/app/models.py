@@ -36,6 +36,8 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     is_admin = Column(Boolean, default=False)
     is_approved = Column(Boolean, default=True)  # False when registration is gated (REQUIRE_APPROVAL)
+    is_student = Column(Boolean, default=False)  # True when the user opted in as a student
+    school = Column(String(255), nullable=True)  # School name entered at signup
     created_at = Column(DateTime, default=lambda: datetime.now(UTC))
 
     # Relationships
@@ -442,7 +444,7 @@ class KudosDevice(Base):
     __tablename__ = "kudos_devices"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)  # None for anonymous guest devices
     name = Column(String(120), nullable=False)
     platform = Column(String(30), default="generic")  # android | ios | desktop | web | linux
     api_token = Column(String(64), default="", index=True)

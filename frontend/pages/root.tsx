@@ -156,7 +156,7 @@ export default function RootDashboard() {
                 <div>
                   <h3 className="text-2xl md:text-3xl font-bold">🤖 {identity.name}</h3>
                   <p className="text-purple-200 text-sm">{identity.full_name}</p>
-                  <p className="text-purple-300 text-xs mt-1">"{identity.motto}"</p>
+                  <p className="text-purple-300 text-xs mt-1">&quot;{identity.motto}&quot;</p>
                   <p className="text-purple-400 text-xs mt-1">v{identity.version} • Created {identity.created_at}</p>
                 </div>
                 <div className="flex gap-2">

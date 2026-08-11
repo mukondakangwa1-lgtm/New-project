@@ -24,11 +24,11 @@ async def test_sequential_fallback_to_second_provider(monkeypatch):
     calls = []
     llm_engine.provider_is_configured = lambda p: True
 
-    async def boom(prompt, system_prompt=""):
+    async def boom(prompt, system_prompt="", media=None):
         calls.append("a")
         raise RuntimeError("provider down")
 
-    async def good(prompt, system_prompt=""):
+    async def good(prompt, system_prompt="", media=None):
         calls.append("b")
         return "answer from b"
 
@@ -46,10 +46,10 @@ async def test_sequential_fallback_to_second_provider(monkeypatch):
 async def test_failure_health_tracking(monkeypatch):
     llm_engine.provider_is_configured = lambda p: True
 
-    async def boom(prompt, system_prompt=""):
+    async def boom(prompt, system_prompt="", media=None):
         raise RuntimeError("down")
 
-    async def good(prompt, system_prompt=""):
+    async def good(prompt, system_prompt="", media=None):
         return "ok"
 
     monkeypatch.setattr(llm_engine, "query_google_gemini", boom)
@@ -75,11 +75,11 @@ async def test_cooldown_skips_degraded_provider(monkeypatch):
     calls = []
     llm_engine.provider_is_configured = lambda p: p in ("google_gemini", "openai")
 
-    async def boom(prompt, system_prompt=""):
+    async def boom(prompt, system_prompt="", media=None):
         calls.append("gemini")
         raise RuntimeError("down")
 
-    async def bad_openai(prompt, system_prompt=""):
+    async def bad_openai(prompt, system_prompt="", media=None):
         raise RuntimeError("openai down")
 
     monkeypatch.setattr(llm_engine, "query_google_gemini", boom)
@@ -99,11 +99,11 @@ async def test_cooldown_skips_degraded_provider(monkeypatch):
 
 
 async def test_lone_degraded_provider_still_probed(monkeypatch):
-    async def boom(prompt, system_prompt=""):
+    async def boom(prompt, system_prompt="", media=None):
         raise RuntimeError("down")
 
     monkeypatch.setattr(llm_engine, "query_google_gemini", boom)
-    monkeypatch.setattr(llm_engine, "query_openai", lambda p, s="": None)
+    monkeypatch.setattr(llm_engine, "query_openai", lambda p, s="", media=None: None)
     # only gemini configured
     llm_engine.provider_is_configured = lambda p: p == "google_gemini"
 
@@ -112,7 +112,7 @@ async def test_lone_degraded_provider_still_probed(monkeypatch):
 
     calls = []
 
-    async def record(prompt, system_prompt=""):
+    async def record(prompt, system_prompt="", media=None):
         calls.append(1)
         raise RuntimeError("still down")
 
@@ -124,10 +124,10 @@ async def test_lone_degraded_provider_still_probed(monkeypatch):
 async def test_explicit_provider_routing(monkeypatch):
     llm_engine.provider_is_configured = lambda p: True
 
-    async def boom(prompt, system_prompt=""):
+    async def boom(prompt, system_prompt="", media=None):
         raise RuntimeError("down")
 
-    async def good(prompt, system_prompt=""):
+    async def good(prompt, system_prompt="", media=None):
         return "from groq"
 
     monkeypatch.setattr(llm_engine, "query_google_gemini", boom)
@@ -147,11 +147,11 @@ async def test_parallel_mode_returns_first_success(monkeypatch):
 
     llm_engine.provider_is_configured = lambda p: True
 
-    async def slow_good(prompt, system_prompt=""):
+    async def slow_good(prompt, system_prompt="", media=None):
         await asyncio.sleep(0.05)
         return "slow winner"
 
-    async def fast_fail(prompt, system_prompt=""):
+    async def fast_fail(prompt, system_prompt="", media=None):
         raise RuntimeError("nope")
 
     monkeypatch.setattr(llm_engine, "query_google_gemini", fast_fail)

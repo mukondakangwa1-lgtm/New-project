@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { getAuthHeader } from "@/lib/api";
 import Layout from "@/components/Layout";
+import { useAdminGuard } from "@/lib/adminGuard";
 import { ProgressBar, useLongProcess } from "@/components/ProgressBar";
 
 interface LearnerStatus {
@@ -20,6 +21,7 @@ interface LearnerStatus {
 }
 
 export default function AutoLearner() {
+  const allowed = useAdminGuard();
   const [status, setStatus] = useState<LearnerStatus | null>(null);
   const [message, setMessage] = useState({ text: "", type: "" });
   const [loading, setLoading] = useState(true);
@@ -74,6 +76,7 @@ export default function AutoLearner() {
     }
   };
 
+  if (!allowed) return null;
   return (
     <Layout>
       <div className="flex justify-between items-center mb-6">

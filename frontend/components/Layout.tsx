@@ -1,19 +1,15 @@
-import React, { useEffect, useState } from "react";
+import React from "react";
+import Link from "next/link";
 import { signOut } from "@/lib/api";
+import { useRole, Role } from "@/lib/roles";
 
 interface LayoutProps {
   children: React.ReactNode;
 }
 
 export default function Layout({ children }: LayoutProps) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [signedIn, setSignedIn] = useState<boolean | null>(null);
-
-  useEffect(() => {
-    fetch("/api/v1/users/me")
-      .then((r) => setSignedIn(r.status === 200))
-      .catch(() => setSignedIn(false));
-  }, []);
+  const [menuOpen, setMenuOpen] = React.useState(false);
+  const { role, loading } = useRole();
 
   const handleLogout = () => {
     if (!window.confirm("Logging out?")) return;
@@ -21,39 +17,58 @@ export default function Layout({ children }: LayoutProps) {
     window.location.assign("/kudos");
   };
 
+  const navItems: Array<{ href: string; label: string; roles: Role[] }> = [
+    { href: "/kudos", label: "🧠 KUDOS", roles: ["guest", "user", "student", "admin"] },
+    { href: "/studio", label: "🎙️ Studio", roles: ["user", "student", "admin"] },
+    { href: "/media", label: "🎬 Media", roles: ["user", "student", "admin"] },
+    { href: "/hub", label: "🌐 Hub", roles: ["user", "student", "admin"] },
+    { href: "/kudos/maps", label: "🗺️ Maps", roles: ["user", "student", "admin"] },
+    { href: "/library", label: "📚 Library", roles: ["user", "student", "admin"] },
+    { href: "/dashboard", label: "📊 Dashboard", roles: ["user", "student", "admin"] },
+    { href: "/courses", label: "🎓 Courses & Register", roles: ["student"] },
+    { href: "/kudos/networks", label: "📡 Networks", roles: ["admin"] },
+    { href: "/kudos/connect", label: "🔌 Connectors", roles: ["admin"] },
+    { href: "/kudos/autolearn", label: "🚀 Auto-Learn", roles: ["admin"] },
+    { href: "/kudos/agent", label: "🤖 Agent", roles: ["admin"] },
+    { href: "/kudos/llm", label: "🧪 LLM", roles: ["admin"] },
+    { href: "/kudos/learn", label: "🎓 Learn", roles: ["admin"] },
+    { href: "/kudos/upload", label: "📤 Upload", roles: ["admin"] },
+    { href: "/kudos/archive", label: "🗄️ Archive", roles: ["admin"] },
+    { href: "/admin/dashboard", label: "👑 Superadmin", roles: ["admin"] },
+  ];
+
+  const visible = navItems.filter((item) => item.roles.includes(role));
+
   return (
     <div className="min-h-screen bg-gray-50">
       <nav className="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
-          <a href="/" className="text-lg md:text-xl font-bold text-primary hover:text-blue-800 transition">
+          <Link href="/" className="text-lg md:text-xl font-bold text-primary hover:text-blue-800 transition">
             🎓 Digital Campus
-          </a>
+          </Link>
 
           {/* Desktop nav */}
           <ul className="hidden md:flex gap-4 lg:gap-6 text-sm font-medium text-gray-600">
-            <li><a href="/" className="hover:text-primary transition">Home</a></li>
-            <li><a href="/courses" className="hover:text-primary transition">Courses</a></li>
-            <li><a href="/register/attendance" className="hover:text-primary transition">Register</a></li>
-            <li><a href="/media" className="hover:text-primary transition">🎬 Media</a></li>
-            <li><a href="/studio" className="hover:text-primary transition">🎙️ Studio</a></li>
-            <li><a href="/hub/feed" className="hover:text-primary transition">Hub</a></li>
-            <li><a href="/chat" className="hover:text-primary transition">Chat</a></li>
-            <li><a href="/kudos" className="hover:text-purple-600 transition font-bold text-purple-700">🧠 KUDOS</a></li>
-            <li><a href="/admin/dashboard" className="hover:text-yellow-600 transition text-yellow-600">👑</a></li>
-            <li><a href="/dashboard" className="hover:text-primary transition">Dashboard</a></li>
+            {visible.map((item) => (
+              <li key={item.href}>
+                <Link href={item.href} className="hover:text-primary transition">
+                  {item.label}
+                </Link>
+              </li>
+            ))}
           </ul>
 
           {/* Session controls — top-right, always visible on desktop */}
           <div className="hidden md:flex items-center gap-2">
-            {signedIn === false && (
-              <a
+            {role === "guest" && (
+              <Link
                 href="/login"
-                className="px-4 py-2 rounded-lg bg-primary text-white text-sm font-semibold hover:bg-blue-800 transition"
+                className="px-8 py-3 rounded-lg bg-primary text-white text-lg font-bold hover:bg-blue-800 transition shadow"
               >
-                Log in
-              </a>
+                Sign in
+              </Link>
             )}
-            {signedIn === true && (
+            {role !== "guest" && (
               <button
                 onClick={handleLogout}
                 className="px-3 py-2 rounded-lg border border-gray-200 text-sm font-medium text-gray-700 hover:border-red-300 hover:text-red-600 transition"
@@ -83,22 +98,7 @@ export default function Layout({ children }: LayoutProps) {
         {menuOpen && (
           <div className="md:hidden bg-white border-t border-gray-100 px-4 py-3 shadow-lg">
             <ul className="space-y-2">
-              {[
-                { href: "/", label: "🏠 Home" },
-                { href: "/courses", label: "📚 Courses" },
-                { href: "/register/attendance", label: "📋 Register" },
-                { href: "/studio", label: "🎙️ Studio" },
-                { href: "/media", label: "🎬 Media" },
-                { href: "/hub/feed", label: "🌐 Hub" },
-                { href: "/chat", label: "💬 Chat" },
-                { href: "/kudos", label: "🧠 KUDOS" },
-                { href: "/kudos/connect", label: "🔌 Connectors" },
-                { href: "/kudos/autolearn", label: "🚀 Auto-Learn" },
-                { href: "/kudos/maps", label: "🗺️ Maps" },
-                { href: "/kudos/networks", label: "📡 Networks" },
-                { href: "/admin/dashboard", label: "👑 Superadmin" },
-                { href: "/dashboard", label: "📊 Dashboard" },
-              ].map((item) => (
+              {visible.map((item) => (
                 <li key={item.href}>
                   <a
                     href={item.href}
@@ -110,7 +110,15 @@ export default function Layout({ children }: LayoutProps) {
                 </li>
               ))}
               <li>
-                {signedIn === true ? (
+                {role === "guest" ? (
+                  <Link
+                    href="/login"
+                    className="block py-2 px-3 rounded-lg text-sm font-bold text-gray-700 hover:bg-gray-100 hover:text-primary transition"
+                    onClick={() => setMenuOpen(false)}
+                  >
+                    🔑 Sign in
+                  </Link>
+                ) : (
                   <button
                     onClick={() => {
                       setMenuOpen(false);
@@ -120,14 +128,6 @@ export default function Layout({ children }: LayoutProps) {
                   >
                     🚪 Log out
                   </button>
-                ) : (
-                  <a
-                    href="/login"
-                    className="block py-2 px-3 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-100 hover:text-primary transition"
-                    onClick={() => setMenuOpen(false)}
-                  >
-                    🔑 Login
-                  </a>
                 )}
               </li>
             </ul>
@@ -135,7 +135,7 @@ export default function Layout({ children }: LayoutProps) {
         )}
       </nav>
 
-      <main className="max-w-7xl mx-auto px-3 md:px-4 py-4 md:py-8">{children}</main>
+      <main className="max-w-7xl mx-auto px-3 md:px-4 py-4 md:py-8">{loading ? null : children}</main>
 
       <footer className="text-center text-xs text-gray-400 py-4 md:py-6 border-t">
         © 2026 Digital Campus • Powered by KUDOS AI

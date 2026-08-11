@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.core import network_mesh
 from app.core.database import get_db
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, get_current_user_optional
 from app.core.device_storage import get_device_by_token
 from app.models import KudosDevice, User
 
@@ -43,8 +43,8 @@ class NetworkReport(BaseModel):
 def _resolve_device(
     db: Session,
     x_device_token: str,
-    current_user: User,
-) -> tuple[KudosDevice | None, User]:
+    current_user: User | None,
+) -> tuple[KudosDevice | None, User | None]:
     if x_device_token:
         device = get_device_by_token(db, x_device_token)
         if not device:
@@ -57,7 +57,7 @@ def _resolve_device(
 def network_status(
     x_device_token: str = Header(default="", alias="X-Device-Token"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_current_user_optional),
 ):
     """Per-device link + switch state for the current user (or one device)."""
     if x_device_token:
@@ -65,6 +65,8 @@ def network_status(
         status = network_mesh.status_for_user(db, device.user_id)
         status["devices"] = [d for d in status["devices"] if d["device_id"] == device.id]
         return status
+    if current_user is None:
+        raise HTTPException(status_code=401, detail="Authentication required")
     return network_mesh.status_for_user(db, current_user.id)
 
 
@@ -85,11 +87,17 @@ def network_report(
     body: NetworkReport,
     x_device_token: str = Header(default="", alias="X-Device-Token"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_current_user_optional),
 ):
-    """A device reports its measured link; KUDOS decides the switch."""
+    """A device reports its measured link; KUDOS decides the switch.
+
+    Authenticated users may pass a device_id; the automatic browser reporter
+    always sends its own device token, so guests can report too.
+    """
     device = None
     if body.device_id:
+        if current_user is None:
+            raise HTTPException(status_code=401, detail="Authentication required")
         device = db.get(KudosDevice, body.device_id)
         if not device or device.user_id != current_user.id:
             raise HTTPException(status_code=404, detail="Device not found")
@@ -99,7 +107,7 @@ def network_report(
         raise HTTPException(status_code=400, detail="Register a KUDOS device first, or pass a device_id")
 
     payload = body.model_dump()
-    return network_mesh.record_state(db, device, current_user.id, payload)
+    return network_mesh.record_state(db, device, current_user.id if current_user else device.user_id, payload)
 
 
 @router.post("/mode")

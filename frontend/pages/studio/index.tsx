@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import Layout from "@/components/Layout";
+import RequireRole from "@/components/RequireRole";
 import {
   getAuthHeader,
   handleSignal,
@@ -1165,7 +1166,8 @@ export default function Studio() {
   const [activeTab, setActiveTab] = useState<"speaking" | "broadcast" | "calls" | "journal">("speaking");
 
   return (
-    <Layout>
+    <RequireRole roles={["user", "student", "admin"]} redirectTo="/kudos">
+      <Layout>
       <h2 className="text-3xl font-bold mb-2">🎙️ Studio</h2>
       <p className="text-gray-600 mb-6">Practice speaking, broadcast live, video calls with whiteboard, and journalist pages</p>
 
@@ -1187,6 +1189,7 @@ export default function Studio() {
       {activeTab === "broadcast" && <LiveBroadcast />}
       {activeTab === "calls" && <VideoCalls />}
       {activeTab === "journal" && <JournalPage />}
-    </Layout>
+      </Layout>
+    </RequireRole>
   );
 }

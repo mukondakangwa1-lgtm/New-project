@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { getAuthHeader } from "@/lib/api";
 import Layout from "@/components/Layout";
+import { useAdminGuard } from "@/lib/adminGuard";
 import { ProgressBar, useLongProcess } from "@/components/ProgressBar";
 
 interface LLMProvider {
@@ -12,6 +13,7 @@ interface LLMProvider {
 }
 
 export default function LLMConfig() {
+  const allowed = useAdminGuard();
   const [providers, setProviders] = useState<LLMProvider[]>([]);
   const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
   const [message, setMessage] = useState({ text: "", type: "" });
@@ -93,6 +95,7 @@ export default function LLMConfig() {
     },
   };
 
+  if (!allowed) return null;
   return (
     <Layout>
       <h2 className="text-3xl font-bold mb-2">✨ KUDOS LLM Configuration</h2>
@@ -200,7 +203,7 @@ export default function LLMConfig() {
         </ol>
         <p className="text-xs text-gray-500 mt-3">
           Once configured, KUDOS will automatically use the LLM for all conversations.
-          It combines the LLM's knowledge with the internal knowledge base for the best answers.
+          It combines the LLM&apos;s knowledge with the internal knowledge base for the best answers.
         </p>
       </div>
     </Layout>

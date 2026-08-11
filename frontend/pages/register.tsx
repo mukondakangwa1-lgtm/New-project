@@ -1,5 +1,6 @@
 import { useState, FormEvent } from "react";
 import { useRouter } from "next/router";
+import Link from "next/link";
 import Layout from "@/components/Layout";
 import PasswordInput from "@/components/PasswordInput";
 
@@ -8,6 +9,8 @@ export default function Register() {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [isStudent, setIsStudent] = useState(false);
+  const [school, setSchool] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -24,6 +27,8 @@ export default function Register() {
           email,
           full_name: fullName,
           password,
+          is_student: isStudent,
+          school: isStudent ? school : null,
         }),
       });
 
@@ -84,9 +89,34 @@ export default function Register() {
                 autoComplete="new-password"
               />
             </div>
+            <div className="pt-1">
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={isStudent}
+                  onChange={(e) => setIsStudent(e.target.checked)}
+                  className="mt-1"
+                />
+                <span className="text-sm text-gray-600">
+                  I&apos;m a student — I want access to Courses &amp; Register
+                </span>
+              </label>
+              {isStudent && (
+                <input
+                  type="text"
+                  value={school}
+                  onChange={(e) => setSchool(e.target.value)}
+                  className="mt-2 w-full rounded border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  placeholder="School name (e.g. Westfield High)"
+                />
+              )}
+              <p className="text-xs text-gray-400 mt-2">
+                Student accounts are approved by the superadmin before Courses &amp; Register unlock.
+              </p>
+            </div>
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || (isStudent && !school.trim())}
               className="w-full bg-primary text-white py-2 rounded font-medium hover:bg-blue-800 transition disabled:opacity-50"
             >
               {loading ? "Creating account..." : "Register"}
@@ -95,7 +125,7 @@ export default function Register() {
 
           <p className="text-center text-sm text-gray-500 mt-4">
             Already have an account?{" "}
-            <a href="/login" className="text-primary underline">Sign in</a>
+            <Link href="/login" className="text-primary underline">Sign in</Link>
           </p>
         </div>
       </div>

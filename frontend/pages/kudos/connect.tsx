@@ -1,6 +1,8 @@
 import { useState, useEffect, FormEvent } from "react";
+import Link from "next/link";
 import { getAuthHeader } from "@/lib/api";
 import Layout from "@/components/Layout";
+import { useAdminGuard } from "@/lib/adminGuard";
 import { ProgressBar, useLongProcess } from "@/components/ProgressBar";
 
 interface Connector {
@@ -71,6 +73,7 @@ export default function KudosConnect() {
   const [loading, setLoading] = useState(true);
   const [autoSyncStatus, setAutoSyncStatus] = useState<AutoSyncStatus | null>(null);
   const [sessionState, setSessionState] = useState<"checking" | "signed-in" | "guest">("checking");
+  const allowed = useAdminGuard();
 
   const fetchData = async () => {
     try {
@@ -108,6 +111,8 @@ export default function KudosConnect() {
 
   const selectedType = CONNECTOR_TYPES.find((t) => t.value === form.connector_type);
 
+  if (!allowed) return null;
+
   if (sessionState === "checking") {
     return (
       <Layout>
@@ -124,9 +129,9 @@ export default function KudosConnect() {
           <p className="text-gray-500 mb-6">
             KUDOS&apos;s connectors are available to registered users — ask KUDOS about connecting a source in chat, or sign in below.
           </p>
-          <a href="/login" className="inline-block bg-primary text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-800 transition">
+          <Link href="/login" className="inline-block bg-primary text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-800 transition">
             🔑 Sign in
-          </a>
+          </Link>
         </div>
       </Layout>
     );

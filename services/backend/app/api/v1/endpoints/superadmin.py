@@ -88,6 +88,64 @@ def approve_user(user_id: int, db: Session = Depends(get_db), admin: User = Depe
 
 
 # ──────────────────────────────────────────────
+# STUDENT PIPELINE (school-gated courses/register)
+# ──────────────────────────────────────────────
+
+
+@router.get("/students/pending")
+def pending_students(db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+    """List users who opted in as students (school name set) awaiting approval."""
+    users = (
+        db.query(User)
+        .filter(User.is_student.is_(True), User.school.isnot(None), User.is_approved.is_(True))
+        .order_by(User.created_at.asc())
+        .all()
+    )
+    return [
+        {
+            "id": u.id,
+            "email": u.email,
+            "full_name": u.full_name,
+            "school": u.school,
+            "is_approved": u.is_approved,
+            "created_at": u.created_at,
+        }
+        for u in users
+    ]
+
+
+@router.post("/students/{user_id}/approve")
+def approve_student(user_id: int, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+    """Approve a student — grants access to Courses & Register (academic hub)."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if not user.is_student:
+        raise HTTPException(status_code=400, detail="User is not a student")
+    user.is_approved = True
+    db.commit()
+    return {
+        "status": "approved",
+        "user_id": user.id,
+        "email": user.email,
+        "school": user.school,
+        "is_student": user.is_student,
+    }
+
+
+@router.post("/students/{user_id}/reject")
+def reject_student(user_id: int, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+    """Reject a student opt-in — removes the student flag so the user stays a normal user."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.is_student = False
+    user.school = None
+    db.commit()
+    return {"status": "rejected", "user_id": user.id, "email": user.email}
+
+
+# ──────────────────────────────────────────────
 # UNIFIED DASHBOARD
 # ──────────────────────────────────────────────
 

@@ -60,6 +60,8 @@ def register(user_in: UserCreate, db: Session = Depends(get_db)):
         full_name=user_in.full_name,
         hashed_password=get_password_hash(user_in.password),
         is_approved=not settings.REQUIRE_APPROVAL,
+        is_student=user_in.is_student,
+        school=(user_in.school or "").strip() or None,
     )
     db.add(user)
     db.commit()

@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { getAuthHeader } from "@/lib/api";
 import Layout from "@/components/Layout";
+import { useAdminGuard } from "@/lib/adminGuard";
 import VoiceAdmin from "@/components/VoiceAdmin";
 
 interface Stats {
@@ -25,6 +26,7 @@ interface PendingWeb {
 }
 
 export default function KudosAdmin() {
+  const allowed = useAdminGuard();
   const [stats, setStats] = useState<Stats | null>(null);
   const [pending, setPending] = useState<{ pending_documents: PendingDoc[]; pending_web: PendingWeb[] }>({
     pending_documents: [],
@@ -104,6 +106,7 @@ export default function KudosAdmin() {
     fetchAll();
   };
 
+  if (!allowed) return null;
   return (
     <Layout>
       <h2 className="text-3xl font-bold mb-2">⚙️ KUDOS Admin Panel</h2>

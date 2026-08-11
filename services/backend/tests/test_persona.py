@@ -152,7 +152,11 @@ def test_ask_flow_uses_persona(monkeypatch):
         json={"tone": "formal", "emoji_enabled": True},
         headers=headers,
     )
-    r = client.post("/api/v1/kudos/ask", json={"question": "Hello there"}, headers=headers)
+    r = client.post(
+        "/api/v1/kudos/ask",
+        json={"question": "Explain how the campus network mesh works in depth"},
+        headers=headers,
+    )
     assert r.status_code == 200
     assert "professional" in captured["persona"].lower()
     assert "emoji" in captured["persona"].lower()

@@ -2,6 +2,7 @@ import { useState, FormEvent } from "react";
 import { getAuthHeader } from "@/lib/api";
 import { useRouter } from "next/router";
 import Layout from "@/components/Layout";
+import RequireRole from "@/components/RequireRole";
 
 export default function NewPost() {
   const router = useRouter();
@@ -52,7 +53,8 @@ export default function NewPost() {
   };
 
   return (
-    <Layout>
+    <RequireRole roles={["user", "student", "admin"]} redirectTo="/kudos">
+      <Layout>
       <div className="max-w-2xl mx-auto">
         <h2 className="text-3xl font-bold mb-2">📤 Share a Resource</h2>
         <p className="text-gray-600 mb-8">
@@ -188,6 +190,7 @@ export default function NewPost() {
           </form>
         </div>
       </div>
-    </Layout>
+          </Layout>
+    </RequireRole>
   );
 }

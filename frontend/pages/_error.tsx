@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 function Error({ statusCode }: { statusCode: number }) {
   return (
     <main className="flex min-h-screen flex-col items-center justify-center p-24">
@@ -9,9 +11,9 @@ function Error({ statusCode }: { statusCode: number }) {
           ? `A ${statusCode} error occurred on server`
           : "An error occurred on client"}
       </p>
-      <a href="/" className="mt-8 text-primary underline hover:text-blue-800">
+      <Link href="/" className="mt-8 text-primary underline hover:text-blue-800">
         Go back home
-      </a>
+      </Link>
     </main>
   );
 }

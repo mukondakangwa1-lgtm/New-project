@@ -284,7 +284,7 @@ def _parse_recommendation(raw: str, test_result: dict) -> tuple[str, float, str]
     import json
     import re
 
-    decision, confidence, rationale = "not_recommend", 0.0, "No LLM verdict — heuristic fallback."
+    decision, confidence, rationale = "", 0.0, "No LLM verdict — heuristic fallback."
     match = re.search(r"\{.*\}", raw or "", re.DOTALL)
     if match:
         try:

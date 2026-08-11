@@ -23,12 +23,14 @@ from app.api.v1.endpoints import (
     internet_archive,
     kudos,
     kudos_root,
+    library,
     llm_api,
     maps,
     media,
     memory,
     network,
     profile,
+    progress,
     sandbox,
     search_connectors,
     shield,
@@ -71,6 +73,7 @@ api_router.include_router(internet_archive.router, prefix="/kudos/archive", tags
 api_router.include_router(auto_learner.router, prefix="/kudos/learn", tags=["KUDOS Auto-Learner"])
 api_router.include_router(speaking.router, prefix="/studio", tags=["Speaking & Broadcasting"])
 api_router.include_router(kudos_root.router, prefix="/root", tags=["KUDOS Root"])
+api_router.include_router(library.router, prefix="/library", tags=["Smart Library"])
 api_router.include_router(superadmin.router, prefix="/superadmin", tags=["Superadmin Dashboard"])
 api_router.include_router(shield.router, prefix="/shield", tags=["KUDOS Shield"])
 api_router.include_router(embed.router, prefix="/tools", tags=["Embed & Sandbox"])
@@ -79,6 +82,7 @@ api_router.include_router(memory.router, prefix="/kudos/memory", tags=["KUDOS Me
 api_router.include_router(devices.router, prefix="/kudos/devices", tags=["KUDOS Devices"])
 api_router.include_router(devices.sync_router, prefix="/kudos/sync", tags=["KUDOS Sync"])
 api_router.include_router(profile.router, prefix="/kudos/profile", tags=["KUDOS Profile"])
+api_router.include_router(progress.router, prefix="/progress", tags=["Content Progress"])
 api_router.include_router(sandbox.router, prefix="/kudos/sandbox", tags=["KUDOS Sandbox"])
 api_router.include_router(soul.router, prefix="/kudos/soul", tags=["KUDOS Soul"])
 api_router.include_router(terminal.router, prefix="/kudos/terminal", tags=["KUDOS Terminal"])

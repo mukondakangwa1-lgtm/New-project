@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { getAuthHeader } from "@/lib/api";
 import Layout from "@/components/Layout";
+import RequireRole from "@/components/RequireRole";
 
 interface Course {
   id: number;
@@ -47,7 +48,8 @@ export default function AttendanceReport() {
   };
 
   return (
-    <Layout>
+    <RequireRole roles={["student", "admin"]} redirectTo="/kudos">
+      <Layout>
       <h2 className="text-3xl font-bold mb-2">📊 Attendance Report</h2>
       <p className="text-gray-600 mb-8">View attendance statistics per student per course</p>
 
@@ -145,6 +147,7 @@ export default function AttendanceReport() {
           </table>
         </div>
       )}
-    </Layout>
+          </Layout>
+    </RequireRole>
   );
 }

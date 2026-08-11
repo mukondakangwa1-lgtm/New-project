@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { apiFetch } from "@/lib/api";
 import Layout from "@/components/Layout";
+import { useAdminGuard } from "@/lib/adminGuard";
 import { ProgressBar, useLongProcess } from "@/components/ProgressBar";
 
 interface Analysis {
@@ -58,6 +59,7 @@ interface SandboxLog {
 }
 
 export default function CodeAgent() {
+  const allowed = useAdminGuard();
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
@@ -235,6 +237,7 @@ export default function CodeAgent() {
     low: "text-green-600",
   };
 
+  if (!allowed) return null;
   return (
     <Layout>
       <div className="flex justify-between items-center mb-6">

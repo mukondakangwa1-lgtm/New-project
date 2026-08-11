@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { getAuthHeader } from "@/lib/api";
 import Layout from "@/components/Layout";
+import RequireRole from "@/components/RequireRole";
 
 interface Course {
   id: number;
@@ -117,7 +118,8 @@ export default function TimetablePage() {
   }));
 
   return (
-    <Layout>
+    <RequireRole roles={["student", "admin"]} redirectTo="/kudos">
+      <Layout>
       <h2 className="text-3xl font-bold mb-2">📅 Timetable Manager</h2>
       <p className="text-gray-600 mb-8">Define class schedules and auto-generate attendance sessions</p>
 
@@ -299,6 +301,7 @@ export default function TimetablePage() {
           )}
         </div>
       </div>
-    </Layout>
+          </Layout>
+    </RequireRole>
   );
 }

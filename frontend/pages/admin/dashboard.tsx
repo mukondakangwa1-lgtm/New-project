@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import Link from "next/link";
 import { getAuthHeader } from "@/lib/api";
 import Layout from "@/components/Layout";
 import { ProgressBar, useLongProcess } from "@/components/ProgressBar";
@@ -17,6 +18,7 @@ export default function SuperadminDashboard() {
   const [chatMessages, setChatMessages] = useState<{from: string; message: string; action?: string}[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [pendingUsers, setPendingUsers] = useState<any[]>([]);
+  const [pendingStudents, setPendingStudents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [chatSending, setChatSending] = useState(false);
   const chatRef = useRef<HTMLDivElement>(null);
@@ -34,15 +36,17 @@ export default function SuperadminDashboard() {
 
   const fetchAll = async () => {
     try {
-      const [dashRes, logRes, thoughtsRes, pendingRes] = await Promise.all([
+      const [dashRes, logRes, thoughtsRes, pendingRes, studentsRes] = await Promise.all([
         fetch("/api/v1/superadmin/dashboard", { headers: getAuthHeader() }),
         fetch("/api/v1/superadmin/brain/log?limit=20", { headers: getAuthHeader() }),
         fetch("/api/v1/superadmin/brain/thoughts?limit=15", { headers: getAuthHeader() }),
         fetch("/api/v1/superadmin/users/pending", { headers: getAuthHeader() }),
+        fetch("/api/v1/superadmin/students/pending", { headers: getAuthHeader() }),
       ]);
       if (dashRes.ok) setDashboard(await dashRes.json());
       else setDashboard(null);
       if (pendingRes.ok) setPendingUsers(await pendingRes.json());
+      if (studentsRes.ok) setPendingStudents(await studentsRes.json());
       if (logRes.ok) {
         const d = await logRes.json();
         setBrainLog(d.log || []);
@@ -62,6 +66,16 @@ export default function SuperadminDashboard() {
       headers,
     });
     if (res.ok) fetchAll();
+  };
+
+  const approveStudent = async (userId: number) => {
+    await fetch(`/api/v1/superadmin/students/${userId}/approve`, { method: "POST", headers: getAuthHeader() });
+    fetchAll();
+  };
+
+  const rejectStudent = async (userId: number) => {
+    await fetch(`/api/v1/superadmin/students/${userId}/reject`, { method: "POST", headers: getAuthHeader() });
+    fetchAll();
   };
 
   const sendChat = async () => {
@@ -162,6 +176,46 @@ export default function SuperadminDashboard() {
                   >
                     Approve
                   </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Student approvals */}
+        {pendingStudents.length > 0 && (
+          <div className="bg-white rounded-xl border p-4 md:p-5">
+            <h3 className="font-semibold mb-3">
+              🎓 Student approvals ({pendingStudents.length})
+            </h3>
+            <p className="text-xs text-gray-500 mb-3">
+              Approve to unlock Courses &amp; Register for this student&apos;s dashboard.
+            </p>
+            <div className="space-y-2">
+              {pendingStudents.map((u) => (
+                <div
+                  key={u.id}
+                  className="flex items-center justify-between gap-4 text-sm border-b last:border-0 pb-2"
+                >
+                  <div>
+                    <p className="font-medium">{u.full_name}</p>
+                    <p className="text-gray-500">{u.email}</p>
+                    <p className="text-xs text-purple-600">🏫 {u.school}</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => rejectStudent(u.id)}
+                      className="border border-gray-300 text-gray-600 px-3 py-1.5 rounded text-xs font-medium hover:bg-gray-50 transition"
+                    >
+                      Reject
+                    </button>
+                    <button
+                      onClick={() => approveStudent(u.id)}
+                      className="bg-primary text-white px-3 py-1.5 rounded text-xs font-medium hover:bg-blue-800 transition"
+                    >
+                      Approve
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>

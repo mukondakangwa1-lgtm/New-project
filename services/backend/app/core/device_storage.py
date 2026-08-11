@@ -33,13 +33,47 @@ def _hash_seed(seed: str) -> int:
 
 def register_device(
     db,
-    user_id: int,
+    user_id: int | None,
     name: str,
     platform: str = "generic",
     storage_bytes: int = DEFAULT_CAPACITY_BYTES,
     api_token: str | None = None,
 ) -> KudosDevice:
-    """Register a device that lends its storage to KUDOS."""
+    """Register a device that lends its storage to KUDOS.
+
+    Anonymous devices (user_id=None) are keyed purely by their API token so a
+    guest browser can report its link without an account; a returned token is
+    always unique and the device stays bound to that token until retired.
+    """
+    if user_id is None:
+        token = api_token or secrets.token_hex(16)
+        device = (
+            db.execute(
+                select(KudosDevice).where(
+                    KudosDevice.api_token == token,
+                    KudosDevice.status != "retired",
+                )
+            )
+            .scalars()
+            .first()
+        )
+        if device is None:
+            device = KudosDevice(
+                user_id=None,
+                name=name,
+                platform=platform,
+                api_token=token,
+                status="online",
+                storage_bytes=storage_bytes,
+                last_seen_at=_now(),
+            )
+            db.add(device)
+        device.status = "online"
+        device.last_seen_at = _now()
+        db.commit()
+        db.refresh(device)
+        return device
+
     existing = (
         db.execute(
             select(KudosDevice).where(

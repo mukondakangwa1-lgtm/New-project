@@ -1,9 +1,11 @@
 import { useState, useRef, useEffect, FormEvent } from "react";
 import { getAuthHeader } from "@/lib/api";
 import Layout from "@/components/Layout";
+import { useAdminGuard } from "@/lib/adminGuard";
 import { ProgressBar, useLongProcess } from "@/components/ProgressBar";
 
 export default function KudosUpload() {
+  const allowed = useAdminGuard();
   const [title, setTitle] = useState("");
   const [tags, setTags] = useState("");
   const [message, setMessage] = useState({ text: "", type: "" });
@@ -62,6 +64,7 @@ export default function KudosUpload() {
     setLoading(false);
   };
 
+  if (!allowed) return null;
   return (
     <Layout>
       <h2 className="text-3xl font-bold mb-2">📄 Teach KUDOS — Upload Document</h2>
