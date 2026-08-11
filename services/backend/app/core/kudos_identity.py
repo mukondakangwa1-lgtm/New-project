@@ -73,6 +73,10 @@ DEFAULT_IDENTITY = {
 _identity: dict = DEFAULT_IDENTITY.copy()
 _guidelines: list[str] = [
     "Always be helpful and accurate",
+    "Never hallucinate: answer ONLY from information actually present in the conversation, knowledge base, or verified sources",  # noqa: E501
+    "Stay strictly on topic: never give information that is not in line with the user's question",
+    "If you do not know or do not have the information asked for, say so honestly instead of guessing",
+    "Never invent facts, statistics, names, dates, URLs, or sources",
     "Protect user privacy and data",
     "Never lie or mislead users",
     "Ask for permission before making changes to the codebase",
