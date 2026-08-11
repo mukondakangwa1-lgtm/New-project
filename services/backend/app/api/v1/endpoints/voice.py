@@ -18,6 +18,11 @@ Endpoints:
   POST /voice/convert                — voice changer: re-speak any clip in the target voice
   POST /voice/tts                    — text in -> spoken audio (any authenticated user)
   POST /voice/chat                   — audio in -> transcript + answer + spoken reply
+  POST /voice/session/start          — (admin) KUDOS greets and opens an interactive voice session
+  POST /voice/session/turn           — (admin) record a line; KUDOS re-speaks it in the draft voice
+  POST /voice/session/finalize       — (admin) finalize the session into the live signature voice
+  POST /voice/session/cancel         — (admin) cancel the session
+  GET  /voice/session/status         — (admin) current interactive session state
 """
 
 import contextlib
@@ -32,7 +37,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import get_current_user, require_admin
 from app.models import KudosDevice, User
-from app.models_extended import KudosVoice, VoiceProfile, VoiceSample
+from app.models_extended import KudosVoice, VoiceProfile, VoiceSample, VoiceSession
 
 router = APIRouter()
 
@@ -306,6 +311,237 @@ def list_voice_samples(admin: User = Depends(require_admin), db: Session = Depen
         ],
         "count": len(samples),
     }
+
+
+# ──────────────────────────────────────────────
+# INTERACTIVE VOICE SESSION
+# KUDOS greets → you speak a line → KUDOS draft-clones the audio captured so
+# far and re-speaks your exact words back in that draft voice → once you have
+# ~30s of clear speech, the session finalizes into the live signature voice.
+# ──────────────────────────────────────────────
+
+
+def _get_session(db: Session, session_id: int) -> VoiceSession:
+    sess = db.get(VoiceSession, session_id)
+    if not sess:
+        raise HTTPException(status_code=404, detail="Voice session not found")
+    return sess
+
+
+def _session_payload(db: Session, session_id: int) -> list[dict]:
+    """Download every sample captured in a session as {data, mime}."""
+    payload = []
+    samples = (
+        db.query(VoiceSample).filter(VoiceSample.session_id == session_id).order_by(VoiceSample.created_at.asc()).all()
+    )
+    for s in samples:
+        try:
+            payload.append({"data": storage.download(s.storage_key), "mime": s.mime or "audio/webm"})
+        except Exception:
+            continue
+    return payload
+
+
+def _session_total_seconds(db: Session, session_id: int) -> int:
+    samples = db.query(VoiceSample).filter(VoiceSample.session_id == session_id).all()
+    return sum(s.duration_seconds or 0 for s in samples)
+
+
+def _session_status(db: Session, sess: VoiceSession) -> dict:
+    total = _session_total_seconds(db, sess.id)
+    target = settings.KUDOS_SIGNATURE_MIN_SAMPLE_SECONDS
+    return {
+        "session_id": sess.id,
+        "state": sess.state or "active",
+        "turn_count": sess.turn_count or 0,
+        "total_seconds": total,
+        "target_seconds": target,
+        "draft_ready": bool(sess.draft_voice_id),
+        "final_ready": total >= target,
+    }
+
+
+@router.post("/voice/session/start")
+async def start_voice_session(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    """Superadmin: KUDOS greets and opens an interactive voice session. Speak a
+    line back each turn; KUDOS re-speaks it in the draft voice of YOUR voice."""
+    profile = _get_profile(db)
+    sess = VoiceSession(
+        profile_id=profile.id,
+        state="active",
+        turn_count=0,
+        total_seconds=0,
+    )
+    db.add(sess)
+    db.commit()
+    db.refresh(sess)
+    greeting = (
+        "Hello! I am KUDOS. Repeat after me, and your voice will become mine. "
+        f"Speak clearly for about {settings.KUDOS_SIGNATURE_MIN_SAMPLE_SECONDS} seconds in total."
+    )
+    return {"session_id": sess.id, "greeting": greeting, **_session_status(db, sess)}
+
+
+@router.post("/voice/session/turn")
+async def voice_session_turn(
+    file: UploadFile = File(...),
+    session_id: int = Form(...),
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Superadmin: record one line of the session. KUDOS stores + transcribes
+    it, draft-clones the audio captured so far (first time enough speech
+    exists), then re-speaks your exact words back in the draft voice."""
+    from app.core.voice import add_cloned_voice, convert_voice, transcribe
+
+    sess = _get_session(db, session_id)
+    if sess.state != "active":
+        raise HTTPException(status_code=422, detail=f"Session is {sess.state} — start a new one to continue")
+
+    content = await file.read()
+    if len(content) < 8 * 1024:
+        raise HTTPException(status_code=422, detail="Recording is too small — speak at least a few seconds")
+    mime = (file.content_type or "audio/webm").split(";")[0].strip()
+    ext = mime.split("/")[-1] or "webm"
+
+    key = storage.new_key(VOICE_PREFIX, f"session_{session_id}_{uuid.uuid4().hex[:8]}.{ext}")
+    storage.upload_bytes(key, content, content_type=mime)
+
+    transcript = ""
+    with contextlib.suppress(Exception):
+        transcript = (await transcribe(content, mime) or "").strip()
+
+    profile = _get_profile(db)
+    if not profile.owner_id:
+        profile.owner_id = admin.id
+    db.add(
+        VoiceSample(
+            profile_id=profile.id,
+            session_id=sess.id,
+            storage_key=key,
+            mime=mime,
+            transcribed=transcript[:400],
+            duration_seconds=max(1, len(content) // 32000),
+        )
+    )
+    sess.turn_count = (sess.turn_count or 0) + 1
+    db.commit()
+
+    # Draft-clone once we have a bit of clear speech (or the session minimum).
+    if not sess.draft_voice_id:
+        total = _session_total_seconds(db, sess.id)
+        draft_threshold = min(
+            settings.KUDOS_SIGNATURE_MIN_SAMPLE_SECONDS,
+            max(5, settings.KUDOS_SIGNATURE_MIN_SAMPLE_SECONDS // 5),
+        )
+        if total >= draft_threshold:
+            payload = _session_payload(db, sess.id)
+            if payload:
+                clone = await add_cloned_voice(payload, name="KUDOS-draft")
+                if clone.get("voice_id") and not clone.get("error"):
+                    sess.draft_voice_id = clone["voice_id"]
+                    db.commit()
+
+    # Re-speak the user's exact words in the draft voice (KUDOS "becomes" you).
+    echo = {"audio_b64": "", "mime_type": "", "provider": ""}
+    if sess.draft_voice_id:
+        converted = await convert_voice(content, mime, sess.draft_voice_id)
+        if not converted.get("error"):
+            echo = {
+                "audio_b64": converted["data"],
+                "mime_type": converted["mime_type"],
+                "provider": converted.get("provider", ""),
+            }
+
+    return {
+        "transcript": transcript,
+        "echo": echo,
+        "echo_line": (
+            f"I said back: “{transcript or 'your line'}” in the draft of your voice."
+            if sess.draft_voice_id
+            else "Keep recording — once I have enough of your voice, I'll speak it back in your voice."
+        ),
+        **_session_status(db, sess),
+    }
+
+
+@router.post("/voice/session/finalize")
+async def finalize_voice_session(
+    session_id: int = Form(...),
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Superadmin: clone the final signature voice from all session audio and
+    activate it as KUDOS's live signature voice."""
+    from app.core.voice import add_cloned_voice
+
+    sess = _get_session(db, session_id)
+    if sess.state != "active":
+        raise HTTPException(status_code=422, detail=f"Session is {sess.state} — nothing to finalize")
+
+    payload = _session_payload(db, sess.id)
+    if not payload:
+        raise HTTPException(status_code=422, detail="No usable audio in this session yet — record some lines first")
+
+    clone = await add_cloned_voice(payload, name=f"KUDOS-{admin.full_name or admin.id}")
+    if clone.get("error"):
+        raise HTTPException(status_code=400, detail=clone["error"])
+
+    profile = _get_profile(db)
+    _register_signature(db, profile, clone["voice_id"], "KUDOS")
+    profile.tts_enabled = True
+    profile.owner_id = admin.id
+    sess.state = "finalized"
+    sess.draft_voice_id = ""
+    db.commit()
+    return {
+        "status": "signature voice ready — KUDOS now speaks with your voice",
+        **_session_status(db, sess),
+        **_status(profile, admin, db),
+    }
+
+
+@router.post("/voice/session/cancel")
+async def cancel_voice_session(
+    session_id: int = Form(...),
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Superadmin: cancel the interactive session without cloning."""
+    sess = _get_session(db, session_id)
+    if sess.state == "active":
+        sess.state = "cancelled"
+        db.commit()
+    return {"status": "cancelled", **_session_status(db, sess)}
+
+
+@router.get("/voice/session/status")
+async def voice_session_status(
+    session_id: int = 0,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Superadmin: current interactive session state (defaults to the latest)."""
+    if session_id:
+        sess = _get_session(db, session_id)
+    else:
+        sess = (
+            db.query(VoiceSession)
+            .filter(VoiceSession.state == "active")
+            .order_by(VoiceSession.created_at.desc())
+            .first()
+        )
+        if not sess:
+            return {
+                "session_id": None,
+                "state": "none",
+                "turn_count": 0,
+                "total_seconds": 0,
+                "target_seconds": settings.KUDOS_SIGNATURE_MIN_SAMPLE_SECONDS,
+                "draft_ready": False,
+                "final_ready": False,
+            }
+    return _session_status(db, sess)
 
 
 class ScriptRequest(BaseModel):

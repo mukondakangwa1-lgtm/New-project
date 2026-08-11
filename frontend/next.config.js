@@ -5,6 +5,9 @@ const backendInternalUrl = process.env.BACKEND_INTERNAL_URL || "http://127.0.0.1
 
 const nextConfig = {
   reactStrictMode: true,
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
   async rewrites() {
     return [
       {

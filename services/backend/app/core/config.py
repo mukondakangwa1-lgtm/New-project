@@ -115,7 +115,7 @@ class Settings(BaseSettings):
     OPENAI_TTS_MODEL: str = "gpt-4o-mini-tts"
     OPENAI_TTS_VOICE: str = "nova"  # fallback voice until the signature voice is cloned
     # Signature voice: minimum clear speech captured before auto-clone on first feed.
-    KUDOS_SIGNATURE_MIN_SAMPLE_SECONDS: int = 10
+    KUDOS_SIGNATURE_MIN_SAMPLE_SECONDS: int = 30
 
     # Registered external tool execution
     TOOL_CALL_TIMEOUT_SECONDS: float = 30.0

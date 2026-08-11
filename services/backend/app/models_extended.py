@@ -337,11 +337,31 @@ class VoiceSample(Base):
 
     id = Column(Integer, primary_key=True)
     profile_id = Column(Integer, ForeignKey("voice_profiles.id"), nullable=True)
+    session_id = Column(Integer, ForeignKey("voice_sessions.id"), nullable=True)
     storage_key = Column(String(255), default="")
     mime = Column(String(60), default="audio/webm")
     transcribed = Column(Text, default="")
     duration_seconds = Column(Integer, default=0)
     created_at = Column(DateTime, default=lambda: datetime.now(UTC))
+
+
+class VoiceSession(Base):
+    """An interactive signature-voice session: KUDOS greets, the superadmin
+    speaks lines back, KUDOS draft-clones the accumulated audio and re-speaks
+    each line in that draft voice, then the session finalizes into the live
+    signature voice."""
+
+    __tablename__ = "voice_sessions"
+
+    id = Column(Integer, primary_key=True)
+    profile_id = Column(Integer, ForeignKey("voice_profiles.id"), nullable=True)
+    state = Column(String(20), default="active")  # active | finalized | cancelled
+    draft_voice_id = Column(String(160), default="")  # ElevenLabs draft clone id
+    turn_count = Column(Integer, default=0)
+    total_seconds = Column(Integer, default=0)
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
+    updated_at = Column(DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
+    finalized_at = Column(DateTime, nullable=True)
 
 
 class KudosVoice(Base):

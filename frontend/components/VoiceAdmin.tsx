@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { getAuthHeader } from "@/lib/api";
+import VoiceSession from "./VoiceSession";
 
 interface VoiceStatus {
   tts_enabled: boolean;
@@ -203,6 +204,7 @@ export default function VoiceAdmin() {
 
   return (
     <div className="bg-white rounded-xl border shadow p-6 mt-8">
+      <VoiceSession />
       <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
         <div>
           <h3 className="font-semibold text-lg">🎙️ KUDOS Voice — signature voice</h3>
