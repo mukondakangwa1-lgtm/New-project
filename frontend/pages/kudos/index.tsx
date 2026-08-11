@@ -12,6 +12,7 @@ interface Message {
   content: string;
   sources: string;
   media?: string;
+  learned?: string;
   created_at: string;
 }
 interface Conversation {
@@ -35,8 +36,11 @@ export default function KudosChat() {
   const [lastSources, setLastSources] = useState<Source[]>([]);
   const [arenaMode, setArenaMode] = useState("directchat");
   const [arenaResult, setArenaResult] = useState<any>(null);
+  const [attachments, setAttachments] = useState<File[]>([]);
+  const [uploading, setUploading] = useState(false);
   const askProgress = useLongProcess();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Anonymous visitors get the guest chat (no login required)
   const [guestMode, setGuestMode] = useState<boolean | null>(null);
@@ -160,10 +164,118 @@ export default function KudosChat() {
     askProgress.stop();
   };
 
+  const handleFilesSelected = (e: any) => {
+    const files: File[] = Array.from(e.target?.files || []);
+    if (!files.length) return;
+    setAttachments((prev) => [...prev, ...files]);
+    e.target.value = "";
+  };
+
+  // Send text and/or files straight to KUDOS via the chat/send endpoint.
+  // Text docs/PDFs/code are ingested as knowledge; images/videos are seen
+  // (vision) and described; audio + any other file type is stored and attached.
+  const sendWithFiles = async (files: File[], text: string) => {
+    if (loading) return;
+    const question = text.trim() || "I sent you an attachment. Tell me what you learned from it.";
+    setInput("");
+    setLoading(true);
+    setUploading(true);
+    askProgress.start("Feeding KUDOS…");
+    setArenaResult(null);
+
+    // Optimistic previews use local object URLs; server URLs replace them
+    // when the conversation is reloaded.
+    const localMedia = files.map((f) => ({
+      kind: "media",
+      url: URL.createObjectURL(f),
+      mime: f.type || "",
+      caption: f.name,
+    }));
+
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: Date.now(),
+        role: "user",
+        content: question,
+        sources: "",
+        media: JSON.stringify(localMedia),
+        created_at: new Date().toISOString(),
+      },
+    ]);
+
+    try {
+      const form = new FormData();
+      form.append("message", question);
+      form.append("conversation_id", String(currentConvId || 0));
+      files.forEach((f) => form.append("files", f));
+
+      const res = await fetch("/api/v1/kudos/chat/send", {
+        method: "POST",
+        headers: getAuthHeader(),
+        body: form,
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.detail || `Upload failed (${res.status})`);
+      }
+      const data = await res.json();
+      setCurrentConvId(data.conversation_id);
+      setArenaResult(data);
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Date.now() + 1,
+          role: "kudos",
+          content: data.answer,
+          sources: "[]",
+          learned: JSON.stringify(data.learned || []),
+          media: JSON.stringify(data.media || []),
+          created_at: new Date().toISOString(),
+        },
+      ]);
+
+      const convRes = await fetch("/api/v1/kudos/conversations", {
+        headers: getAuthHeader(),
+      });
+      if (convRes.ok) setConversations(await convRes.json());
+    } catch (e: any) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Date.now() + 1,
+          role: "kudos",
+          content: `⚠️ ${e.message}`,
+          sources: "",
+          learned: "",
+          created_at: new Date().toISOString(),
+        },
+      ]);
+    }
+    setUploading(false);
+    setLoading(false);
+    askProgress.stop();
+  };
+
+  const removeAttachment = (idx: number) => {
+    setAttachments((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const submit = () => {
+    if (loading) return;
+    if (attachments.length > 0) {
+      sendWithFiles(attachments, input);
+    } else {
+      ask();
+    }
+  };
+
   const newConversation = () => {
     setCurrentConvId(null);
     setMessages([]);
     setLastSources([]);
+    setAttachments([]);
   };
 
   const writeEssay = async () => {
@@ -298,6 +410,18 @@ export default function KudosChat() {
           >
             🚀 Auto-Learn
           </a>
+          <a
+            href="/kudos/maps"
+            className="bg-cyan-50 border border-cyan-200 px-4 py-2 rounded-lg text-sm font-medium hover:bg-cyan-100 transition text-cyan-700"
+          >
+            🗺️ Maps
+          </a>
+          <a
+            href="/kudos/networks"
+            className="bg-purple-50 border border-purple-200 px-4 py-2 rounded-lg text-sm font-medium hover:bg-purple-100 transition text-purple-700"
+          >
+            📡 Networks
+          </a>
         </div>
       </div>
 
@@ -322,9 +446,8 @@ export default function KudosChat() {
                   className={`px-3 py-2 border-b cursor-pointer hover:bg-gray-50 group flex justify-between items-center ${
                     currentConvId === conv.id ? "bg-blue-50" : ""
                   }`}
-                  onClick={() => setCurrentConvId(conv.id)}
-                >
-                  <p className="text-sm truncate flex-1">{conv.title}</p>
+                  onClick={() => { setCurrentConvId(conv.id); setAttachments([]); }}
+                >                  <p className="text-sm truncate flex-1">{conv.title}</p>
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -512,6 +635,64 @@ export default function KudosChat() {
                     <div className="text-sm whitespace-pre-wrap">{msg.content}</div>
                   )}
 
+                  {/* User attachments (images, audio, video, files) */}
+                  {msg.role === "user" && msg.media && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {(() => {
+                        try {
+                          const items: any[] = JSON.parse(msg.media);
+                          return items.filter((m: any) => m.url).map((m: any, i: number) => {
+                            const mime = m.mime || "";
+                            if (mime.startsWith("image/")) {
+                              return (
+                                <img
+                                  key={i}
+                                  src={m.url}
+                                  alt={m.caption || "attachment"}
+                                  className="rounded-lg border border-gray-300 max-h-40"
+                                />
+                              );
+                            }
+                            if (mime.startsWith("audio/")) {
+                              return (
+                                <audio
+                                  key={i}
+                                  src={m.url}
+                                  controls
+                                  className="max-w-full"
+                                  title={m.caption || "audio"}
+                                />
+                              );
+                            }
+                            if (mime.startsWith("video/")) {
+                              return (
+                                <video
+                                  key={i}
+                                  src={m.url}
+                                  controls
+                                  className="rounded-lg border border-gray-300 max-h-40"
+                                />
+                              );
+                            }
+                            return (
+                              <a
+                                key={i}
+                                href={m.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1 text-xs bg-white border border-gray-300 text-gray-600 rounded px-2 py-1 hover:bg-gray-50"
+                              >
+                                📄 {m.caption || "Attachment"}
+                              </a>
+                            );
+                          });
+                        } catch {
+                          return null;
+                        }
+                      })()}
+                    </div>
+                  )}
+
                   {/* Generated media (images, transient short videos) */}
                   {msg.role === "kudos" && msg.media && (
                     <div className="mt-3 space-y-3">
@@ -565,9 +746,29 @@ export default function KudosChat() {
                     </div>
                   )}
 
+                  {/* What KUDOS ingested from attachments */}
+                  {msg.role === "kudos" && msg.learned && (() => {
+                    try {
+                      const learned: any[] = JSON.parse(msg.learned);
+                      return learned.length > 0 ? (
+                        <div className="mt-3 pt-2 border-t border-gray-200">
+                          <p className="text-xs text-gray-500 font-medium mb-1">Learned from your attachments:</p>
+                          {learned.map((l, i) => (
+                            <p key={i} className="text-xs text-gray-500">
+                              📚 {l.title}
+                              {l.chunk_count ? ` — ${l.chunk_count} chunk${l.chunk_count === 1 ? "" : "s"}` : ""}
+                              {l.description ? ` — ${String(l.description).slice(0, 80)}…` : ""}
+                            </p>
+                          ))}
+                        </div>
+                      ) : null;
+                    } catch {
+                      return null;
+                    }
+                  })()}
+
                   {/* Sources */}
-                  {msg.role === "kudos" && msg.sources && (
-                    <div className="mt-3 pt-2 border-t border-gray-200">
+                  {msg.role === "kudos" && msg.sources && (                    <div className="mt-3 pt-2 border-t border-gray-200">
                       {(() => {
                         try {
                           const srcs: Source[] = JSON.parse(msg.sources);
@@ -651,22 +852,66 @@ export default function KudosChat() {
             </div>
             <div className="flex gap-3">
               <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                hidden
+                onChange={handleFilesSelected}
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={loading}
+                className="bg-white border px-3 py-3 rounded-xl text-lg hover:bg-gray-100 transition disabled:opacity-50"
+                title="Attach files for KUDOS — images, video, audio, PDF, documents, code, or any file"
+              >
+                📎
+              </button>
+              <input
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && ask()}
+                onKeyDown={(e) => e.key === "Enter" && submit()}
                 className="flex-1 rounded-xl border px-4 py-3 text-sm focus:ring-2 focus:ring-purple-500 focus:outline-none"
-                placeholder="Ask KUDOS anything..."
+                placeholder="Ask KUDOS anything, or attach a file to teach it…"
                 disabled={loading}
               />
               <button
-                onClick={ask}
-                disabled={loading || !input.trim()}
+                onClick={submit}
+                disabled={loading || (attachments.length === 0 && !input.trim())}
                 className="bg-purple-600 text-white px-6 py-3 rounded-xl font-medium hover:bg-purple-700 disabled:opacity-50 transition"
               >
-                {loading ? "Thinking..." : "⚔️ Ask"}
+                {loading ? "Thinking..." : attachments.length > 0 ? "📤 Feed KUDOS" : "⚔️ Ask"}
               </button>
             </div>
+
+            {/* Pending attachments */}
+            {attachments.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2 mt-3">
+                {attachments.map((f, i) => (
+                  <span
+                    key={i}
+                    className="inline-flex items-center gap-1 text-xs bg-purple-50 border border-purple-200 text-purple-700 px-2 py-1 rounded-full max-w-[220px]"
+                    title={f.name}
+                  >
+                    <span>{f.type.startsWith("image/") ? "🖼️" : f.type.startsWith("audio/") ? "🎵" : f.type.startsWith("video/") ? "🎬" : "📄"}</span>
+                    <span className="truncate">{f.name}</span>
+                    <button
+                      onClick={() => removeAttachment(i)}
+                      className="text-purple-400 hover:text-red-500"
+                      title="Remove"
+                    >
+                      ✕
+                    </button>
+                  </span>
+                ))}
+                <button
+                  onClick={() => setAttachments([])}
+                  className="text-xs text-gray-400 hover:text-gray-600 underline"
+                >
+                  Clear all
+                </button>
+              </div>
+            )}
             {askProgress.active && (
               <div className="mt-3">
                 <ProgressBar label={askProgress.label} elapsed={askProgress.elapsed} />

@@ -35,7 +35,7 @@ from app.core.paths import project_root
 LOCAL_ROOT = Path(project_root(__file__)) / "storage-local"
 
 # Bucket prefixes (single MinIO bucket, sub-folders per object type).
-BUCKET_PREFIXES = ("audio/", "docs/", "avatars/", "backups/")
+BUCKET_PREFIXES = ("audio/", "docs/", "avatars/", "backups/", "media/", "generated/")
 
 
 class StorageUnavailableError(RuntimeError):

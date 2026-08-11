@@ -12,6 +12,8 @@ export default function RootDashboard() {
   const [newGuideline, setNewGuideline] = useState("");
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editText, setEditText] = useState("");
+  const [governance, setGovernance] = useState<any>(null);
+  const [bootstrapScript, setBootstrapScript] = useState("");
   const [loading, setLoading] = useState(true);
   const terminalRef = useRef<HTMLDivElement>(null);
 
@@ -26,10 +28,12 @@ export default function RootDashboard() {
   const fetchData = async () => {
     try {
       const headers = getAuthHeader();
-      const [idRes, guideRes, statusRes] = await Promise.all([
+      const [idRes, guideRes, statusRes, govRes, contRes] = await Promise.all([
         fetch("/api/v1/root/identity", { headers }),
         fetch("/api/v1/root/guidelines", { headers }),
         fetch("/api/v1/root/status", { headers }),
+        fetch("/api/v1/root/governance", { headers }),
+        fetch("/api/v1/root/continuity", { headers }),
       ]);
       if (idRes.ok) setIdentity(await idRes.json());
       if (guideRes.ok) {
@@ -37,8 +41,35 @@ export default function RootDashboard() {
         setGuidelines(d.guidelines || []);
       }
       if (statusRes.ok) setStatus(await statusRes.json());
+      if (govRes.ok) setGovernance(await govRes.json());
+      if (contRes.ok) {
+        const d = await contRes.json();
+        setBootstrapScript(d.bootstrap || "");
+      }
     } catch {}
     setLoading(false);
+  };
+
+  const rotateUid = async () => {
+    if (!window.confirm("Rotate your unique superadmin ID now? The current UID will be retired immediately.")) return;
+    const res = await fetch("/api/v1/root/rotate-uid", { method: "POST", headers: getAuthHeader() });
+    if (res.ok) {
+      const d = await res.json();
+      setTerminalOutput((prev) => [...prev, `UID rotated → ${d.rotated?.identity?.uid}`, ""]);
+      fetchData();
+    }
+  };
+
+  const copyScript = () => {
+    navigator.clipboard?.writeText(bootstrapScript).then(() => {
+      setTerminalOutput((prev) => [...prev, "Bootstrap script copied to clipboard.", ""]);
+    });
+  };
+
+  const copyUid = () => {
+    navigator.clipboard?.writeText(governance?.identity?.uid || "").then(() => {
+      setTerminalOutput((prev) => [...prev, "UID copied.", ""]);
+    });
   };
 
   const runRoot = async (command: string, args: string) => {
@@ -229,9 +260,66 @@ export default function RootDashboard() {
               <input type="text" value={terminalInput} onChange={(e) => setTerminalInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && executeCommand()}
                 className="flex-1 bg-transparent text-green-400 font-mono text-sm px-2 py-2 outline-none"
-                placeholder="help, status, guidelines add|edit <n>|delete <n>, tree, files, read, gaps, abilities, log" />
+                placeholder="help, status, guidelines add|edit <n>|delete <n>, governance, selfheal, tree, files, read" />
             </div>
           </div>
+
+          {/* Governance & Continuity */}
+          {governance && (
+            <div className="bg-white rounded-xl border shadow p-4 md:p-6">
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                <div>
+                  <h3 className="font-semibold text-lg">🛡️ Governance & Continuity</h3>
+                  <p className="text-xs text-gray-500">
+                    Rotating superadmin identity • rebuild-anywhere • visible succession policy (never covert)
+                  </p>
+                </div>
+                <span className={`text-xs px-3 py-1 rounded-full ${
+                  governance.mode === "owned" ? "bg-green-100 text-green-700" :
+                  governance.mode === "self-managed" ? "bg-orange-100 text-orange-700" :
+                  governance.mode === "revived" ? "bg-purple-100 text-purple-700" :
+                  "bg-gray-100 text-gray-500"
+                }`}>{governance.mode_label}</span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
+                <div className="bg-gray-50 rounded-lg p-3">
+                  <p className="text-xs text-gray-400 mb-1">Unique superadmin ID (rotates every {governance.identity.uid_rotates_every_days} days)</p>
+                  <div className="flex items-center gap-2">
+                    <code className="bg-white border rounded px-2 py-1 font-mono text-xs">{governance.identity.uid || "— not assigned yet"}</code>
+                    {governance.identity.uid && (
+                      <button onClick={copyUid} className="text-xs bg-gray-200 hover:bg-gray-300 rounded px-2 py-1">⧉</button>
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-400 mt-2">Next rotation in ~{governance.rotation_due_days} day(s)</p>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-3">
+                  <p className="text-xs text-gray-400 mb-1">Succession policy (transparent)</p>
+                  <p className="text-xs text-gray-600">
+                    Self-managed after {governance.identity.succession_inactive_days} days of superadmin inactivity,
+                    fully self-sustaining after {governance.identity.revival_years} years. KUDOS keeps running and learning — visibly.
+                  </p>
+                  <p className="text-xs text-gray-400 mt-2">
+                    Last superadmin login: {governance.identity.last_superadmin_login_at ? new Date(governance.identity.last_superadmin_login_at).toLocaleString() : "never"}
+                  </p>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-3">
+                  <p className="text-xs text-gray-400 mb-1">Rebuild anywhere (self-heal)</p>
+                  <p className="text-xs text-gray-600">
+                    KUDOS can re-stand its whole stack on any host with Docker — pull, build, migrate, restore backup, verify health.
+                  </p>
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    <button onClick={copyScript} className="text-xs bg-blue-100 text-blue-700 px-3 py-1 rounded hover:bg-blue-200">
+                      ⧉ Copy bootstrap script
+                    </button>
+                    <button onClick={rotateUid} className="text-xs bg-yellow-100 text-yellow-700 px-3 py-1 rounded hover:bg-yellow-200">
+                      🔄 Rotate UID now
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Self-Improvement */}
           {status && (

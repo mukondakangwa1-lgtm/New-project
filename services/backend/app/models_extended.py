@@ -302,15 +302,20 @@ class SpeakingSession(Base):
 
 class VoiceProfile(Base):
     """KUDOS's signature voice: the superadmin captures their own voice and
-    it becomes the voice KUDOS speaks with on every platform."""
+    it becomes the voice KUDOS speaks with on every platform. The signature
+    points at one entry in the kudos_voices library, so KUDOS can still speak
+    in any other voice on request."""
     __tablename__ = "voice_profiles"
 
     id = Column(Integer, primary_key=True)
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     tts_enabled = Column(Boolean, default=False)
-    cloned_voice_id = Column(String(120), default="")  # ElevenLabs voice id
+    cloned_voice_id = Column(String(120), default="")  # ElevenLabs voice id (legacy/fallback)
     default_voice = Column(String(120), default="")    # fallback voice name/id
     signature_active = Column(Boolean, default=False)  # KUDOS speaks with the superadmin's voice
+    signature_voice_id = Column(Integer, ForeignKey("kudos_voices.id"), nullable=True)  # designated library voice
+    signature_state = Column(String(20), default="none")  # none | pending | active
+    owner_device_id = Column(Integer, ForeignKey("kudos_devices.id"), nullable=True)  # device that donated the voice
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -326,6 +331,25 @@ class VoiceSample(Base):
     transcribed = Column(Text, default="")
     duration_seconds = Column(Integer, default=0)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class KudosVoice(Base):
+    """The KUDOS voice library — every voice KUDOS can speak with. One row per
+    voice: the superadmin's clone (signature), additional cloned voices, and
+    stock voices. Cloned voices keep their samples so KUDOS owns them."""
+    __tablename__ = "kudos_voices"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(120), default="")
+    kind = Column(String(20), default="cloned")  # signature | cloned | stock
+    provider = Column(String(30), default="elevenlabs")  # elevenlabs | openai
+    provider_voice_id = Column(String(160), default="")
+    source_device_id = Column(Integer, ForeignKey("kudos_devices.id"), nullable=True)
+    sample_keys = Column(Text, default="[]")  # JSON array of MinIO keys
+    is_signature = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    device = relationship("KudosDevice")
 
 
 class Broadcast(Base):
@@ -419,3 +443,179 @@ class JournalBlock(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     user = relationship("User")
+
+
+# ──────────────────────────────────────────────
+# KUDOS INTERNAL WORLDMAP — offline navigation + facts
+# ──────────────────────────────────────────────
+
+class KudosMapPlace(Base):
+    """A place on KUDOS's internal world map (continents, countries, capitals,
+    major cities, landmarks). Coordinates where known are authoritative public
+    values; places without a known coordinate are never given a guessed one."""
+    __tablename__ = "kudos_map_places"
+
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String(160), unique=True, nullable=False)  # stable slug
+    name = Column(String(200), nullable=False, index=True)
+    country = Column(String(120), default="")
+    region = Column(String(120), default="")
+    continent = Column(String(60), default="")
+    place_type = Column(String(30), default="city")  # continent, country, capital, city, landmark, campus
+    lat = Column(Float, nullable=True)  # None = coordinate genuinely unknown
+    lon = Column(Float, nullable=True)
+    description = Column(Text, default="")
+    aliases = Column(String(500), default="")
+    importance = Column(Integer, default=0)
+    search_text = Column(String(600), default="")
+    is_seed = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class KudosAccessPoint(Base):
+    """A Wi-Fi access point KUDOS has located through its devices'
+    crowdsourced network scans (the precise layer of the real-world map)."""
+    __tablename__ = "kudos_access_points"
+
+    id = Column(Integer, primary_key=True, index=True)
+    bssid = Column(String(32), unique=True, nullable=False)  # normalized aa:bb:cc:dd:ee:ff
+    ssid = Column(String(120), default="")
+    lat = Column(Float, default=0.0)
+    lon = Column(Float, default=0.0)
+    accuracy_m = Column(Float, default=120.0)
+    last_signal_dbm = Column(Integer, default=-70)
+    observations = Column(Integer, default=0)
+    first_seen_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    last_seen_at = Column(DateTime, nullable=True)
+
+
+class KudosCellTower(Base):
+    """A cellular tower KUDOS knows through its devices' scans."""
+    __tablename__ = "kudos_cell_towers"
+
+    id = Column(Integer, primary_key=True, index=True)
+    cell_key = Column(String(80), unique=True, nullable=False)  # mcc-mnc-lac-cid
+    mcc = Column(Integer, default=0)
+    mnc = Column(Integer, default=0)
+    lac = Column(Integer, default=0)
+    cid = Column(Integer, default=0)
+    lat = Column(Float, default=0.0)
+    lon = Column(Float, default=0.0)
+    accuracy_m = Column(Float, default=1500.0)
+    observations = Column(Integer, default=0)
+    last_seen_at = Column(DateTime, nullable=True)
+
+
+class KudosScan(Base):
+    """A raw network observation reported by a KUDOS device — the eyes KUDOS
+    uses to keep its real-world map honest and precise."""
+    __tablename__ = "kudos_scans"
+
+    id = Column(Integer, primary_key=True, index=True)
+    device_id = Column(Integer, ForeignKey("kudos_devices.id"), nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    gps_lat = Column(Float, nullable=True)
+    gps_lon = Column(Float, nullable=True)
+    gps_accuracy_m = Column(Float, nullable=True)
+    wifi_json = Column(Text, default="[]")
+    cells_json = Column(Text, default="[]")
+    result_json = Column(Text, default="{}")
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+# ──────────────────────────────────────────────
+# KUDOS LINK SWITCHING — terrestrial <-> satellite (Starlink / NTN)
+# ──────────────────────────────────────────────
+
+class KudosNetworkState(Base):
+    """A transport report from a KUDOS device — the measured links KUDOS can
+    switch between: Wi-Fi, cellular and satellite (Android NTN /
+    Starlink). KUDOS only ever records links the device actually reported."""
+    __tablename__ = "kudos_network_states"
+
+    id = Column(Integer, primary_key=True, index=True)
+    device_id = Column(Integer, ForeignKey("kudos_devices.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    primary_transport = Column(String(20), default="unknown")  # wifi, cellular, satellite, ethernet, unknown
+    transports = Column(String(200), default="")  # CSV of visible transports
+    signal_dbm = Column(Integer, default=0)
+    metered = Column(Boolean, default=True)
+    constrained = Column(Boolean, default=False)  # NET_CAPABILITY_NOT_BANDWIDTH_CONSTRAINED absent
+    satellite = Column(Boolean, default=False)  # TRANSPORT_SATELLITE present
+    satellite_backhaul = Column(Boolean, default=False)  # link rides a satellite terminal
+    bandwidth_kbps = Column(Integer, default=0)
+    rtt_ms = Column(Float, default=0.0)
+    provider = Column(String(120), default="")
+    reported_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    device = relationship("KudosDevice")
+
+
+class KudosNetworkSetting(Base):
+    """How KUDOS selects a link for a device.
+    mode: auto (best available), terrestrial (Wi-Fi/cellular preferred,
+    satellite only as fallback), satellite (Starlink/NTN preferred)."""
+    __tablename__ = "kudos_network_settings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    device_id = Column(Integer, ForeignKey("kudos_devices.id"), nullable=False, unique=True, index=True)
+    mode = Column(String(20), default="auto")  # auto, terrestrial, satellite
+    reason = Column(String(200), default="")
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+# ──────────────────────────────────────────────
+# KUDOS KNOWLEDGE VAULT — curated + indexed knowledge
+# ──────────────────────────────────────────────
+
+class KudosVaultEntry(Base):
+    """A knowledge vault entry. Curated entries are written by the superadmin
+    (canonical articles KUDOS reasons from); indexed entries are mirror
+    snapshots of approved documents, web knowledge and the user's memories,
+    so every source KUDOS has is searchable in one place.
+
+    source_type: curated | document | web | memory
+    Curated entries are global; indexed entries carry user_id scope for
+    memories so the vault never leaks one user's knowledge to another.
+    """
+    __tablename__ = "kudos_vault_entries"
+
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String(160), unique=True, nullable=False)  # stable slug / source key
+    title = Column(String(300), nullable=False, index=True)
+    slug = Column(String(160), default="")
+    summary = Column(String(600), default="")
+    content = Column(Text, default="")
+    category = Column(String(60), default="general", index=True)
+    tags = Column(String(500), default="")  # CSV
+    source_type = Column(String(20), default="curated", index=True)  # curated, document, web, memory
+    source_id = Column(Integer, nullable=True)
+    author_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)  # scope for memories
+    importance = Column(Integer, default=0)
+    version = Column(Integer, default=1)
+    parent_id = Column(Integer, nullable=True)
+    is_approved = Column(Boolean, default=True)
+    is_active = Column(Boolean, default=True)
+    search_text = Column(String(2000), default="")
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    approved_at = Column(DateTime, nullable=True)
+
+
+class KudosConstitution(Base):
+    """KUDOS's constitution — the grounding policy it always obeys when it
+    answers. Superadmin-editable; every change bumps the version so the
+    system prompt KUDOS is given always reflects the latest ruling."""
+    __tablename__ = "kudos_constitution"
+
+    id = Column(Integer, primary_key=True, index=True)
+    article_id = Column(Integer, nullable=False, index=True)  # ordering key (1..n)
+    title = Column(String(200), nullable=False)
+    content = Column(Text, default="")
+    is_active = Column(Boolean, default=True)
+    version = Column(Integer, default=1)
+    updated_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

@@ -22,9 +22,18 @@ from app.schemas import Token, UserCreate, UserLogin, UserResponse
 router = APIRouter()
 
 
-def _issue_token(user: User, response: Response) -> dict:
+def _issue_token(user: User, response: Response, db: Session) -> dict:
     """Create a JWT, set the HttpOnly session cookie, and return the token
     body (kept for API clients and the Swagger flow)."""
+    # Governance: admins get/rotate their unique superadmin identity on every
+    # login. This is how KUDOS always recognises its superadmin.
+    if user.is_admin:
+        try:
+            from app.core.kudos_governance import ensure_superadmin_identity
+            ensure_superadmin_identity(db, user)
+        except Exception:
+            pass
+
     access_token = create_access_token(
         data={"sub": user.email},
         expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
@@ -71,7 +80,7 @@ def login(credentials: UserLogin, response: Response, db: Session = Depends(get_
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account awaits admin approval",
         )
-    return _issue_token(user, response)
+    return _issue_token(user, response, db)
 
 
 @router.post("/token", response_model=Token)
@@ -93,7 +102,7 @@ def login_for_swagger(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account awaits admin approval",
         )
-    return _issue_token(user, response)
+    return _issue_token(user, response, db)
 
 
 @router.post("/logout", status_code=204)

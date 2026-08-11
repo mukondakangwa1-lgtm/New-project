@@ -6,7 +6,9 @@ import os
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
+from app.core.database import get_db
 from app.core.deps import require_admin
 from app.core.kudos_identity import (
     add_guideline,
@@ -114,7 +116,7 @@ class RootCommand(BaseModel):
 
 
 @router.post("/exec")
-def root_execute(body: RootCommand, admin: User = Depends(require_admin)):
+def root_execute(body: RootCommand, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
     """Execute a root command (superadmin only). Safe commands only."""
     cmd = body.command.lower().strip()
     args = body.args.strip()
@@ -132,6 +134,8 @@ def root_execute(body: RootCommand, admin: User = Depends(require_admin)):
         "files": lambda: _list_files(args),
         "read": lambda: _read_file(args),
         "stats": lambda: _get_stats(),
+        "governance": lambda: _governance_command(db, admin, args),
+        "selfheal": lambda: _selfheal_command(db),
         "help": lambda: {"commands": list(safe_commands.keys()), "description": "KUDOS root terminal"},
     }
 
@@ -144,6 +148,25 @@ def root_execute(body: RootCommand, admin: User = Depends(require_admin)):
             return {"command": cmd, "error": str(e)}
 
     return {"error": f"Unknown command: {cmd}. Type 'help' for available commands."}
+
+
+def _selfheal_command(db: Session) -> dict:
+    """Self-heal plan shown in the terminal."""
+    from app.core.kudos_governance import self_heal_plan
+    return self_heal_plan(db)
+
+
+def _governance_command(db: Session, admin: User, args: str) -> dict:
+    """Check governance: identity, rotation, succession, or rotate the UID."""
+    from app.core.kudos_governance import governance_status, rotate_uid, self_heal_bootstrap
+
+    parts = args.split(" ", 1)
+    sub = parts[0].lower() if args else ""
+    if sub in ("rotate", "rotate-uid"):
+        return {"rotated": rotate_uid(db, admin)}
+    if sub in ("bootstrap", "script", "continuity"):
+        return {"bootstrap": self_heal_bootstrap(db)}
+    return governance_status(db)
 
 
 def _guidelines_command(args: str) -> dict:
@@ -302,3 +325,38 @@ def abilities(limit: int = 50, admin: User = Depends(require_admin)):
 def gaps(admin: User = Depends(require_admin)):
     """Get knowledge gaps."""
     return {"gaps": get_knowledge_gaps()}
+
+
+# ──────────────────────────────────────────────
+# GOVERNANCE & CONTINUITY
+# ──────────────────────────────────────────────
+
+@router.get("/governance")
+def governance(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    """Rotating superadmin identity + transparent succession state."""
+    from app.core.kudos_governance import governance_status
+    return governance_status(db)
+
+
+@router.post("/rotate-uid")
+def rotate_uid(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    """Force an immediate rotation of the superadmin's unique ID."""
+    from app.core.kudos_governance import rotate_uid as _rotate_uid
+    return {"rotated": _rotate_uid(db, admin)}
+
+
+@router.get("/continuity")
+def continuity(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    """Everything KUDOS needs to rebuild anywhere + the host bootstrap script."""
+    from app.core.kudos_governance import revival_bundle, self_heal_bootstrap
+    return {
+        "bundle": revival_bundle(db),
+        "bootstrap": self_heal_bootstrap(db),
+    }
+
+
+@router.post("/self-heal")
+def self_heal(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    """Plan (not execution — it runs on the host) to rebuild the whole stack."""
+    from app.core.kudos_governance import self_heal_plan
+    return self_heal_plan(db)

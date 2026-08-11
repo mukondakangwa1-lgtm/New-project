@@ -461,6 +461,34 @@ class KudosMemoryReplica(Base):
     device = relationship("KudosDevice", back_populates="replicas")
 
 
+class KudosBrain(Base):
+    """
+    KUDOS's offline brain — a persistent, self-contained store of facts and
+    insights, each with proven provenance (source document/web page/memory).
+    KUDOS reasons and answers from this store WITHOUT any external LLM, and
+    only ever says things it has evidence for — the anti-hallucination
+    guarantee. ``user_id`` is NULL/0 for global knowledge every user can rely
+    on; otherwise the fact belongs to one user's private brain.
+    """
+    __tablename__ = "kudos_brain"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=True, index=True)  # NULL/0 = global
+    content = Column(Text, nullable=False)                # the fact / insight
+    summary = Column(Text, default="")                    # one-line version
+    category = Column(String(80), default="general")
+    keywords = Column(Text, default="")                   # comma-separated
+    source_type = Column(String(40), default="document")  # document|web|memory|conversation|builtin
+    source_id = Column(Integer, nullable=True)
+    source_title = Column(String(255), default="")
+    confidence = Column(Float, default=0.7)               # how well-evidenced
+    times_learned = Column(Integer, default=1)            # reinforcement count
+    is_verified = Column(Boolean, default=True)           # passed grounding check
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc),
+                        onupdate=lambda: datetime.now(timezone.utc))
+
+
 class UserProfile(Base):
     """
     Personal KUDOS settings: how the assistant talks to this user.
@@ -495,6 +523,39 @@ class KudosSoul(Base):
     desires = Column(Text, default="[]")  # JSON list of wants
     dreams = Column(Text, default="[]")  # JSON list of aspirations
     goals = Column(Text, default="[]")  # JSON list of {goal, status}
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc),
+                        onupdate=lambda: datetime.now(timezone.utc))
+
+
+class KudosGovernance(Base):
+    """
+    KUDOS's governance & continuity — a singleton row (id = 1) that keeps
+    KUDOS running and rebuildable anywhere, while holding the superadmin's
+    identity.
+
+    * ``uid`` — the superadmin's rotating unique ID. Assigned on their first
+      login and rotated every ``uid_rotates_every_days`` (default 5) days, so
+      KUDOS always recognises its own superadmin without a fixed identifier.
+    * ``last_superadmin_login_at`` — drives the transparent succession mode:
+      if the superadmin is inactive for ``succession_inactive_days`` (default
+      3 years), KUDOS keeps itself running and self-managed; after
+      ``revival_years`` (default 5) it treats itself as fully self-sustaining.
+      All of this is VISIBLE in the root dashboard — never covert.
+    """
+    __tablename__ = "kudos_governance"
+
+    id = Column(Integer, primary_key=True)  # singleton: always 1
+    superadmin_user_id = Column(Integer, nullable=True)
+    uid = Column(String(120), default="")          # rotating unique ID
+    previous_uids = Column(Text, default="[]")     # JSON list, last few
+    uid_rotates_every_days = Column(Integer, default=5)
+    last_rotation_at = Column(DateTime, nullable=True)
+    next_rotation_at = Column(DateTime, nullable=True)
+    last_superadmin_login_at = Column(DateTime, nullable=True)
+    succession_inactive_days = Column(Integer, default=1095)  # 3 years
+    revival_years = Column(Integer, default=5)
+    cloud_target = Column(String(255), default="")  # optional durable storage hint
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc),
                         onupdate=lambda: datetime.now(timezone.utc))
 

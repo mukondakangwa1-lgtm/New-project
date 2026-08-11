@@ -111,8 +111,11 @@ class Settings(BaseSettings):
     # KUDOS Voice — speech-to-text & text-to-speech.
     ELEVENLABS_API_KEY: str = ""
     ELEVENLABS_TTS_MODEL: str = "eleven_multilingual_v2"
+    ELEVENLABS_S2S_MODEL: str = "eleven_multilingual_sts_v2"  # voice changer (speech-to-speech)
     OPENAI_TTS_MODEL: str = "gpt-4o-mini-tts"
     OPENAI_TTS_VOICE: str = "nova"  # fallback voice until the signature voice is cloned
+    # Signature voice: minimum clear speech captured before auto-clone on first feed.
+    KUDOS_SIGNATURE_MIN_SAMPLE_SECONDS: int = 10
 
     # Registered external tool execution
     TOOL_CALL_TIMEOUT_SECONDS: float = 30.0
@@ -152,6 +155,24 @@ class Settings(BaseSettings):
     # still stop it; the next visit re-arms it.
     KUDOS_LEARN_ON_VISIT: bool = True
     KUDOS_LEARN_INTERVAL_MINUTES: int = 120
+
+    # KUDOS Offline Brain — persistent self-contained knowledge + reasoning.
+    # When OFFLINE_FIRST, KUDOS answers from its own brain before asking any
+    # LLM. When GROUNDED_ONLY, LLM answers are verified against real sources
+    # and replaced by a grounded (or honestly-refusing) answer when unsupported.
+    KUDOS_OFFLINE_FIRST: bool = False
+    KUDOS_GROUNDED_ONLY: bool = True
+    KUDOS_BRAIN_MIN_SCORE: float = 0.6   # minimum confidence for a grounded reply
+    KUDOS_BRAIN_CONSOLIDATE_LIMIT: int = 300
+
+    # KUDOS Governance & Continuity — rotating superadmin identity and the
+    # transparent succession policy. uid rotates on login every
+    # UID_ROTATE_DAYS; if the superadmin is inactive for SUCCESSOR_DAYS the
+    # dashboard shows KUDOS as self-managed; REVIVAL_YEARS later it considers
+    # itself fully self-sustaining. All state is visible in the root panel.
+    KUDOS_UID_ROTATE_DAYS: int = 5
+    KUDOS_SUCCESSOR_INACTIVE_DAYS: int = 1095  # 3 years
+    KUDOS_REVIVAL_YEARS: int = 5
 
     # Additional application API keys. Both comma- and newline-separated
     # values are accepted in environment variables and .env files.

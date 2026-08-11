@@ -79,7 +79,8 @@ def test_superadmin_dashboard_includes_storage():
     usage = storage["usage"]
     assert "total_bytes" in usage and "total_objects" in usage
     assert "by_prefix" in usage
-    assert set(usage["by_prefix"].keys()) == {"audio/", "docs/", "avatars/", "backups/"}
+    from app.core.storage import BUCKET_PREFIXES
+    assert set(usage["by_prefix"].keys()) == set(BUCKET_PREFIXES)
     assert storage["db_size_bytes"] >= 0
 
 

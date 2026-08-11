@@ -391,6 +391,8 @@ export default function SuperadminDashboard() {
             { href: "/kudos/guardian", icon: "🛡️", label: "Guardian" },
             { href: "/kudos/agent", icon: "🤖", label: "Code Agent" },
             { href: "/kudos/autolearn", icon: "🚀", label: "Auto-Learner" },
+            { href: "/kudos/maps", icon: "🗺️", label: "Maps" },
+            { href: "/kudos/networks", icon: "📡", label: "Networks" },
             { href: "/kudos/llm", icon: "✨", label: "LLM Config" },
             { href: "/kudos/connect", icon: "🔌", label: "Connectors" },
             { href: "/kudos/archive", icon: "🕰️", label: "Archive" },

@@ -22,6 +22,9 @@ from app.core.llm_engine import get_api_key
 _ELEVEN = "https://api.elevenlabs.io"
 _OPENAI_AUDIO = "https://api.openai.com/v1/audio"
 
+# OpenAI TTS stock voices (fallback voices KUDOS can speak with).
+OPENAI_TTS_VOICES = ["alloy", "ash", "ballad", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer"]
+
 
 def _eleven_key() -> Optional[str]:
     return settings.ELEVENLABS_API_KEY or get_api_key("elevenlabs") or None
@@ -125,16 +128,26 @@ async def _openai_tts(text: str, voice: str) -> dict:
 
 
 async def _eleven_tts(text: str, voice_id: str) -> dict:
+    """Copy of ElevenLabs' text-to-speech API: POST /v1/text-to-speech/{voice_id}
+    with full voice_settings (stability, similarity_boost, style, use_speaker_boost,
+    speed). Returns audio bytes base64-encoded."""
     key = _eleven_key()
     try:
         async with httpx.AsyncClient(timeout=60) as client:
             res = await client.post(
                 f"{_ELEVEN}/v1/text-to-speech/{voice_id}",
                 headers={"xi-api-key": key, "Content-Type": "application/json"},
+                params={"output_format": "mp3_44100_128"},
                 json={
                     "text": text,
                     "model_id": settings.ELEVENLABS_TTS_MODEL,
-                    "voice_settings": {"stability": 0.5, "similarity_boost": 0.8, "style": 0.0},
+                    "voice_settings": {
+                        "stability": 0.5,
+                        "similarity_boost": 0.8,
+                        "style": 0.0,
+                        "use_speaker_boost": True,
+                        "speed": 1.0,
+                    },
                 },
             )
             if res.status_code == 200:
@@ -142,6 +155,50 @@ async def _eleven_tts(text: str, voice_id: str) -> dict:
     except Exception:
         pass
     return {}
+
+
+async def convert_voice(audio_bytes: bytes, mime: str, target_voice_id: str, model: str = "") -> dict:
+    """KUDOS's voice changer — copy of ElevenLabs' speech-to-speech API:
+    POST /v1/speech-to-speech/{voice_id} turns any spoken clip into the
+    target voice (e.g. KUDOS's signature voice). Returns audio base64."""
+    key = _eleven_key()
+    if not key:
+        return {"error": "ElevenLabs API key not configured — add ELEVENLABS_API_KEY to use the voice changer"}
+    if not target_voice_id:
+        return {"error": "No target voice — pass a voice_id to convert into"}
+    try:
+        ext = (mime or "audio/webm").split("/")[-1].split(";")[0] or "webm"
+        async with httpx.AsyncClient(timeout=120) as client:
+            res = await client.post(
+                f"{_ELEVEN}/v1/speech-to-speech/{target_voice_id}",
+                headers={"xi-api-key": key},
+                params={"model_id": model or settings.ELEVENLABS_S2S_MODEL, "output_format": "mp3_44100_128"},
+                files={"audio": (f"clip.{ext}", audio_bytes, mime or "audio/webm")},
+            )
+            if res.status_code == 200:
+                return {"mime_type": "audio/mpeg", "data": base64.b64encode(res.content).decode(), "provider": "elevenlabs"}
+            return {"error": f"Voice conversion failed ({res.status_code}): {res.text[:200]}"}
+    except Exception as e:
+        return {"error": f"Voice conversion error: {e}"}
+
+
+async def list_eleven_voices() -> list[dict]:
+    """Stock voices available from ElevenLabs' account (GET /v1/voices)."""
+    key = _eleven_key()
+    if not key:
+        return []
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            res = await client.get(f"{_ELEVEN}/v1/voices", headers={"xi-api-key": key})
+            if res.status_code == 200:
+                return [
+                    {"id": v.get("voice_id", ""), "name": v.get("name", ""), "provider": "elevenlabs", "kind": "stock"}
+                    for v in res.json().get("voices", [])
+                    if v.get("voice_id")
+                ]
+    except Exception:
+        pass
+    return []
 
 
 # ──────────────────────────────────────────────
@@ -187,9 +244,10 @@ async def calibration_script(focus: str = "") -> str:
     return _FALLBACK_SCRIPT
 
 
-async def clone_signature_voice(samples: list[dict], name: str = "KUDOS") -> dict:
-    """Clone the superadmin's voice from recordings (bytes + mime). Requires
-    ~1-3 minutes of clear speech total for a good clone."""
+async def add_cloned_voice(samples: list[dict], name: str = "KUDOS") -> dict:
+    """Clone a voice from recordings — copy of ElevenLabs' IVC voice creation:
+    POST /v1/voices/add (multipart files + name + remove_background_noise).
+    Returns {"voice_id", "name"} or {"error": ...}."""
     key = _eleven_key()
     if not key:
         return {"error": "ElevenLabs API key not configured — add ELEVENLABS_API_KEY to enable voice cloning"}
@@ -198,13 +256,18 @@ async def clone_signature_voice(samples: list[dict], name: str = "KUDOS") -> dic
 
     files = []
     for i, s in enumerate(samples):
-        files.append((f"files", (f"sample_{i}.{s.get('mime','audio/webm').split('/')[-1]}", s["data"], s.get("mime", "audio/webm"))))
+        files.append((f"files", (f"sample_{i}.{s.get('mime','audio/webm').split('/')[-1].split(';')[0]}", s["data"], s.get("mime", "audio/webm"))))
     try:
         async with httpx.AsyncClient(timeout=120) as client:
             res = await client.post(
                 f"{_ELEVEN}/v1/voices/add",
                 headers={"xi-api-key": key},
-                data={"name": name},
+                data={
+                    "name": name,
+                    "description": f"Cloned via Digital Campus KUDOS voice engine ({name})",
+                    "labels": '{"accent": "", "gender": "", "age": ""}',
+                    "remove_background_noise": "true",
+                },
                 files=files,
             )
             if res.status_code == 200:
@@ -215,3 +278,10 @@ async def clone_signature_voice(samples: list[dict], name: str = "KUDOS") -> dic
             return {"error": f"ElevenLabs clone failed ({res.status_code}): {res.text[:200]}"}
     except Exception as e:
         return {"error": f"ElevenLabs clone error: {e}"}
+
+
+async def clone_signature_voice(samples: list[dict], name: str = "KUDOS") -> dict:
+    """Clone the superadmin's voice from recordings (bytes + mime). Requires
+    ~1-3 minutes of clear speech total for a good clone. This is the original
+    signature-voice entry point; it delegates to add_cloned_voice."""
+    return await add_cloned_voice(samples, name=name)

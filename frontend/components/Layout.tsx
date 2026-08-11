@@ -94,6 +94,8 @@ export default function Layout({ children }: LayoutProps) {
                 { href: "/kudos", label: "🧠 KUDOS" },
                 { href: "/kudos/connect", label: "🔌 Connectors" },
                 { href: "/kudos/autolearn", label: "🚀 Auto-Learn" },
+                { href: "/kudos/maps", label: "🗺️ Maps" },
+                { href: "/kudos/networks", label: "📡 Networks" },
                 { href: "/admin/dashboard", label: "👑 Superadmin" },
                 { href: "/dashboard", label: "📊 Dashboard" },
               ].map((item) => (

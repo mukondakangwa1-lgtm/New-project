@@ -484,6 +484,20 @@ async def ask_kudos(body: KudosAskRequest, db: Session = Depends(get_db), curren
         except Exception:
             pass
         try:
+            from app.core.world_map import maps_knowledge_context
+            geo_note = maps_knowledge_context(db, body.question)
+            if geo_note:
+                self_knowledge = f"{self_knowledge}\n{geo_note}"
+        except Exception:
+            pass
+        try:
+            from app.core.network_mesh import network_note
+            net_note = network_note(db, current_user)
+            if net_note:
+                self_knowledge = f"{self_knowledge}\n{net_note}"
+        except Exception:
+            pass
+        try:
             self_knowledge = f"{self_knowledge}\n{_connectors_note()}"
         except Exception:
             pass
@@ -498,40 +512,63 @@ async def ask_kudos(body: KudosAskRequest, db: Session = Depends(get_db), curren
             except Exception:
                 pass
 
+        # KUDOS's offline brain: answer from its own persistent knowledge
+        # without any LLM when offline-first is enabled, or keep it as the
+        # guaranteed-grounded fallback.
+        from app.core.kudos_brain import answer_offline, hallucination_guard
+        offline = None
+        try:
+            if settings.KUDOS_OFFLINE_FIRST:
+                offline = answer_offline(db, body.question, user_id=current_user.id)
+        except Exception:
+            offline = None
+
         # Try LLM first (human-like response)
         answer = ""
-        try:
-            from app.core.llm_engine import get_llm_response
-            conv_history = []
+        if not (offline and offline.get("grounded")):
             try:
-                conv_history = db.query(KudosMessage).filter(
-                    KudosMessage.conversation_id == conv.id
-                ).order_by(KudosMessage.created_at.desc()).limit(5).all()
-                conv_history = [{"role": m.role, "content": m.content} for m in conv_history]
+                from app.core.llm_engine import get_llm_response
+                conv_history = []
+                try:
+                    conv_history = db.query(KudosMessage).filter(
+                        KudosMessage.conversation_id == conv.id
+                    ).order_by(KudosMessage.created_at.desc()).limit(5).all()
+                    conv_history = [{"role": m.role, "content": m.content} for m in conv_history]
+                except Exception:
+                    pass
+
+                llm_answer = await get_llm_response(
+                    question=body.question,
+                    knowledge_context=knowledge_context,
+                    conversation_history=conv_history,
+                    user_name=current_user.full_name.split()[0] if current_user.full_name else "",
+                    memory_context=memory_context,
+                    persona_instructions=persona_instructions,
+                    soul_context=soul_context,
+                    self_knowledge=self_knowledge,
+                    terminal_context=terminal_context,
+                )
+                if llm_answer and len(llm_answer) > 10:
+                    answer = llm_answer
             except Exception:
                 pass
 
-            llm_answer = await get_llm_response(
-                question=body.question,
-                knowledge_context=knowledge_context,
-                conversation_history=conv_history,
-                user_name=current_user.full_name.split()[0] if current_user.full_name else "",
-                memory_context=memory_context,
-                persona_instructions=persona_instructions,
-                soul_context=soul_context,
-                self_knowledge=self_knowledge,
-                terminal_context=terminal_context,
-            )
-            if llm_answer and len(llm_answer) > 10:
-                answer = llm_answer
-        except Exception:
-            pass
-
-        # Fallback to internal engine
+        # Fallback to the offline brain (fully grounded, no LLM needed).
         used_fallback = False
         if not answer or len(answer) < 10:
             try:
                 used_fallback = True
+                if offline is None:
+                    offline = answer_offline(db, body.question, user_id=current_user.id)
+                if offline.get("answer"):
+                    answer = offline["answer"]
+            except Exception:
+                pass
+
+        # Legacy fallbacks only when the brain itself has nothing.
+        if not answer or len(answer) < 10:
+            used_fallback = True
+            try:
                 from app.core.conversation_engine import generate_human_response
                 answer = generate_human_response(
                     query=body.question, sources=sources, conv_id=conv.id,
@@ -539,6 +576,29 @@ async def ask_kudos(body: KudosAskRequest, db: Session = Depends(get_db), curren
                 )
             except Exception:
                 answer = generate_answer(body.question, sources)
+
+        # Hallucination guard: every sentence of the final answer must be
+        # backed by a real source. When grounded-only is on and the answer
+        # cannot be verified, swap in the grounded offline brain answer or an
+        # honest refusal instead of risking a made-up reply.
+        if settings.KUDOS_GROUNDED_ONLY and sources:
+            guard = hallucination_guard(answer, sources, threshold=settings.KUDOS_BRAIN_MIN_SCORE)
+            if not guard["passes"]:
+                try:
+                    if offline is None:
+                        offline = answer_offline(db, body.question, user_id=current_user.id)
+                    if offline.get("grounded"):
+                        answer = offline["answer"]
+                        used_fallback = True
+                    else:
+                        answer = (
+                            f"I don't have verified information about that. My brain and knowledge base "
+                            f"don't contain anything I can answer this from without guessing — and I "
+                            f"never guess. Teach me a source covering it and I'll answer for certain."
+                        )
+                        used_fallback = True
+                except Exception:
+                    pass
 
         if not answer or len(answer) < 10:
             answer = generate_answer(body.question, sources)
@@ -856,6 +916,24 @@ async def guest_ask_kudos(body: GuestAskRequest, db: Session = Depends(get_db)):
     if not answer or len(answer) < 10:
         answer = generate_answer(body.question, sources)
 
+    # Offline brain + hallucination guard for guest chats: guests get the same
+    # guarantee — KUDOS never answers from unsupported claims.
+    try:
+        from app.core.kudos_brain import answer_offline, hallucination_guard
+        offline = answer_offline(db, body.question, user_id=None)
+        if settings.KUDOS_GROUNDED_ONLY and sources:
+            guard = hallucination_guard(answer, sources, threshold=settings.KUDOS_BRAIN_MIN_SCORE)
+            if not guard["passes"]:
+                answer = offline["answer"] if offline.get("grounded") else (
+                    "I don't have verified information about that. My brain and knowledge base "
+                    "don't contain anything I can answer this from without guessing — and I "
+                    "never guess. Teach me a source covering it and I'll answer for certain."
+                )
+        elif settings.KUDOS_OFFLINE_FIRST and offline.get("grounded"):
+            answer = offline["answer"]
+    except Exception:
+        pass
+
     from app.core.llm_engine import extract_citations
     cited = []
     try:
@@ -941,14 +1019,35 @@ def guest_profile_update(body: GuestProfileUpdate, db: Session = Depends(get_db)
 
 _MEDIA_MIME = {
     "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "gif": "image/gif",
-    "webp": "image/webp", "bmp": "image/bmp",
+    "webp": "image/webp", "bmp": "image/bmp", "svg": "image/svg+xml", "ico": "image/x-icon",
     "mp4": "video/mp4", "webm": "video/webm", "mov": "video/quicktime", "m4v": "video/mp4",
+    "mp3": "audio/mpeg", "wav": "audio/wav", "ogg": "audio/ogg", "oga": "audio/ogg",
+    "m4a": "audio/mp4", "aac": "audio/aac", "flac": "audio/flac", "opus": "audio/opus",
+    "weba": "audio/webm",
 }
+
+
+def _looks_binary(content: bytes) -> bool:
+    """True when a file is clearly binary (NUL bytes or many control chars),
+    e.g. archives, executables, or unknown media — attach instead of parsing."""
+    if not content:
+        return False
+    sample = content[:4096]
+    nul = sample.count(b"\x00")
+    if nul > 0:
+        return True
+    control = sum(1 for b in sample if b < 9 or 13 < b < 32)
+    return (control / len(sample)) > 0.30
 
 
 def _store_media(data_b64: str, mime: str, prefix: str = "media") -> str:
     content = base64.b64decode(data_b64)
-    ext = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "video/mp4": "mp4", "video/webm": "webm"}.get(mime, "bin")
+    ext = {
+        "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp",
+        "video/mp4": "mp4", "video/webm": "webm",
+        "audio/mpeg": "mp3", "audio/wav": "wav", "audio/ogg": "ogg", "audio/mp4": "m4a",
+        "audio/aac": "aac", "audio/flac": "flac", "audio/opus": "opus", "audio/webm": "weba",
+    }.get(mime, "bin")
     key = storage.new_key(f"{prefix}/", f"{uuid.uuid4().hex}.{ext}")
     storage.upload_bytes(key, content, content_type=mime)
     return key
@@ -1087,15 +1186,22 @@ async def chat_send(
         ctype = f.content_type or ""
         ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
         mime = ctype or _MEDIA_MIME.get(ext, "application/octet-stream")
+        if (not mime.startswith(("image/", "video/", "audio/")) and ext in _MEDIA_MIME):
+            mime = _MEDIA_MIME[ext]
 
-        if mime.startswith("image/") or mime.startswith("video/"):
+        if mime.startswith("image/") or mime.startswith("video/") or mime.startswith("audio/"):
             key = _store_media(base64.b64encode(content).decode(), mime, "media")
             attach_media.append({"kind": "media", "url": _media_url(key), "mime": mime, "caption": filename, "key": key})
-            vision_media.append({"key": key, "mime_type": mime})
+            if not mime.startswith("audio/"):
+                vision_media.append({"key": key, "mime_type": mime})
         else:
             text = extract_text_from_file(content, filename)
             if not text.strip():
                 raise HTTPException(status_code=400, detail=f"Could not extract text from {filename}")
+            if _looks_binary(content):
+                key = _store_media(base64.b64encode(content).decode(), mime or "application/octet-stream", "media")
+                attach_media.append({"kind": "media", "url": _media_url(key), "mime": mime or "application/octet-stream", "caption": filename, "key": key})
+                continue
             doc = KudosDocument(
                 uploaded_by=current_user.id, title=filename, filename=filename,
                 file_type=ext, storage_key="", content=text,
@@ -1191,7 +1297,7 @@ async def chat_send(
         from app.core.llm_engine import get_llm_response
         conv_history = db.query(KudosMessage).filter(KudosMessage.conversation_id == conv.id).order_by(KudosMessage.created_at.desc()).limit(5).all()
         conv_history = [{"role": m.role, "content": m.content} for m in conv_history]
-        llm_media = [{"mime_type": m["mime"], "data": base64.b64encode(storage.download(m["key"])).decode()} for m in attach_media if m.get("key")]
+        llm_media = [{"mime_type": m["mime"], "data": base64.b64encode(storage.download(m["key"])).decode()} for m in attach_media if m.get("key") and not m["mime"].startswith("audio/")]
         llm_answer = await get_llm_response(
             question=question, knowledge_context=knowledge_context,
             conversation_history=conv_history,
@@ -1205,6 +1311,25 @@ async def chat_send(
         answer = ""
     if not answer:
         answer = generate_answer(question, sources)
+
+    # Offline brain + hallucination guard for the redesigned chat path too:
+    # verify the answer against real sources; swap in a grounded answer (or an
+    # honest refusal) when the LLM's answer can't be backed by evidence.
+    try:
+        from app.core.kudos_brain import answer_offline, hallucination_guard
+        offline = answer_offline(db, question, user_id=current_user.id)
+        if settings.KUDOS_GROUNDED_ONLY and sources:
+            guard = hallucination_guard(answer, sources, threshold=settings.KUDOS_BRAIN_MIN_SCORE)
+            if not guard["passes"]:
+                answer = offline["answer"] if offline.get("grounded") else (
+                    "I don't have verified information about that. My brain and knowledge base "
+                    "don't contain anything I can answer this from without guessing — and I "
+                    "never guess. Teach me a source covering it and I'll answer for certain."
+                )
+        elif settings.KUDOS_OFFLINE_FIRST and offline.get("grounded"):
+            answer = offline["answer"]
+    except Exception:
+        pass
 
     from app.core.privacy_guard import scrub_response
     answer = scrub_response(answer, allow_emails=True)
@@ -1331,6 +1456,46 @@ async def radio_scan(db: Session = Depends(get_db), current_user: User = Depends
 
 
 _radio_scan_state: dict = {}
+
+
+# ──────────────────────────────────────────────
+# OFFLINE BRAIN — KUDOS's persistent self-knowledge
+# ──────────────────────────────────────────────
+
+@router.get("/brain/status")
+def brain_status(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Health of KUDOS's offline brain (persistent, LLM-independent)."""
+    from app.core.kudos_brain import brain_stats
+    return brain_stats(db)
+
+
+@router.get("/brain/search")
+def brain_search(q: str = "", db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Search facts KUDOS has stored in its own brain."""
+    from app.core.kudos_brain import brain_search
+    return {"results": brain_search(db, q, user_id=current_user.id)}
+
+
+@router.post("/brain/consolidate")
+def brain_consolidate(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Distill the knowledge base into brain facts (deterministic, verbatim)."""
+    from app.core.kudos_brain import consolidate_brain
+    return consolidate_brain(db, user_id=current_user.id if not current_user.is_admin else None,
+                             limit=settings.KUDOS_BRAIN_CONSOLIDATE_LIMIT)
+
+
+@router.delete("/brain/facts/{fact_id}")
+def brain_delete_fact(fact_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Remove a brain fact (admins may remove any; users only their own)."""
+    from app.models import KudosBrain as BrainRow
+    fact = db.get(BrainRow, fact_id)
+    if not fact:
+        raise HTTPException(status_code=404, detail="Brain fact not found")
+    if not current_user.is_admin and (fact.user_id or 0) != current_user.id:
+        raise HTTPException(status_code=403, detail="Not your brain fact")
+    db.delete(fact)
+    db.commit()
+    return {"deleted": fact_id}
 
 
 # ──────────────────────────────────────────────
