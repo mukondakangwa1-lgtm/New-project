@@ -25,6 +25,7 @@ def upgrade() -> None:
     """Apply this migration."""
     op.add_column('users', sa.Column('is_student', sa.Boolean(), nullable=False, server_default=sa.false()))
     op.add_column('users', sa.Column('school', sa.String(length=255), nullable=True))
+    op.alter_column('kudos_devices', 'user_id', existing_type=sa.Integer(), nullable=True)
     op.create_table(
         'content_progress',
         sa.Column('id', sa.Integer(), primary_key=True),
@@ -43,6 +44,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Revert this migration."""
+    op.alter_column('kudos_devices', 'user_id', existing_type=sa.Integer(), nullable=False)
     op.drop_table('content_progress')
     op.drop_column('users', 'school')
     op.drop_column('users', 'is_student')
