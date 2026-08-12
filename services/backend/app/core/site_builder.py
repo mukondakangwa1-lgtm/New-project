@@ -54,6 +54,26 @@ _SAFE_PATH = re.compile(r"^[a-zA-Z0-9_./-]+$")
 _SITE_ID_RE = re.compile(r"^[a-f0-9]{12}$")
 _INDEX = f"{SITES_PREFIX}index.json"
 _index_lock = threading.Lock()
+_HEAD_TAG = re.compile(r"<head[^>]*>", re.IGNORECASE)
+
+
+def inject_base(html: bytes, site_id: str) -> bytes:
+    """Pin relative asset URLs to the site root with a <base> element.
+
+    The frontend proxy (Next.js) 308-redirects the trailing-slash site root
+    ``/sites/{id}/`` to ``/sites/{id}``. Without the slash, ``style.css`` in
+    the page would resolve to ``/sites/style.css``; the base tag keeps every
+    relative asset pointing at the real site root regardless of the served URL.
+    """
+    base = f'<base href="/api/v1/kudos/sites/{site_id}/">'
+    text = html.decode("utf-8", errors="replace")
+    m = _HEAD_TAG.search(text)
+    if m:
+        head_end = m.end()
+        text = text[:head_end] + base + text[head_end:]
+    else:
+        text = f"<head>{base}</head>" + text
+    return text.encode("utf-8")
 
 _SITE_SYSTEM_PROMPT = (
     "You are KUDOS Site Builder. The user wants a website generated instantly.\n"

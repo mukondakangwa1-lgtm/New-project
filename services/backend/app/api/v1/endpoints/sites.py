@@ -41,6 +41,8 @@ def _serve_site(site_id: str, path: str) -> Response:
     filename = key.rsplit("/", 1)[-1]
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     media_type = site_builder.SITE_MIME.get(ext, "application/octet-stream")
+    if ext == "html":
+        content = site_builder.inject_base(content, site_id)
     return Response(
         content=content,
         media_type=media_type,
@@ -72,6 +74,17 @@ def list_sites():
 
 @router.get("/sites/{site_id}/")
 def get_site_index(site_id: str):
+    return _serve_site(site_id, "index.html")
+
+
+@router.get("/sites/{site_id}")
+def get_site_index_noslash(site_id: str):
+    """Serve the site root without a trailing slash too.
+
+    The frontend proxy (Next.js) normalizes ``/sites/{id}/`` to ``/sites/{id}``
+    with a 308 redirect; without this route that path only matched DELETE and
+    returned 405 on the first click.
+    """
     return _serve_site(site_id, "index.html")
 
 

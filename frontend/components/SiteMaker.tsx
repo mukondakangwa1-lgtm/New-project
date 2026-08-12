@@ -19,6 +19,9 @@ interface SiteMakerProps {
   onClose: () => void;
 }
 
+/** Smooth public URL for a site (viewable by registered and anonymous users). */
+const siteHref = (site: SiteMeta) => `/s/${site.site_id}`;
+
 const KIND_INFO: Record<SiteKind, { icon: string; title: string; blurb: string; cta: string }> = {
   site: {
     icon: "🌐",
@@ -183,14 +186,14 @@ export default function SiteMaker({ open, kind, onClose }: SiteMakerProps) {
             <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-semibold text-amber-300">🎉 Live! {created.name || created.title}</p>
-                  <p className="text-xs text-zinc-400 mt-0.5">{created.kind} · {new Date(created.created_at).toLocaleString()}</p>
+                  <p className="text-sm font-semibold text-amber-300">🎉 Live! {created!.name || created!.title}</p>
+                  <p className="text-xs text-zinc-400 mt-0.5">{created!.kind} · {new Date(created!.created_at).toLocaleString()}</p>
                 </div>
-                <CopyButton text={window.location.origin + created.url} label="⧉ Copy URL" />
+                <CopyButton text={window.location.origin + siteHref(created!)} label="⧉ Copy link" />
               </div>
               <div className="flex gap-2 mt-3">
                 <a
-                  href={created.url}
+                  href={siteHref(created!)}
                   target="_blank"
                   rel="noreferrer"
                   className="flex-1 text-center bg-amber-500 text-zinc-950 text-sm font-semibold py-2 rounded-lg hover:bg-amber-400 transition"
@@ -306,11 +309,11 @@ export default function SiteMaker({ open, kind, onClose }: SiteMakerProps) {
               <div className="space-y-1.5">
                 {sites.map((s) => (
                   <div key={s.site_id} className="flex items-center gap-2 rounded-lg bg-zinc-800/60 border border-zinc-800 px-3 py-2">
-                    <a href={s.url} target="_blank" rel="noreferrer" className="flex-1 min-w-0 text-sm text-zinc-200 hover:text-amber-300 truncate transition">
+                    <a href={siteHref(s)} target="_blank" rel="noreferrer" className="flex-1 min-w-0 text-sm text-zinc-200 hover:text-amber-300 truncate transition">
                       🖥️ {s.name || s.title}
                       <span className="text-xs text-zinc-500 ml-2">{s.kind}</span>
                     </a>
-                    <CopyButton text={window.location.origin + s.url} label="⧉" />
+                    <CopyButton text={window.location.origin + siteHref(s)} label="⧉" />
                     <button
                       onClick={() => removeSite(s)}
                       className="text-xs text-zinc-500 hover:text-red-400 transition"

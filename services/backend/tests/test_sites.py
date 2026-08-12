@@ -67,6 +67,12 @@ def test_generate_and_serve_public(monkeypatch):
     assert "Hello KUDOS" in r.text
     assert r.headers["x-content-type-options"] == "nosniff"
 
+    # Proxy (Next.js) strips the trailing slash — the no-slash root must work too
+    r2 = client.get(meta["url"].rstrip("/"))
+    assert r2.status_code == 200
+    assert "Hello KUDOS" in r2.text
+    assert f'<base href="{meta["url"]}">' in r2.text
+
     # Public list
     lst = client.get("/api/v1/kudos/sites").json()["sites"]
     assert any(s["site_id"] == meta["site_id"] for s in lst)
@@ -106,6 +112,7 @@ def test_create_and_delete_site_endpoint(monkeypatch):
 
     # served
     assert client.get(meta["url"]).status_code == 200
+    assert client.get(meta["url"].rstrip("/")).status_code == 200
 
     # delete requires auth
     assert client.delete(f"/api/v1/kudos/sites/{meta['site_id']}").status_code in (401, 403)
