@@ -34,6 +34,7 @@ from app.api.v1.endpoints import (
     sandbox,
     search_connectors,
     shield,
+    sites,
     social,
     social_learning,
     soul,
@@ -88,5 +89,6 @@ api_router.include_router(soul.router, prefix="/kudos/soul", tags=["KUDOS Soul"]
 api_router.include_router(terminal.router, prefix="/kudos/terminal", tags=["KUDOS Terminal"])
 api_router.include_router(visit.router, prefix="/kudos", tags=["KUDOS Visit"])
 api_router.include_router(voice.router, prefix="/kudos", tags=["KUDOS Voice"])
+api_router.include_router(sites.router, prefix="/kudos", tags=["KUDOS Sites"])
 api_router.include_router(maps.router, prefix="/maps", tags=["KUDOS Maps"])
 api_router.include_router(network.router, prefix="/network", tags=["KUDOS Link Switching"])

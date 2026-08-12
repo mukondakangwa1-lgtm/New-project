@@ -42,7 +42,12 @@ async def library_catalog(
             doc_q = doc_q.filter(KudosDocument.is_approved)
         docs = doc_q.order_by(KudosDocument.created_at.desc()).limit(100).all()
         for d in docs:
-            if query and query not in d.title.lower() and query not in (d.summary or "").lower() and query not in (d.tags or "").lower():
+            if (
+                query
+                and query not in d.title.lower()
+                and query not in (d.summary or "").lower()
+                and query not in (d.tags or "").lower()
+            ):
                 continue
             items.append(
                 {

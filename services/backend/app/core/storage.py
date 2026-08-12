@@ -6,6 +6,7 @@ Storage is split by bucket prefixes so one bucket can hold every object type:
     docs/     — original knowledge documents (PDF, DOCX, ...)
     avatars/  — user profile pictures
     backups/  — pg_dump / SQLite backup archives
+    sites/    — KUDOS-generated live websites (public)
 
 Backend selection (``STORAGE_BACKEND``):
 
@@ -36,7 +37,7 @@ from app.core.paths import project_root
 LOCAL_ROOT = Path(project_root(__file__)) / "storage-local"
 
 # Bucket prefixes (single MinIO bucket, sub-folders per object type).
-BUCKET_PREFIXES = ("audio/", "docs/", "avatars/", "backups/", "media/", "generated/")
+BUCKET_PREFIXES = ("audio/", "docs/", "avatars/", "backups/", "media/", "generated/", "sites/")
 
 
 class StorageUnavailableError(RuntimeError):
