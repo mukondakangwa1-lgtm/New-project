@@ -1,26 +1,43 @@
-import Link from "next/link";
-
-function Error({ statusCode }: { statusCode: number }) {
+function MaintenanceContent() {
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center p-24">
-      <h1 className="text-6xl font-bold text-red-600 mb-4">
-        {statusCode || "Error"}
+    <main className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center p-8 text-center">
+      <div className="w-20 h-20 rounded-full bg-amber-500/15 border border-amber-500/40 flex items-center justify-center text-4xl animate-pulse mb-6">
+        🧠
+      </div>
+      <h1 className="text-2xl md:text-3xl font-bold text-zinc-50 max-w-2xl leading-snug">
+        KUDOS is temporarily undergoing maintenance
+        <span className="text-amber-400">, we will be back shortly.</span>
       </h1>
-      <p className="text-xl text-gray-600">
-        {statusCode
-          ? `A ${statusCode} error occurred on server`
-          : "An error occurred on client"}
+      <p className="text-zinc-500 text-sm mt-4 max-w-md">
+        Our team is working hard to get everything back online.
       </p>
-      <Link href="/" className="mt-8 text-primary underline hover:text-blue-800">
-        Go back home
-      </Link>
+      <div className="mt-8 flex gap-3">
+        <a
+          href="/"
+          className="px-5 py-2.5 rounded-lg bg-amber-500 text-zinc-950 text-sm font-semibold hover:bg-amber-400 transition"
+        >
+          Try again
+        </a>
+        <a
+          href="/kudos"
+          className="px-5 py-2.5 rounded-lg border border-zinc-700 text-zinc-300 text-sm font-medium hover:bg-zinc-900 transition"
+        >
+          Back to chat
+        </a>
+      </div>
     </main>
   );
+}
+
+export default function Error({ statusCode }: { statusCode?: number }) {
+  // Any server/client error is shown as a friendly maintenance page instead of
+  // a bare error code. The status code (via getInitialProps) enables Next.js
+  // error handling but is not surfaced to visitors.
+  void statusCode;
+  return <MaintenanceContent />;
 }
 
 Error.getInitialProps = ({ res, err }: { res: any; err: any }) => {
   const statusCode = res ? res.statusCode : err ? err.statusCode : 404;
   return { statusCode };
 };
-
-export default Error;
