@@ -330,22 +330,50 @@ def _router_ready(provider: str) -> bool:
     return entry is None or time.time() >= entry.get("cooldown_until", 0.0)
 
 
+def _extract_question_from_prompt(prompt: str) -> str:
+    """Pull the user's question out of a KUDOS-built prompt (or the whole prompt)."""
+    marker = "USER'S QUESTION:"
+    idx = prompt.find(marker)
+    if idx != -1:
+        rest = prompt[idx + len(marker):].strip()
+        return rest.split("Respond naturally", 1)[0].strip()
+    return (prompt or "").strip()
+
+
+def _extract_knowledge_from_prompt(prompt: str) -> str:
+    """Pull the RELEVANT KNOWLEDGE section out of a KUDOS-built prompt."""
+    marker = "RELEVANT KNOWLEDGE:"
+    idx = prompt.find(marker)
+    if idx == -1:
+        return ""
+    return prompt[idx + len(marker):].lstrip().split("\n\n", 1)[0].strip()
+
+
 async def query_best_llm(
     prompt: str,
     system_prompt: str = "",
     provider: str | None = None,
     media: list | None = None,
+    question: str | None = None,
+    knowledge_context: str | None = None,
 ) -> dict:
     """
     Route a prompt to the best LLM provider.
 
-    Default: sequential fallback — providers are tried in order (healthy
-    providers first when in `auto` mode) until one answers. Providers with
-    repeated failures enter a cooldown and are skipped until it expires.
-    Set LLM_PARALLEL=1 to fire every provider at once and take the first
-    success (legacy behavior).
+    Default (auto + KUDOS_BRAIN_SELECT=1): KUDOS asks EVERY configured LLM
+    at the same time, then his brain scores each answer — grounding against
+    the provided knowledge (anti-hallucination), how well it answers the
+    question, citation use, quality and provider trust — and returns the best
+    one instead of just the first to respond.
+
+    Set LLM_PROVIDER to a single provider ID to always use that one, or set
+    KUDOS_BRAIN_SELECT=0 to fall back to the legacy sequential behavior:
+    providers are tried one at a time until one answers. Providers with
+    repeated failures still enter a cooldown and are skipped until it expires.
     """
     import asyncio
+
+    from app.core.kudos_brain import brain_pick_best_answer
 
     provider_functions = {
         "google_gemini": query_google_gemini,
@@ -396,26 +424,61 @@ async def query_best_llm(
         details.append({"provider": name, "ok": False, "latency_ms": latency_ms, "error": "empty response"})
         return None
 
-    # Health-aware ordering keeps a degraded provider from blocking healthy ones
-    if preferred == "auto" and len(active) > 1:
-        active.sort(key=lambda p: (_router_failures(p), provider_order.index(p)))
-
-    parallel = (os.getenv("LLM_PARALLEL", "0") or "0").strip() in ("1", "true", "yes")
-    max_attempts = min(len(active), 3)
-
-    if parallel:
-        results = await asyncio.gather(*(_call(name) for name in active))
-        for r in results:
-            if isinstance(r, dict) and r.get("response"):
-                return {"details": details, **r}
+    def _fail_all() -> dict:
         return {"response": None, "provider": "none", "details": details, "message": "All LLMs failed to respond."}
 
+    # Explicit single-provider routing — no need for the brain to choose.
+    if preferred != "auto":
+        result = await _call(preferred)
+        if result and result.get("response"):
+            return {"details": details, **result}
+        return _fail_all()
+
+    # Health-aware ordering keeps a degraded provider from blocking healthy ones.
+    if len(active) > 1:
+        active.sort(key=lambda p: (_router_failures(p), provider_order.index(p)))
+
+    brain_mode = bool(settings.KUDOS_BRAIN_SELECT) and len(active) > 1
+
+    if brain_mode:
+        # KUDOS asks every configured LLM AT THE SAME TIME, then his brain
+        # reads all the answers and returns the best one.
+        ready = [p for p in active if _router_ready(p)]
+        for p in active:
+            if p not in ready:
+                details.append({"provider": p, "ok": False, "skipped": "cooldown"})
+        if not ready:
+            ready = active[:1]  # lone degraded provider is still probed
+        results = await asyncio.gather(*(_call(name) for name in ready))
+        answers = [r for r in results if isinstance(r, dict) and r.get("response")]
+        if not answers:
+            return _fail_all()
+
+        q = question if question is not None else _extract_question_from_prompt(prompt)
+        knowledge = (
+            knowledge_context
+            if knowledge_context is not None
+            else _extract_knowledge_from_prompt(prompt)
+        )
+        chosen = brain_pick_best_answer(q, answers, knowledge)
+        return {
+            "details": details,
+            "response": chosen.get("response"),
+            "provider": chosen.get("provider"),
+            "brain": {
+                "scoreboard": chosen.get("scoreboard", []),
+                "reasoning": chosen.get("reasoning", ""),
+            },
+        }
+
+    # Legacy sequential fallback (KUDOS_BRAIN_SELECT=0): try providers one at
+    # a time, skipping any that are cooling down — unless every candidate is
+    # cooling down (then probe the first so a lone degraded provider recovers).
+    max_attempts = min(len(active), 3)
     attempts = 0
     for name in active:
         if attempts >= max_attempts:
             break
-        # Skip providers cooling down — unless every candidate is cooling down
-        # (then probe the first so a lone degraded provider can recover).
         if attempts > 0 and not _router_ready(name) and any(_router_ready(other) for other in active):
             details.append({"provider": name, "ok": False, "skipped": "cooldown"})
             continue
@@ -424,7 +487,7 @@ async def query_best_llm(
         if result and result.get("response"):
             return {"details": details, **result}
 
-    return {"response": None, "provider": "none", "details": details, "message": "All LLMs failed to respond."}
+    return _fail_all()
 
 
 # ──────────────────────────────────────────────
@@ -558,7 +621,13 @@ async def get_llm_response(
         privacy_guard_system_note=_PRIVACY_NOTE,
     )
 
-    result = await query_best_llm(user_prompt, system_prompt, media=media)
+    result = await query_best_llm(
+        user_prompt,
+        system_prompt,
+        media=media,
+        question=question,
+        knowledge_context=knowledge_context,
+    )
     return result.get("response")
 
 

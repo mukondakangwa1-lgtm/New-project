@@ -543,6 +543,144 @@ def hallucination_guard(
 
 
 # ──────────────────────────────────────────────
+# BRAIN SELECTION — KUDOS decides which LLM answer is best
+# ──────────────────────────────────────────────
+
+_BOILERPLATE_HINTS = (
+    "as an ai",
+    "i'm an ai",
+    "i am an ai",
+    "as a language model",
+    "i'm a language model",
+    "i am a language model",
+    "i don't have access to",
+    "i cannot access",
+    "unable to provide",
+    "i'm here to help",
+    "how can i assist",
+    "is there anything else",
+    "i don't have personal",
+)
+
+
+def brain_pick_best_answer(
+    question: str,
+    answers: list[dict],
+    knowledge_context: str = "",
+) -> dict[str, Any]:
+    """KUDOS's brain reads every LLM's answer and returns the best one.
+
+    Each answer is scored on:
+      * grounding  — how well it sticks to the provided knowledge
+        (anti-hallucination: answers that invent facts are demoted);
+      * relevance  — how well it actually covers the user's question;
+      * citations  — using the [n] sources when knowledge is present;
+      * quality    — length, boilerplate/refusal filler, generic AI glue.
+
+    Returns {"provider", "response", "scoreboard", "reasoning"}. The
+    scoreboard carries per-provider scores and reasons for transparency.
+    """
+    q_terms = brain_terms(question)
+    knowledge = (knowledge_context or "").strip()
+
+    def _score(answer: dict) -> dict[str, Any]:
+        provider = answer.get("provider")
+        text = (answer.get("response") or "").strip()
+        low = text.lower()
+        if not text:
+            return {"provider": provider, "response": text, "score": -1.0, "reasons": ["empty"]}
+
+        score = 0.0
+        reasons: list[str] = []
+
+        # 1) Grounding — never reward hallucination. Only judged when KUDOS
+        #    actually handed the LLM some knowledge to ground on.
+        if knowledge:
+            guard = hallucination_guard(text, [{"content": knowledge}], threshold=0.5)
+            grounding = guard.get("score", 0.0)
+            if not guard.get("passes", False) and not guard.get("checked_sentences", 0):
+                grounding = 0.0
+            if not guard.get("passes", False):
+                reasons.append("ungrounded-sentences")
+            score += grounding * 3.0
+        else:
+            grounding = 1.0
+        reasons.append(f"grounding={grounding:.2f}")
+
+        # 2) Relevance — does the answer actually address the question?
+        if q_terms:
+            covered = sum(1 for term in q_terms if term in low)
+            relevance = covered / len(q_terms)
+        else:
+            relevance = 0.5
+        score += relevance * 2.0
+        reasons.append(f"relevance={relevance:.2f}")
+
+        # 3) Citations — with knowledge present, citing numbered sources is a
+        #    strong signal the LLM grounded its reply in the provided material.
+        citation_count = len(re.findall(r"\[\d+\]", text))
+        citation_bonus = min(1.0, citation_count / 2.0) if knowledge else 0.5
+        score += citation_bonus
+        reasons.append(f"citations={citation_bonus:.2f}")
+
+        # 4) Quality heuristics — keep answers tight, real, and non-boilerplate.
+        penalty = 0.0
+        if len(text) < 20:
+            penalty += 0.8
+            reasons.append("too-short")
+        elif len(text) < 60:
+            penalty += 0.3
+        if any(hint in low for hint in _BOILERPLATE_HINTS):
+            penalty += 0.6
+            reasons.append("boilerplate")
+        if len(text) > 3000:
+            penalty += 0.4
+            reasons.append("too-long")
+        score -= penalty
+        reasons.append(f"quality=-{penalty:.2f}")
+
+        # 5) Provider trust — KUDOS distrusts voices that keep failing.
+        try:
+            from app.core import llm_engine as _llm_engine
+
+            failures = _llm_engine._router_failures(provider)
+        except Exception:
+            failures = 0
+        if failures:
+            trust_penalty = min(1.0, failures * 0.2)
+            score -= trust_penalty
+            reasons.append(f"provider_trust=-{trust_penalty:.2f}")
+
+        return {
+            "provider": provider,
+            "response": text,
+            "score": round(score, 3),
+            "reasons": reasons,
+        }
+
+    scored = [_score(a) for a in (answers or []) if a.get("response")]
+    if not scored:
+        return {
+            "provider": "none",
+            "response": None,
+            "scoreboard": [],
+            "reasoning": "Every LLM returned an empty answer — the brain has nothing to judge.",
+        }
+
+    scored.sort(key=lambda s: s["score"], reverse=True)
+    best = scored[0]
+    return {
+        "provider": best["provider"],
+        "response": best["response"],
+        "scoreboard": scored,
+        "reasoning": (
+            f"Brain picked '{best['provider']}' (score {best['score']}) over "
+            f"{len(scored) - 1} other answer(s)."
+        ),
+    }
+
+
+# ──────────────────────────────────────────────
 # LEARNING — fill the brain from real sources
 # ──────────────────────────────────────────────
 

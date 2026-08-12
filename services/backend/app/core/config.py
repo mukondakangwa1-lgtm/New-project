@@ -95,6 +95,10 @@ class Settings(BaseSettings):
     OLLAMA_MODEL: str = "llama3.2"
     LLM_TIMEOUT_SECONDS: float = 30.0
     LLM_COOLDOWN_SECONDS: float = 60.0
+    # KUDOS Brain selection: when True (default) and LLM_PROVIDER=auto, KUDOS
+    # asks every configured LLM at the same time, then his brain scores the
+    # answers (grounding, relevance, quality) and returns the best one.
+    KUDOS_BRAIN_SELECT: bool = True
 
     # Vision + media generation (auto-detected by provider key availability).
     GEMINI_IMAGE_MODEL: str = "gemini-2.5-flash-image"
