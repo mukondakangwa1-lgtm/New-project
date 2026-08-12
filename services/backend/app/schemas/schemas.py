@@ -603,8 +603,8 @@ class KudosConversationResponse(BaseModel):
     user_id: int
     title: str
     archived: bool = False
+    last_message: str = ""
     created_at: datetime
-
 
 class KudosMessageResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)

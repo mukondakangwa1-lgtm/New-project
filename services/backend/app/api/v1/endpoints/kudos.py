@@ -16,6 +16,7 @@ import httpx
 from bs4 import BeautifulSoup
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core import storage
@@ -884,7 +885,25 @@ def list_conversations(
         KudosConversation.user_id == current_user.id,
         KudosConversation.archived.is_(archived),
     )
-    return q.order_by(KudosConversation.created_at.desc()).all()
+    convs = q.order_by(KudosConversation.created_at.desc()).all()
+
+    conv_ids = [c.id for c in convs]
+    previews: dict[int, str] = {}
+    if conv_ids:
+        last_ids = (
+            db.query(KudosMessage.conversation_id, func.max(KudosMessage.id).label("max_id"))
+            .filter(KudosMessage.conversation_id.in_(conv_ids))
+            .group_by(KudosMessage.conversation_id)
+            .subquery()
+        )
+        latest = db.query(KudosMessage).join(last_ids, last_ids.c.max_id == KudosMessage.id).all()
+        for msg in latest:
+            previews[msg.conversation_id] = " ".join(msg.content.split())[:80]
+
+    for c in convs:
+        c.last_message = previews.get(c.id, "")
+
+    return convs
 
 
 @router.post("/conversations/archive-all")

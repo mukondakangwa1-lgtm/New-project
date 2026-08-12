@@ -79,15 +79,27 @@ const MAKERS: Array<{ kind: SiteKind; icon: string; label: string; hint: string;
 const TOOLS: Array<{ href: string; icon: string; label: string }> = [
   { href: "/kudos/upload", icon: "📄", label: "Upload Doc" },
   { href: "/kudos/learn", icon: "🌐", label: "Teach Web" },
+  { href: "/kudos/admin", icon: "⚙️", label: "Admin" },
+  { href: "/kudos/guardian", icon: "🛡️", label: "Guardian" },
+  { href: "/kudos/llm", icon: "✨", label: "LLM" },
   { href: "/kudos/agent", icon: "🤖", label: "Agent" },
   { href: "/kudos/archive", icon: "🕰️", label: "Archive" },
-  { href: "/kudos/llm", icon: "✨", label: "LLM" },
+  { href: "/kudos/autolearn", icon: "🚀", label: "Auto-Learn" },
   { href: "/kudos/maps", icon: "🗺️", label: "Maps" },
   { href: "/kudos/networks", icon: "📡", label: "Networks" },
 ];
 
+interface LauncherAction {
+  icon: string;
+  label: string;
+  hint?: string;
+  active?: boolean;
+  onClick: () => void;
+}
+
 interface LauncherDockProps {
   onOpen: (kind: SiteKind) => void;
+  actions?: LauncherAction[];
 }
 
 /**
@@ -96,13 +108,18 @@ interface LauncherDockProps {
  * shimmering mini-preview of the page it will produce, so you can see what
  * you're launching before you click.
  */
-export default function LauncherDock({ onOpen }: LauncherDockProps) {
+export default function LauncherDock({ onOpen, actions = [] }: LauncherDockProps) {
   const [open, setOpen] = useState(false);
+
+  const closeThen = (fn: () => void) => () => {
+    setOpen(false);
+    fn();
+  };
 
   return (
     <div className="fixed bottom-5 right-5 z-40 flex flex-col items-end gap-3">
       {open && (
-        <div className="w-72 rounded-2xl border border-zinc-700 bg-zinc-900/95 backdrop-blur p-2 shadow-2xl shadow-black/60">
+        <div className="w-72 max-h-[70vh] overflow-y-auto rounded-2xl border border-zinc-700 bg-zinc-900/95 backdrop-blur p-2 shadow-2xl shadow-black/60">
           <p className="dock-pop text-[10px] font-bold uppercase tracking-widest text-amber-400 px-3 pt-2 pb-1">
             ⚡ Make something
           </p>
@@ -130,27 +147,56 @@ export default function LauncherDock({ onOpen }: LauncherDockProps) {
           ))}
           <div className="border-t border-zinc-800 my-1.5" />
           <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 px-3 py-1">
-            KUDOS suite
+            🧠 KUDOS tools
           </p>
           {TOOLS.map((t, i) => (
             <a
               key={t.href}
               href={t.href}
-              style={{ animationDelay: `${200 + i * 45}ms` }}
+              style={{ animationDelay: `${200 + i * 25}ms` }}
               className="dock-pop w-full flex items-center gap-3 px-3 py-2 rounded-xl text-left text-sm text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 hover:translate-x-1 transition"
             >
               <span className="text-lg w-8 text-center">{t.icon}</span>
               {t.label}
             </a>
           ))}
+          {actions.length > 0 && (
+            <>
+              <div className="border-t border-zinc-800 my-1.5" />
+              <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 px-3 py-1">
+                ✨ Actions
+              </p>
+              {actions.map((a, i) => (
+                <button
+                  key={a.label}
+                  onClick={closeThen(a.onClick)}
+                  style={{ animationDelay: `${200 + (TOOLS.length + i) * 25}ms` }}
+                  className={`dock-pop w-full flex items-center gap-3 px-3 py-2 rounded-xl text-left text-sm transition ${
+                    a.active
+                      ? "bg-amber-500/20 text-amber-300"
+                      : "text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 hover:translate-x-1"
+                  }`}
+                >
+                  <span className="text-lg w-8 text-center">{a.icon}</span>
+                  <span className="flex-1 min-w-0">
+                    {a.label}
+                    {a.hint && (
+                      <span className="block text-[11px] font-normal text-zinc-500 truncate">{a.hint}</span>
+                    )}
+                  </span>
+                  {a.active && <span className="text-amber-400 text-xs">✓</span>}
+                </button>
+              ))}
+            </>
+          )}
         </div>
       )}
 
       <button
         onClick={() => setOpen(!open)}
         className="dock-glow w-14 h-14 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 text-zinc-950 text-2xl shadow-xl hover:from-amber-300 hover:to-amber-500 active:scale-95 hover:scale-105 transition flex items-center justify-center"
-        title={open ? "Close launcher" : "Launch tools — websites, CVs, company profiles"}
-        aria-label="Launch tools"
+        title={open ? "Close launcher" : "All KUDOS tools & features"}
+        aria-label="Launch KUDOS tools"
       >
         <span className="spark-spin">{open ? "✕" : "✦"}</span>
       </button>
