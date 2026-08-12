@@ -287,6 +287,28 @@ async def ask_kudos(body: KudosAskRequest, db: Session = Depends(get_db), curren
         # Save user message
         db.add(KudosMessage(conversation_id=conv.id, role="user", content=body.question))
 
+        # ── STEP 0: deterministic reasoning ──────────────────────
+        # Arithmetic, unit conversions and date/time are computed exactly.
+        # These must never be guessed at, so they short-circuit everything
+        # else — no knowledge base lookup, no LLM call, no network latency.
+        reasoned = None
+        try:
+            from app.core.reasoning import solve as reasoning_solve
+            reasoned = reasoning_solve(body.question)
+        except Exception:
+            reasoned = None
+
+        if reasoned:
+            answer = reasoned["answer"]
+            try:
+                db.add(KudosMessage(
+                    conversation_id=conv.id, role="kudos", content=answer, sources="[]",
+                ))
+                db.commit()
+            except Exception:
+                db.rollback()
+            return KudosAskResponse(answer=answer, sources=[], conversation_id=conv.id)
+
         # Search knowledge base
         sources = []
         try:

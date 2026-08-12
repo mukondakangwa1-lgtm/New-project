@@ -26,7 +26,7 @@ def _get_ctx(conv_id: int) -> dict:
 
 GREETING_PATTERNS = [
     r"^(hi|hello|hey|yo|sup|howdy|greetings|good morning|good afternoon|good evening|hola)\b",
-    r"^(how are you|how's it going|what's up|how do you do|nice to meet)",
+    r"^(how are you|how'?s it going|what'?s? up|how do you do|nice to meet)",
     r"^(who are you|what are you|tell me about yourself|what can you do|introduce yourself)",
     r"^(bye|goodbye|see you|later|take care|good night)",
     r"^(thanks|thank you|thx|cheers|appreciate)",
@@ -45,6 +45,34 @@ MOOD_PATTERNS = {
 
 def _detect_query_type(query: str) -> str:
     q = query.lower().strip()
+
+    # A greeting that is followed by a real question is NOT a greeting.
+    # "hey" -> greeting, but "hey kudos, what is python?" is a question.
+    q_stripped = re.sub(
+        r"^(hi|hello|hey|yo|sup|howdy|greetings|good morning|good afternoon|"
+        r"good evening|hola)\b[\s,!.]*(kudos\b[\s,!.]*)?",
+        "",
+        q,
+    ).strip()
+    # Social pleasantries use question words but are still small talk.
+    _PLEASANTRIES = re.compile(
+        r"^(how are you|how are things|how'?s it going|how do you do|"
+        r"what'?s? up|what'?s? new|who are you|what are you|"
+        r"tell me about yourself|what can you do|introduce yourself|"
+        r"nice to meet you)\b",
+    )
+
+    if (
+        q_stripped
+        and not _PLEASANTRIES.match(q_stripped)
+        and re.search(
+            r"\b(what|how|why|when|where|who|which|can you|could you|tell me|explain|"
+            r"help me|show me|give me|do you|is there|are there)\b",
+            q_stripped,
+        )
+    ):
+        return "question"
+
     for pattern in GREETING_PATTERNS:
         if re.search(pattern, q):
             return "greeting"
@@ -114,6 +142,18 @@ def _greeting_response(query: str, ctx: dict) -> str:
             "I'm good! Ready to help with whatever you need. What's up?",
             "All good on my end! What can I do for you today?",
         ])
+
+    if re.search(r"what can you do|what do you do|help me with what", q):
+        return (
+            "Quite a lot! Here's the short version:\n\n"
+            "• **Exact answers** — arithmetic, percentages, unit conversions, dates. "
+            "Ask me `1+2`, `15% of 200` or `10 km to miles` and I'll compute it precisely.\n"
+            "• **Explanations** — programming, study skills, CS concepts and more\n"
+            "• **Your documents** — upload a file or a web page and I'll learn it, "
+            "then answer questions from it\n"
+            "• **Campus help** — courses, attendance, assignments, timetables\n\n"
+            "What would you like to try?"
+        )
 
     if re.search(r"who are you|what are you|tell me about yourself", q):
         return (
@@ -198,6 +238,15 @@ def generate_human_response(
     if user_name:
         ctx["name"] = user_name
 
+    # 0. Deterministic reasoning always wins — "1+2" is 3, not a guess.
+    try:
+        from app.core.reasoning import solve as _reasoning_solve
+        _reasoned = _reasoning_solve(query)
+        if _reasoned:
+            return _reasoned["answer"]
+    except Exception:
+        pass
+
     # Detect query type
     query_type = _detect_query_type(query)
     mood = _detect_mood(query)
@@ -281,6 +330,16 @@ def _knowledge_response(query: str, sources: list[dict], ctx: dict) -> str:
 def _no_knowledge_response(query: str, ctx: dict) -> str:
     """Response when no knowledge is found — helpful and human."""
     name = ctx.get("name", "")
+
+    # Before deflecting, check the built-in general-knowledge base. Questions
+    # like "what is Python" deserve a real answer, not a request for uploads.
+    try:
+        from app.core.general_knowledge import lookup
+        known = lookup(query)
+        if known:
+            return known
+    except Exception:
+        pass
 
     if "python" in query.lower() or "programming" in query.lower() or "code" in query.lower():
         return (

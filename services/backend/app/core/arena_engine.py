@@ -83,7 +83,16 @@ def score_answer(query: str, answer: str, source: str) -> float:
     Score an answer based on relevance, completeness, and quality.
     Returns 0.0 to 1.0.
     """
-    if not answer or len(answer) < 20:
+    if not answer:
+        return 0.0
+
+    # Deterministic reasoning is exact by construction. It is also short
+    # ("**3**"), so it must bypass the length heuristics below — otherwise
+    # the correct answer would score 0 and lose to a verbose wrong one.
+    if source == "reasoning":
+        return 1.0
+
+    if len(answer) < 20:
         return 0.0
 
     score = 0.0
@@ -241,6 +250,21 @@ async def query_multiple_sources(
     Query multiple AI sources IN PARALLEL based on Arena mode.
     Uses asyncio.gather with timeouts for speed.
     """
+    # Deterministic reasoning outranks every other source. If the question
+    # is arithmetic / a conversion / a date, the computed answer is exact,
+    # so we return it alone rather than letting fuzzy sources dilute it.
+    try:
+        from app.core.reasoning import solve as _reasoning_solve
+        _reasoned = _reasoning_solve(query)
+        if _reasoned:
+            return [{
+                "source": "reasoning",
+                "content": _reasoned["answer"],
+                "metadata": {"type": "reasoning", "skill": _reasoned["skill"], "exact": True},
+            }]
+    except Exception:
+        pass
+
     # Check cache first
     cached = _get_cached_response(query, mode)
     if cached is not None:

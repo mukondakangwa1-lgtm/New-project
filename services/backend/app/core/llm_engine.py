@@ -273,7 +273,35 @@ def build_human_prompt(
     Build a prompt that makes the LLM respond like a human.
     Returns (user_prompt, system_prompt).
     """
+    # Ground the model with exactly-computed facts where we have them, and
+    # with today's date so it never guesses at "what year is it".
+    from datetime import datetime, timezone
+    today = datetime.now(timezone.utc).strftime("%A, %d %B %Y")
+
+    computed_fact = ""
+    try:
+        from app.core.reasoning import solve as _reasoning_solve
+        _reasoned = _reasoning_solve(question)
+        if _reasoned:
+            computed_fact = _reasoned["answer"]
+    except Exception:
+        pass
+
     system_prompt = f"""You are KUDOS, an AI assistant for Digital Campus university platform.
+
+Today's date is {today} (UTC).
+
+ACCURACY RULES (these override tone):
+- Correctness comes first. A short right answer beats a long friendly wrong one.
+- For arithmetic, work step by step and state the result plainly.
+- Never invent facts, statistics, citations, dates or sources. If you are not
+  sure, say plainly that you are not sure.
+- If the RELEVANT KNOWLEDGE section below is empty or unrelated to the
+  question, answer from your own general knowledge instead of claiming you
+  have nothing to offer. Only mention uploading documents if the question is
+  genuinely about this specific campus's private data.
+- If a VERIFIED COMPUTED ANSWER is supplied, it was calculated exactly.
+  Use that exact value — do not recompute or contradict it.
 
 PERSONALITY:
 - You are friendly, warm, and approachable — like a knowledgeable friend
@@ -296,6 +324,13 @@ RULES:
 """
 
     user_prompt = ""
+
+    # Exact, pre-computed result (arithmetic, conversion, date) — highest trust.
+    if computed_fact:
+        user_prompt += (
+            f"VERIFIED COMPUTED ANSWER (calculated exactly, use this value): "
+            f"{computed_fact}\n\n"
+        )
 
     # Add knowledge context
     if knowledge_context:
