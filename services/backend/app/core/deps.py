@@ -80,6 +80,27 @@ def require_admin(current_user: User = Depends(get_current_user)) -> User:
     return current_user
 
 
+def get_superadmin(db: Session = Depends(get_db)) -> User | None:
+    """THE superadmin — the first-created admin. Only they may review and
+    approve the library files KUDOS learns."""
+    return db.query(User).filter(User.is_admin).order_by(User.id).first()
+
+
+def require_superadmin(
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> User:
+    """Require the current user to be THE superadmin (superadmin-only review
+    of KUDOS-learned library files)."""
+    superadmin = db.query(User).filter(User.is_admin).order_by(User.id).first()
+    if superadmin is None or current_user.id != superadmin.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Superadmin access required",
+        )
+    return current_user
+
+
 def get_current_user_optional(
     request: Request,
     token: str = Depends(oauth2_scheme),

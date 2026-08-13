@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.api.v1.endpoints.kudos import simple_summarize
 from app.core.database import get_db
 from app.core.deps import get_current_user
+from app.core.wikipedia import WIKIPEDIA_HEADERS
 from app.models import KudosWebKnowledge, User
 
 router = APIRouter()
@@ -448,7 +449,7 @@ async def learn_wikipedia_batch(
     topic_list = [t.strip() for t in topics.split(",") if t.strip()]
     learned = 0
 
-    async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
+    async with httpx.AsyncClient(timeout=10, follow_redirects=True, headers=WIKIPEDIA_HEADERS) as client:
         for topic in topic_list:
             try:
                 res = await client.get(

@@ -68,6 +68,175 @@ html, body {
   animation: indeterminate-slide 1.2s ease-in-out infinite;
 }
 
+/* ── Smart Library: wooden bookshelf ── */
+.bookshelf {
+  position: relative;
+  border-radius: 14px;
+  padding: 28px 20px 8px;
+  margin: 24px 0;
+  background:
+    repeating-linear-gradient(
+      90deg,
+      rgba(74, 45, 20, 0.35) 0px,
+      rgba(74, 45, 20, 0) 6px,
+      rgba(74, 45, 20, 0.2) 12px,
+      rgba(74, 45, 20, 0) 26px
+    ),
+    repeating-linear-gradient(
+      0deg,
+      rgba(255, 214, 150, 0.08) 0px,
+      rgba(0, 0, 0, 0) 3px,
+      rgba(255, 214, 150, 0.05) 7px,
+      rgba(0, 0, 0, 0) 12px
+    ),
+    linear-gradient(180deg, #9a6b3f 0%, #7c4e28 34%, #6b3f1f 68%, #54301a 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 230, 180, 0.35),
+    inset 0 -3px 6px rgba(0, 0, 0, 0.5),
+    0 18px 34px rgba(60, 30, 10, 0.45);
+  border: 1px solid #43270f;
+  overflow-x: auto;
+}
+.bookshelf::before {
+  content: "";
+  position: absolute;
+  inset: 6px;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  pointer-events: none;
+}
+.bookshelf-shelf {
+  position: relative;
+  height: 18px;
+  border-radius: 4px;
+  margin: 6px 0 22px;
+  background: linear-gradient(180deg, #8a5a2e 0%, #6d411e 45%, #5a3312 100%);
+  box-shadow:
+    inset 0 2px 3px rgba(255, 220, 160, 0.4),
+    inset 0 -3px 5px rgba(0, 0, 0, 0.55),
+    0 4px 10px rgba(40, 20, 5, 0.5);
+}
+.bookshelf-shelf::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 4px;
+  height: 3px;
+  background: linear-gradient(90deg, transparent, rgba(255, 210, 140, 0.5), transparent);
+  border-radius: 4px;
+}
+.bookshelf-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  padding: 0 6px 2px;
+  flex-wrap: wrap;
+  min-height: 214px;
+}
+.book {
+  position: relative;
+  width: 54px;
+  min-height: 190px;
+  height: auto;
+  border-radius: 5px 5px 3px 3px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 4px;
+  border: 1px solid rgba(0, 0, 0, 0.45);
+  box-shadow:
+    inset -6px 0 10px rgba(0, 0, 0, 0.35),
+    inset 3px 0 6px rgba(255, 255, 255, 0.22),
+    3px 6px 10px rgba(0, 0, 0, 0.4);
+  transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease;
+  overflow: hidden;
+  min-width: 44px;
+  flex-shrink: 0;
+}
+.book::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 5px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.28), rgba(0, 0, 0, 0.15));
+  border-bottom: 1px solid rgba(0, 0, 0, 0.25);
+}
+.book:hover {
+  transform: translateY(-7px);
+  box-shadow:
+    inset -6px 0 10px rgba(0, 0, 0, 0.3),
+    inset 3px 0 6px rgba(255, 255, 255, 0.25),
+    6px 16px 22px rgba(0, 0, 0, 0.5);
+  filter: brightness(1.08);
+  z-index: 5;
+}
+.book-title {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-size: 11px;
+  line-height: 1.15;
+  font-weight: 700;
+  color: rgba(255, 245, 220, 0.95);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+  letter-spacing: 0.03em;
+  max-height: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 12px;
+  word-break: break-word;
+}
+.book-icon {
+  font-size: 15px;
+  margin-bottom: 4px;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6));
+}
+.book-shelf-label {
+  color: #f5e2c4;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.book-caption {
+  position: absolute;
+  bottom: 120%;
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  background: #2c1a09;
+  color: #ffefd8;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 5px 9px;
+  border-radius: 7px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.16s ease, transform 0.16s ease;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.55);
+  z-index: 20;
+}
+.book:hover .book-caption { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+.book-k-document-0 { background: linear-gradient(180deg, #a03a2e 0%, #7d2a1f 55%, #5f1f16 100%); }
+.book-k-document-1 { background: linear-gradient(180deg, #97512c 0%, #7a3d1e 55%, #5c2c14 100%); }
+.book-k-document-2 { background: linear-gradient(180deg, #7a2e43 0%, #5c2032 55%, #451824 100%); }
+.book-k-document-3 { background: linear-gradient(180deg, #94431f 0%, #733114 55%, #56250d 100%); }
+.book-k-document-4 { background: linear-gradient(180deg, #8c3b2b 0%, #6e2a1c 55%, #52190f 100%); }
+.book-k-video { background: linear-gradient(180deg, #274a8e 0%, #1d3a75 55%, #13294f 100%); }
+.book-k-audio { background: linear-gradient(180deg, #20705a 0%, #175743 55%, #0f3f30 100%); }
+.book-k-other { background: linear-gradient(180deg, #565347 0%, #413f35 55%, #2c2a23 100%); }
+
+.bookshelf-empty {
+  background: rgba(255, 240, 210, 0.08);
+  border: 1px dashed rgba(255, 230, 170, 0.4);
+  border-radius: 10px;
+  padding: 36px 20px;
+  text-align: center;
+  color: #f7e7cb;
+}
+
 /* ── KUDOS launcher dock: live, tinkering preview tiles ── */
 @keyframes dock-pop {
   0%   { opacity: 0; transform: translateY(10px) scale(0.94); }

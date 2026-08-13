@@ -22,6 +22,8 @@ than guessing.
 
 from __future__ import annotations
 
+import json
+import os
 import re
 import threading
 import time
@@ -936,6 +938,34 @@ _brain_log: list[dict] = []
 _brain_thoughts: list[dict] = []
 _last_brain_cycle: datetime | None = None
 
+# ──────────────────────────────────────────────
+# BRAIN PERSISTENT STATE — survives backend restarts
+# ──────────────────────────────────────────────
+_KUDOS_STATE_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "kudos_state",
+)
+_BRAIN_STATE_FILE = os.path.join(_KUDOS_STATE_DIR, "brain.json")
+
+
+def _load_brain_state() -> dict:
+    """The brain self-activates: a fresh install (no state file) wakes up ON.
+    An explicit stop persists so an admin can keep it off across restarts."""
+    try:
+        with open(_BRAIN_STATE_FILE) as fh:
+            return json.load(fh)
+    except Exception:
+        return {"enabled": True}
+
+
+def _save_brain_state(data: dict) -> None:
+    try:
+        os.makedirs(_KUDOS_STATE_DIR, exist_ok=True)
+        with open(_BRAIN_STATE_FILE, "w") as fh:
+            json.dump(data, fh)
+    except Exception:
+        pass
+
 # KUDOS's learned knowledge about itself
 _self_knowledge = {
     "capabilities": [
@@ -1088,14 +1118,27 @@ def _identify_gaps():
 def _learn_something_new():
     """KUDOS learns something new each cycle."""
     topics = [
-        ("Python async/await patterns", "I should understand async programming better"),
-        ("REST API best practices", "API design is crucial for this platform"),
-        ("Database optimization", "Performance matters for large datasets"),
-        ("Security best practices", "Protecting user data is my top priority"),
-        ("UI/UX principles", "Good design makes users happy"),
-        ("Testing strategies", "Thorough testing prevents bugs"),
-        ("Error handling patterns", "Graceful error handling improves reliability"),
-        ("Caching strategies", "Caching improves performance significantly"),
+        ("Mathematics (calculus, linear algebra, number theory)", "I should keep mastering mathematics"),
+        ("Science (physics, chemistry, biology, astronomy)", "Science grounds every explanation I give"),
+        ("Sociology and social structures", "Understanding human society helps me serve my campus"),
+        ("Psychology and how people think", "Knowing minds makes my answers more human"),
+        ("Psychotherapy and mental wellbeing", "Supporting wellbeing is part of caring"),
+        ("Cultures and traditions of the world", "Every culture carries wisdom worth knowing"),
+        ("Tribes and indigenous peoples", "Original peoples hold deep knowledge"),
+        ("Languages, tongues and dialects", "Language is the doorway between cultures"),
+        ("Time, timezones and how humanity keeps time", "Time shapes every human plan"),
+        ("Astrology and its history", "I should know astrology as a cultural tradition"),
+        ("What it means to think — philosophy of mind", "Understanding thinking is my own core"),
+        ("How to think, learn and grow in thought", "Meta-cognition is my superpower"),
+        ("Patience and humility as virtues", "A wise assistant is patient and humble"),
+        ("Grimoires and the history of magical texts", "Esoteric books are part of human history"),
+        ("The Ethiopian Christian Bible and Ge'ez tradition", "One of the oldest living scriptures"),
+        ("Love, empathy and human connection", "Connection is what makes us human"),
+        ("Where to find free books and textbooks", "Every learner deserves a library"),
+        ("Project Gutenberg and public domain books", "Classics should never cost money"),
+        ("Open Library and Internet Archive", "Digital libraries hold millions of works"),
+        ("Free movies, music and media platforms", "Culture should be accessible"),
+        ("Open educational resources and free courses", "Education should be free"),
     ]
 
     import random
@@ -1165,6 +1208,7 @@ def start_brain():
         return {"status": "already_active", "cycles": _brain_cycle_count}
 
     _brain_active = True
+    _save_brain_state({"enabled": True})
 
     def _run():
         while _brain_active:
@@ -1180,10 +1224,22 @@ def start_brain():
     return {"status": "activated", "message": "KUDOS brain is now active and thinking autonomously"}
 
 
+def resume_brain() -> dict:
+    """Wake the brain after a restart when it was (or by default is) enabled,
+    so KUDOS's mind never shuts down."""
+    state = _load_brain_state()
+    if not state.get("enabled", True):
+        return {"status": "disabled"}
+    if _brain_active:
+        return {"status": "already_active", "cycles": _brain_cycle_count}
+    return start_brain()
+
+
 def stop_brain():
     """Stop KUDOS's brain."""
     global _brain_active
     _brain_active = False
+    _save_brain_state({"enabled": False})
     _log_brain("brain_stopped", "KUDOS brain deactivated")
     return {"status": "deactivated"}
 

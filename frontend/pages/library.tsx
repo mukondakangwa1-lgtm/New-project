@@ -122,38 +122,61 @@ export default function Library() {
           ))}
         </div>
 
-        {/* Ordered grid */}
+        {/* Bookshelf */}
         {loading ? (
-          <p className="text-gray-500">Loading library...</p>
+          <div className="bookshelf">
+            <div className="bookshelf-empty"><span className="inline-block animate-pulse text-lg">Reading the catalogue…</span></div>
+          </div>
         ) : items.length === 0 ? (
-          <div className="text-center py-16 bg-white rounded-xl border">
-            <p className="text-5xl mb-3">📚</p>
-            <p className="text-xl text-gray-600 mb-2">Nothing found</p>
-            <p className="text-gray-500">Try different keywords, or browse by kind above.</p>
+          <div className="bookshelf">
+            <div className="bookshelf-empty">
+              <p className="text-4xl mb-2">🪤</p>
+              <p className="text-lg font-semibold mb-1">Nothing found</p>
+              <p className="text-sm opacity-80">Try different keywords, or browse by kind above.</p>
+            </div>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {items.map((item) => (
-              <div key={item.key} className="bg-white rounded-xl border shadow p-5 hover:shadow-lg transition flex flex-col">
-                <div className="flex items-start gap-3 mb-3">
-                  <span className="text-3xl">{item.icon || KIND_ICONS[item.kind] || "📎"}</span>
-                  <div className="min-w-0">
-                    <h3 className="font-semibold truncate">{item.title}</h3>
-                    {item.subtitle && <p className="text-xs text-gray-500 truncate">{item.subtitle}</p>}
+          (() => {
+            const chunkSize = 14;
+            const rows = [];
+            for (let i = 0; i < items.length; i += chunkSize) rows.push(items.slice(i, i + chunkSize));
+            return (
+              <div className="bookshelf">
+                {rows.map((row, ri) => (
+                  <div key={ri}>
+                    <div className="bookshelf-row">
+                      {row.map((item, idx) => {
+                        const colorClass =
+                          item.kind === "document"
+                            ? `book-k-document-${(ri * chunkSize + idx) % 5}`
+                            : item.kind === "video"
+                            ? "book-k-video"
+                            : item.kind === "audio"
+                            ? "book-k-audio"
+                            : "book-k-other";
+                        return (
+                          <div
+                            key={item.key}
+                            className={`book ${colorClass}`}
+                            onClick={() => openPreview(item)}
+                            title={`${item.title} — ${item.subtitle || item.meta || ""}`}
+                          >
+                            <span className="book-caption">{item.subtitle || item.meta || item.kind}</span>
+                            <span className="book-title">{item.title}</span>
+                            <span className="book-icon">{item.icon || KIND_ICONS[item.kind] || "📎"}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="bookshelf-shelf" />
                   </div>
-                </div>
-                <div className="flex items-center justify-between text-xs text-gray-400 mb-4">
-                  <span className="bg-gray-100 px-2 py-0.5 rounded-full">{item.meta || item.kind}</span>
-                </div>
-                <button
-                  onClick={() => openPreview(item)}
-                  className="mt-auto bg-primary text-white py-2 rounded-lg text-sm font-medium hover:bg-blue-800 transition"
-                >
-                  Preview →
-                </button>
+                ))}
+                <p className="bookshelf-shelf-label text-xs text-center pb-2 opacity-80">
+                  {items.length} {items.length === 1 ? "item" : "items"} on this shelf
+                </p>
               </div>
-            ))}
-          </div>
+            );
+          })()
         )}
 
         {/* Preview screen — pops up when you read/listen/watch anything in the library */}

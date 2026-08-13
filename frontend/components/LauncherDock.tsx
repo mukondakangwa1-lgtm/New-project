@@ -100,6 +100,7 @@ interface LauncherAction {
 interface LauncherDockProps {
   onOpen: (kind: SiteKind) => void;
   actions?: LauncherAction[];
+  isAdmin?: boolean;
 }
 
 /**
@@ -108,7 +109,7 @@ interface LauncherDockProps {
  * shimmering mini-preview of the page it will produce, so you can see what
  * you're launching before you click.
  */
-export default function LauncherDock({ onOpen, actions = [] }: LauncherDockProps) {
+export default function LauncherDock({ onOpen, actions = [], isAdmin = false }: LauncherDockProps) {
   const [open, setOpen] = useState(false);
 
   const closeThen = (fn: () => void) => () => {
@@ -145,21 +146,25 @@ export default function LauncherDock({ onOpen, actions = [] }: LauncherDockProps
               </span>
             </button>
           ))}
-          <div className="border-t border-zinc-800 my-1.5" />
-          <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 px-3 py-1">
-            🧠 KUDOS tools
-          </p>
-          {TOOLS.map((t, i) => (
-            <a
-              key={t.href}
-              href={t.href}
-              style={{ animationDelay: `${200 + i * 25}ms` }}
-              className="dock-pop w-full flex items-center gap-3 px-3 py-2 rounded-xl text-left text-sm text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 hover:translate-x-1 transition"
-            >
-              <span className="text-lg w-8 text-center">{t.icon}</span>
-              {t.label}
-            </a>
-          ))}
+          {isAdmin && (
+            <>
+              <div className="border-t border-zinc-800 my-1.5" />
+              <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 px-3 py-1">
+                🧠 KUDOS tools
+              </p>
+              {TOOLS.map((t, i) => (
+                <a
+                  key={t.href}
+                  href={t.href}
+                  style={{ animationDelay: `${200 + i * 25}ms` }}
+                  className="dock-pop w-full flex items-center gap-3 px-3 py-2 rounded-xl text-left text-sm text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 hover:translate-x-1 transition"
+                >
+                  <span className="text-lg w-8 text-center">{t.icon}</span>
+                  {t.label}
+                </a>
+              ))}
+            </>
+          )}
           {actions.length > 0 && (
             <>
               <div className="border-t border-zinc-800 my-1.5" />

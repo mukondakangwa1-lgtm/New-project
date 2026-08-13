@@ -38,6 +38,15 @@ from app.core.database import get_db
 from app.core.deps import get_current_user, require_admin
 from app.models import KudosDevice, User
 from app.models_extended import KudosVoice, VoiceProfile, VoiceSample, VoiceSession
+from app.core.voice_providers import (
+    coqui_available,
+    clone_voice,
+    convert_voice,
+    is_coqui_voice,
+    list_coqui_voices,
+    list_eleven_voices,
+    synthesize,
+)
 
 router = APIRouter()
 
@@ -84,6 +93,7 @@ def _status(profile: VoiceProfile, user: User, db: Session) -> dict:
         "providers": {
             "elevenlabs": bool(__import__("app.core.config", fromlist=["settings"]).settings.ELEVENLABS_API_KEY),
             "openai": bool(__import__("app.core.llm_engine", fromlist=["get_api_key"]).get_api_key("openai")),
+            "coqui": coqui_available(),
         },
     }
 
@@ -120,13 +130,19 @@ def _total_sample_seconds(db: Session, profile_id: int) -> int:
 
 
 def _register_signature(
-    db: Session, profile: VoiceProfile, voice_id: str, name: str, device_id: int | None = None, kind: str = "signature"
+    db: Session,
+    profile: VoiceProfile,
+    voice_id: str,
+    name: str,
+    device_id: int | None = None,
+    kind: str = "signature",
+    provider: str = "elevenlabs",
 ) -> KudosVoice:
     """Store a cloned voice in the library and make it KUDOS's signature voice."""
     entry = KudosVoice(
         name=name or "KUDOS",
         kind=kind,
-        provider="elevenlabs",
+        provider=provider,
         provider_voice_id=voice_id,
         source_device_id=device_id or profile.owner_device_id,
         is_signature=True,
@@ -147,11 +163,9 @@ async def _auto_clone_if_ready(db: Session, profile: VoiceProfile) -> dict:
     """If a clone key exists and the superadmin has enough clear speech, clone
     the voice from all captured samples and activate it as the signature voice.
     Returns a status dict."""
-    from app.core.voice import add_cloned_voice
-
     if profile.signature_active:
         return {"auto_cloned": False, "reason": "already_active"}
-    if not (settings.ELEVENLABS_API_KEY or "").strip():
+    if not (settings.ELEVENLABS_API_KEY or "").strip() and not coqui_available():
         return {"auto_cloned": False, "reason": "no_key"}
     total = _total_sample_seconds(db, profile.id)
     if total < settings.KUDOS_SIGNATURE_MIN_SAMPLE_SECONDS:
@@ -160,11 +174,17 @@ async def _auto_clone_if_ready(db: Session, profile: VoiceProfile) -> dict:
     payload = _gather_samples(db, profile.id)
     if not payload:
         return {"auto_cloned": False, "reason": "no_samples"}
-    result = await add_cloned_voice(payload, name="KUDOS")
+    result = await clone_voice(payload, name="KUDOS")
     if result.get("error"):
         return {"auto_cloned": False, "reason": "clone_error", "error": result["error"]}
-    _register_signature(db, profile, result["voice_id"], "KUDOS")
-    return {"auto_cloned": True, "voice_id": result["voice_id"]}
+    _register_signature(
+        db,
+        profile,
+        result["voice_id"],
+        "KUDOS",
+        provider=result.get("provider", "elevenlabs"),
+    )
+    return {"auto_cloned": True, "voice_id": result["voice_id"], "provider": result.get("provider", "elevenlabs")}
 
 
 class VoiceToggle(BaseModel):
@@ -185,7 +205,8 @@ def voice_toggle(body: VoiceToggle, admin: User = Depends(require_admin), db: Se
 async def _store_sample(content: bytes, mime: str, admin: User, db: Session, device_id: int | None = None) -> dict:
     """Persist a voice sample, mark the signature state, and auto-clone when
     the first feed is ready. Returns a status dict (may include preview audio)."""
-    from app.core.voice import synthesize, transcribe
+    from app.core.voice import transcribe
+    from app.core.voice_providers import synthesize
 
     if len(content) < 8 * 1024:
         raise HTTPException(status_code=422, detail="Recording is too small — record at least a few seconds of speech")
@@ -283,7 +304,8 @@ async def feed_voice(
         reason = result.get("auto_clone_reason", "")
         if reason == "no_key":
             result["message"] = (
-                "Voice captured and designated as the signature source. Add an ElevenLabs key to activate cloning."
+                "Voice captured and designated as the signature source. Add an ElevenLabs key "
+                "or enable the local Coqui sidecar (COQUI_TTS_URL) to activate cloning."
             )
         elif reason == "not_enough_audio":
             result["message"] = (
@@ -392,7 +414,8 @@ async def voice_session_turn(
     """Superadmin: record one line of the session. KUDOS stores + transcribes
     it, draft-clones the audio captured so far (first time enough speech
     exists), then re-speaks your exact words back in the draft voice."""
-    from app.core.voice import add_cloned_voice, convert_voice, transcribe
+    from app.core.voice import transcribe
+    from app.core.voice_providers import clone_voice, convert_voice, synthesize
 
     sess = _get_session(db, session_id)
     if sess.state != "active":
@@ -437,7 +460,7 @@ async def voice_session_turn(
         if total >= draft_threshold:
             payload = _session_payload(db, sess.id)
             if payload:
-                clone = await add_cloned_voice(payload, name="KUDOS-draft")
+                clone = await clone_voice(payload, name="KUDOS-draft")
                 if clone.get("voice_id") and not clone.get("error"):
                     sess.draft_voice_id = clone["voice_id"]
                     db.commit()
@@ -446,7 +469,18 @@ async def voice_session_turn(
     echo = {"audio_b64": "", "mime_type": "", "provider": ""}
     if sess.draft_voice_id:
         converted = await convert_voice(content, mime, sess.draft_voice_id)
-        if not converted.get("error"):
+        if converted.get("error") == "coqui_needs_transcribe":
+            # Local XTTS has no speech-to-speech: re-synthesize the transcript
+            # in the cloned draft voice.
+            if transcript:
+                speech = await synthesize(transcript, voice_id=sess.draft_voice_id)
+                if speech.get("data"):
+                    echo = {
+                        "audio_b64": speech["data"],
+                        "mime_type": speech.get("mime_type", "audio/mpeg"),
+                        "provider": speech.get("provider", "coqui"),
+                    }
+        elif not converted.get("error"):
             echo = {
                 "audio_b64": converted["data"],
                 "mime_type": converted["mime_type"],
@@ -473,7 +507,7 @@ async def finalize_voice_session(
 ):
     """Superadmin: clone the final signature voice from all session audio and
     activate it as KUDOS's live signature voice."""
-    from app.core.voice import add_cloned_voice
+    from app.core.voice_providers import clone_voice
 
     sess = _get_session(db, session_id)
     if sess.state != "active":
@@ -483,12 +517,12 @@ async def finalize_voice_session(
     if not payload:
         raise HTTPException(status_code=422, detail="No usable audio in this session yet — record some lines first")
 
-    clone = await add_cloned_voice(payload, name=f"KUDOS-{admin.full_name or admin.id}")
+    clone = await clone_voice(payload, name=f"KUDOS-{admin.full_name or admin.id}")
     if clone.get("error"):
         raise HTTPException(status_code=400, detail=clone["error"])
 
     profile = _get_profile(db)
-    _register_signature(db, profile, clone["voice_id"], "KUDOS")
+    _register_signature(db, profile, clone["voice_id"], "KUDOS", provider=clone.get("provider", "elevenlabs"))
     profile.tts_enabled = True
     profile.owner_id = admin.id
     sess.state = "finalized"
@@ -561,7 +595,7 @@ async def generate_calibration_script(body: ScriptRequest, admin: User = Depends
 @router.post("/voice/clone")
 async def clone_signature(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
     """Superadmin: clone the signature voice from all captured samples."""
-    from app.core.voice import add_cloned_voice
+    from app.core.voice_providers import clone_voice
 
     profile = _get_profile(db)
     samples = db.query(VoiceSample).order_by(VoiceSample.created_at.asc()).all()
@@ -572,10 +606,12 @@ async def clone_signature(admin: User = Depends(require_admin), db: Session = De
     if not payload:
         raise HTTPException(status_code=422, detail="Could not read any voice samples from storage")
 
-    result = await add_cloned_voice(payload, name=f"KUDOS-{admin.full_name or admin.id}")
+    result = await clone_voice(payload, name=f"KUDOS-{admin.full_name or admin.id}")
     if result.get("error"):
         raise HTTPException(status_code=400, detail=result["error"])
-    _register_signature(db, profile, result["voice_id"], "KUDOS", kind="signature")
+    _register_signature(
+        db, profile, result["voice_id"], "KUDOS", kind="signature", provider=result.get("provider", "elevenlabs")
+    )
     profile.tts_enabled = True
     profile.owner_id = admin.id
     db.commit()
@@ -619,8 +655,6 @@ def adopt_signature(body: AdoptVoiceRequest, admin: User = Depends(require_admin
 async def list_voices_endpoint(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """The KUDOS voice library: signature + cloned voices (owned by KUDOS) plus
     stock voices from the configured providers. Lets KUDOS speak in any voice."""
-    from app.core.voice import list_eleven_voices
-
     library = db.query(KudosVoice).order_by(KudosVoice.created_at.asc()).all()
     voices = [
         {
@@ -645,10 +679,12 @@ async def list_voices_endpoint(user: User = Depends(get_current_user), db: Sessi
             "provider_voice_id": name,
             "is_signature": False,
         }
-        for i, name in enumerate(__import__("app.core.voice", fromlist=["OPENAI_TTS_VOICES"]).OPENAI_TTS_VOICES)
+        for i, name in enumerate(__import__("app.core.voice_providers", fromlist=["OPENAI_TTS_VOICES"]).OPENAI_TTS_VOICES)
     ]
     with contextlib.suppress(Exception):
         stock += await list_eleven_voices()
+    with contextlib.suppress(Exception):
+        voices += await list_coqui_voices()
 
     profile = _get_profile(db)
     return {
@@ -667,7 +703,8 @@ async def voice_convert(
 ):
     """Voice changer — KUDOS 'makes any other voice': re-speak any spoken clip
     in the target voice (defaults to KUDOS's signature voice)."""
-    from app.core.voice import convert_voice
+    from app.core.voice import transcribe
+    from app.core.voice_providers import convert_voice, is_coqui_voice, synthesize
 
     profile = _get_profile(db)
     target = (voice_id or "").strip() or (profile.cloned_voice_id if profile.signature_active else "")
@@ -677,6 +714,23 @@ async def voice_convert(
     mime = (file.content_type or "audio/webm").split(";")[0].strip()
 
     result = await convert_voice(content, mime, target)
+    if result.get("error") == "coqui_needs_transcribe":
+        # Local XTTS has no speech-to-speech: transcribe the clip and re-speak
+        # the words in the Coqui clone.
+        transcript = ""
+        with contextlib.suppress(Exception):
+            transcript = (await transcribe(content, mime) or "").strip()
+        if not transcript:
+            raise HTTPException(status_code=400, detail="Could not transcribe the clip for conversion")
+        speech = await synthesize(transcript, voice_id=target)
+        if speech.get("error"):
+            raise HTTPException(status_code=400, detail=speech["error"])
+        return {
+            "audio_b64": speech["data"],
+            "mime_type": speech.get("mime_type", "audio/mpeg"),
+            "provider": speech.get("provider", "coqui"),
+            "voice_id": target,
+        }
     if result.get("error"):
         raise HTTPException(status_code=400, detail=result["error"])
     return {
@@ -696,7 +750,7 @@ class TTSRequest(BaseModel):
 async def speak_endpoint(body: TTSRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Speak any text (used by the 🔊 button on KUDOS messages). KUDOS uses the
     superadmin's signature voice when it is active, otherwise a fallback voice."""
-    from app.core.voice import synthesize
+    from app.core.voice_providers import synthesize
 
     profile = _get_profile(db)
     if not profile.tts_enabled:
@@ -728,7 +782,8 @@ async def voice_chat(
     speaks the answer back in its signature voice."""
     from app.core.privacy_guard import scrub_response
     from app.core.quick_answers import get_short_answer, is_short_question
-    from app.core.voice import synthesize, transcribe
+    from app.core.voice import transcribe
+    from app.core.voice_providers import synthesize
 
     content = await file.read()
     mime = (file.content_type or "audio/webm").split(";")[0].strip()

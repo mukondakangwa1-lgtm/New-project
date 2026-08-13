@@ -106,6 +106,7 @@ export default function KudosChat() {
   // Anonymous visitors get the guest chat (no login required)
   const [guestMode, setGuestMode] = useState<boolean | null>(null);
   const [userName, setUserName] = useState<string>("");
+  const [isAdmin, setIsAdmin] = useState(false);
   useEffect(() => {
     fetch("/api/v1/users/me")
       .then(async (r) => {
@@ -115,6 +116,7 @@ export default function KudosChat() {
           if (me?.full_name) {
             setUserName(me.full_name.split(" ")[0] || me.full_name);
           }
+          setIsAdmin(Boolean(me?.is_admin));
         }
       })
       .catch(() => setGuestMode(true));
@@ -854,7 +856,7 @@ export default function KudosChat() {
         </div>
       </div>
 
-      <LauncherDock onOpen={setSiteMakerOpen} actions={launcherActions} />
+      <LauncherDock onOpen={setSiteMakerOpen} actions={launcherActions} isAdmin={isAdmin} />
       <SiteMaker open={siteMakerOpen !== null} kind={siteMakerOpen || "site"} onClose={() => setSiteMakerOpen(null)} />
     </Layout>
   );

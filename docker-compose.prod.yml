@@ -91,6 +91,14 @@ services:
       STORAGE_BACKEND: minio
       MINIO_ENDPOINT: minio:9000
       DATABASE_URL: postgresql://${POSTGRES_USER:-dc_user}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD via make env-provision}@db:5432/${POSTGRES_DB:-digital_campus}
+      # KUDOS self-learning via opencode subagents (sidecar service below)
+      OPENCODE_AGENT_URL: http://opencode-agent:8090
+      LEARN_WITH_AGENTS: "true"
+      OPENCODE_MODEL: ${OPENCODE_MODEL:-}
+      # KUDOS Voice — local cloning via the Coqui sidecar (no API key needed).
+      COQUI_TTS_URL: http://coqui-tts:8082
+      VOICE_CLONE_PROVIDER: ${VOICE_CLONE_PROVIDER:-elevenlabs}
+      VOICE_TTS_PROVIDER: ${VOICE_TTS_PROVIDER:-}
     ports:
       - "127.0.0.1:8000:8000"
     extra_hosts:
@@ -104,6 +112,7 @@ services:
       - minio
       - minio-init
       - mcp
+      - opencode-agent
     restart: unless-stopped
 
   mcp:
@@ -141,6 +150,37 @@ services:
       - backend
       - redis
       - minio
+    restart: unless-stopped
+
+  # KUDOS self-learning sidecar: runs `opencode run` on behalf of the backend.
+  # The host opencode credentials are mounted read-only so the subagents use
+  # the campus account's providers.
+  opencode-agent:
+    build: ./services/opencode-agent
+    environment:
+      PORT: 8090
+      DEFAULT_AGENT: build
+      MAX_CONCURRENT: "2"
+      RUN_TIMEOUT_MS: "480000"
+      OPENCODE_MODEL: ${OPENCODE_MODEL:-}
+    volumes:
+      - ${OPENCODE_AUTH_FILE:-${HOME}/.local/share/opencode/auth.json}:/home/opencode/.local/share/opencode/auth.json:ro
+    expose:
+      - "8090"
+    restart: unless-stopped
+
+  # KUDOS local voice cloning — Coqui XTTS v2 (no API key). The model cache
+  # lives on a volume so restarts skip the ~1.8GB download.
+  coqui-tts:
+    build: ./services/coqui-tts
+    environment:
+      VOICES_DIR: /data/voices
+      XTTS_LANGUAGE: ${COQUI_TTS_LANGUAGE:-en}
+    volumes:
+      - coqui_data:/models
+      - coqui_voices:/data/voices
+    expose:
+      - "8082"
     restart: unless-stopped
 
   frontend:
@@ -229,3 +269,5 @@ volumes:
   caddy_config:
   tailscale_state:
   kudos_state:
+  coqui_data:
+  coqui_voices:

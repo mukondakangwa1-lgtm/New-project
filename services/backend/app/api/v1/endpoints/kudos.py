@@ -3,6 +3,7 @@ Digital Campus - KUDOS AI Assistant
 Document learning, web learning, retrieval-based chat, superadmin controls.
 """
 
+import asyncio
 import base64
 import contextlib
 import io
@@ -16,13 +17,13 @@ import httpx
 from bs4 import BeautifulSoup
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core import storage
+from app.core.agent_bridge import research_with_agent, store_learned_library_file
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.deps import get_current_user, require_admin
+from app.core.deps import get_current_user, get_superadmin, require_admin, require_superadmin
 from app.core.kudos_guardian import self_improver
 from app.models import (
     KudosChunk,
@@ -394,8 +395,14 @@ def list_documents(
     q = db.query(KudosDocument)
     if not current_user.is_admin:
         q = q.filter(KudosDocument.is_approved, KudosDocument.is_active)
-    elif not show_all:
-        q = q.filter(KudosDocument.is_active)
+    else:
+        # Pending (unapproved) files — everything KUDOS learns — are visible
+        # only to THE superadmin until approved.
+        superadmin = get_superadmin(db)
+        if not show_all and (not superadmin or current_user.id != superadmin.id):
+            q = q.filter(KudosDocument.is_approved, KudosDocument.is_active)
+        elif not show_all:
+            q = q.filter(KudosDocument.is_active)
     return q.order_by(KudosDocument.created_at.desc()).all()
 
 
@@ -1001,14 +1008,91 @@ def approve_all_web(db: Session = Depends(get_db), admin: User = Depends(require
 
 
 @router.post("/admin/pending")
-def list_pending(db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+def list_pending(db: Session = Depends(get_db), superadmin: User = Depends(require_superadmin)):
+    """Superadmin-only review queue. Every file KUDOS learns lands here,
+    pending — display the content, then approve it (public to the campus)
+    or reject it (deleted)."""
     docs = db.query(KudosDocument).filter(~KudosDocument.is_approved).all()
     web = db.query(KudosWebKnowledge).filter(~KudosWebKnowledge.is_approved).all()
+    learned = [d for d in docs if (d.tags or "").find("kudos-learned") != -1]
     return {
+        "superadmin": {
+            "id": superadmin.id,
+            "full_name": superadmin.full_name,
+            "email": superadmin.email,
+        },
+        "is_superadmin": True,
         "pending_documents": [
-            {"id": d.id, "title": d.title, "uploaded_by": d.uploaded_by, "chunks": d.chunk_count} for d in docs
+            {
+                "id": d.id,
+                "title": d.title,
+                "tags": d.tags or "",
+                "chunks": d.chunk_count,
+                "summary": (d.summary or "")[:400],
+                "content_preview": (d.content or "")[:2500],
+                "uploaded_by": d.uploaded_by,
+                "created_at": d.created_at.isoformat() if d.created_at else "",
+            }
+            for d in learned
         ],
         "pending_web": [{"id": w.id, "url": w.url, "title": w.title, "learned_by": w.learned_by} for w in web],
+    }
+
+
+@router.post("/admin/review/{doc_id}")
+def review_learned_doc(
+    doc_id: int,
+    action: str = Form(...),
+    db: Session = Depends(get_db),
+    superadmin: User = Depends(require_superadmin),
+):
+    """Superadmin judges a KUDOS-learned library file: approve → public to
+    the whole campus; reject → removed."""
+    if action not in ("approve", "reject"):
+        raise HTTPException(status_code=400, detail="action must be 'approve' or 'reject'")
+    doc = db.query(KudosDocument).filter(KudosDocument.id == doc_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if action == "approve":
+        doc.is_approved = True
+        db.commit()
+        return {"ok": True, "action": "approve", "id": doc_id, "title": doc.title}
+    db.delete(doc)
+    db.commit()
+    return {"ok": True, "action": "reject", "id": doc_id}
+
+
+@router.post("/admin/agents/learn")
+async def learn_with_agent(
+    subject: str = Form(...),
+    agent: str = Form("build"),
+    db: Session = Depends(get_db),
+    superadmin: User = Depends(require_superadmin),
+):
+    """Superadmin asks an opencode subagent to research any subject now; the
+    result lands in the review queue as a pending, well-labelled library
+    file."""
+    subject = (subject or "").strip()
+    if not subject:
+        raise HTTPException(status_code=400, detail="subject is required")
+    result = await asyncio.to_thread(research_with_agent, subject, agent)
+    if not result:
+        raise HTTPException(
+            status_code=502,
+            detail="Agent learning unavailable — is the opencode-agent bridge enabled?",
+        )
+    doc, _created = store_learned_library_file(db, subject, result["text"], result["agent"], actor_id=superadmin.id)
+    if not doc:
+        raise HTTPException(status_code=502, detail="Could not store the learned file")
+    db.commit()
+    db.refresh(doc)
+    return {
+        "ok": True,
+        "id": doc.id,
+        "title": doc.title,
+        "agent": result["agent"],
+        "chunks": doc.chunk_count,
+        "pending": True,
     }
 
 

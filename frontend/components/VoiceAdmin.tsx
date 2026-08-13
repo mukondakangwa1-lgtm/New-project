@@ -9,7 +9,7 @@ interface VoiceStatus {
   default_voice: string;
   sample_count: number;
   can_manage: boolean;
-  providers: { elevenlabs: boolean; openai: boolean };
+  providers: { elevenlabs: boolean; openai: boolean; coqui: boolean };
 }
 
 interface Sample {
@@ -228,10 +228,15 @@ export default function VoiceAdmin() {
         </div>
       )}
 
-      {status && !status.providers.elevenlabs && !status.providers.openai && (
+      {status && !status.providers.elevenlabs && !status.providers.openai && !status.providers.coqui && (
         <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-800">
-          No TTS provider configured yet. Add an OpenAI key (LLM panel) for instant speech, or an ElevenLabs key
-          (ELEVENLABS_API_KEY) to enable cloning your signature voice.
+          No TTS provider configured yet. The local Coqui voice is offline — add an OpenAI key (LLM panel) for instant
+          speech, or an ElevenLabs key (ELEVENLABS_API_KEY) to enable cloud cloning.
+        </div>
+      )}
+      {status && status.providers.coqui && (
+        <div className="mb-4 p-3 bg-indigo-50 border border-indigo-200 rounded text-sm text-indigo-800">
+          🐸 Local Coqui voice is online — you can clone your signature voice entirely on this server, no API key needed.
         </div>
       )}
 

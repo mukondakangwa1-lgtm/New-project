@@ -10,6 +10,8 @@ from datetime import UTC, datetime
 
 import httpx
 
+from app.core.wikipedia import WIKIPEDIA_HEADERS
+
 # ──────────────────────────────────────────────
 # RESPONSE CACHE (LRU) for speed
 # ──────────────────────────────────────────────
@@ -357,7 +359,7 @@ async def _query_web_search(query: str) -> str | None:
 async def _query_wikipedia(query: str) -> str | None:
     """Query Wikipedia for answers."""
     try:
-        async with httpx.AsyncClient(timeout=4, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=4, follow_redirects=True, headers=WIKIPEDIA_HEADERS) as client:
             res = await client.get(
                 "https://en.wikipedia.org/w/api.php",
                 params={"action": "query", "list": "search", "srsearch": query, "format": "json", "srlimit": 1},

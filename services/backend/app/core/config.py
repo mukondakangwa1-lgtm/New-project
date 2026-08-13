@@ -116,6 +116,13 @@ class Settings(BaseSettings):
     ELEVENLABS_API_KEY: str = ""
     ELEVENLABS_TTS_MODEL: str = "eleven_multilingual_v2"
     ELEVENLABS_S2S_MODEL: str = "eleven_multilingual_sts_v2"  # voice changer (speech-to-speech)
+    # Local voice sidecar (Coqui XTTS v2). Empty = feature disabled. When set,
+    # KUDOS can clone a signature voice without any API key.
+    COQUI_TTS_URL: str = ""
+    COQUI_TTS_LANGUAGE: str = "en"
+    # Provider preference for cloning/TTS when more than one is available.
+    VOICE_CLONE_PROVIDER: str = "elevenlabs"  # elevenlabs | coqui
+    VOICE_TTS_PROVIDER: str = ""  # elevenlabs | coqui | openai ("" = auto preference)
     OPENAI_TTS_MODEL: str = "gpt-4o-mini-tts"
     OPENAI_TTS_VOICE: str = "nova"  # fallback voice until the signature voice is cloned
     # Signature voice: minimum clear speech captured before auto-clone on first feed.
@@ -159,6 +166,16 @@ class Settings(BaseSettings):
     # still stop it; the next visit re-arms it.
     KUDOS_LEARN_ON_VISIT: bool = True
     KUDOS_LEARN_INTERVAL_MINUTES: int = 120
+
+    # KUDOS agent learning — KUDOS delegates domain research to opencode
+    # subagents (the opencode-agent sidecar) for mathematics, all sciences,
+    # climatology and everything else. Every finished run is stored as a
+    # pending, well-labelled library file that only the superadmin can see
+    # until approved.
+    OPENCODE_AGENT_URL: str = ""
+    OPENCODE_MODEL: str = ""
+    LEARN_WITH_AGENTS: bool = False
+    AGENT_LEARN_PER_CYCLE: int = 2
 
     # KUDOS Offline Brain — persistent self-contained knowledge + reasoning.
     # When OFFLINE_FIRST, KUDOS answers from its own brain before asking any

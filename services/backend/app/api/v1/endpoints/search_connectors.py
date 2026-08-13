@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.api.v1.endpoints.kudos import simple_summarize
 from app.core.database import get_db
 from app.core.deps import get_current_user
+from app.core.wikipedia import WIKIPEDIA_HEADERS
 from app.models import KudosWebKnowledge, User
 
 router = APIRouter()
@@ -114,7 +115,7 @@ async def learn_from_wikipedia(
 ):
     """Learn about a topic from Wikipedia."""
     try:
-        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=15, follow_redirects=True, headers=WIKIPEDIA_HEADERS) as client:
             # Search Wikipedia
             search_res = await client.get(
                 "https://en.wikipedia.org/w/api.php",

@@ -13,6 +13,8 @@ from datetime import UTC, datetime
 
 import httpx
 
+from app.core.wikipedia import WIKIPEDIA_HEADERS
+
 # ──────────────────────────────────────────────
 # AUTO-LEARNER STATE
 # ──────────────────────────────────────────────
@@ -110,6 +112,65 @@ AUTO_LEARN_TOPICS = [
     "climate change",
     "space exploration",
     "renewable energy",
+    # Knowledge & Humanity
+    "sociology",
+    "anthropology",
+    "culture",
+    "cultural studies",
+    "tribe",
+    "language",
+    "dialect",
+    "history of writing",
+    "astrology",
+    "history of astronomy",
+    "time",
+    "time zone",
+    "history of timekeeping",
+    "philosophy of mind",
+    "epistemology",
+    "critical thinking",
+    "logic",
+    "cognition",
+    "memory",
+    "learning",
+    "study skills",
+    "mindfulness",
+    "meditation",
+    # Human heart & character
+    "psychology",
+    "cognitive psychology",
+    "social psychology",
+    "emotional intelligence",
+    "love",
+    "compassion",
+    "humility",
+    "patience",
+    "empathy",
+    "ethics",
+    "virtue",
+    # Faith, mysticism & esoterica
+    "geez",
+    "Ethiopian Orthodox Tewahedo Church",
+    "Ethiopian literature",
+    "Christianity in Africa",
+    "grimoire",
+    "occult",
+    "magic",
+    "Hermeticism",
+    "kabbalah",
+    "alchemy",
+    "mysticism",
+    # Books & media — where to find them
+    "Project Gutenberg",
+    "Open Library",
+    "Internet Archive",
+    "public domain",
+    "digital library",
+    "open educational resources",
+    "free textbook",
+    "audiobook",
+    "library science",
+    "academic publishing",
 ]
 
 # Popular subreddits for social learning
@@ -202,6 +263,9 @@ def _run_auto_learner():
 
             # Phase 7: Learn social/emotional skills
             _learn_social_skills(db_session, admin)
+
+            # Phase 8: Learn from opencode subagents (pending library files)
+            _learn_from_agents(db_session, admin)
 
             _last_auto_learner_run = datetime.now(UTC)
             _log("cycle_complete", f"Cycle complete. Total items learned: {_auto_learner_stats['total_items_learned']}")
@@ -384,11 +448,12 @@ def _learn_from_search(db, admin):
 
 
 def _learn_from_wikipedia(db, admin):
-    """Learn from Wikipedia featured content."""
+    """Learn from Wikipedia — filed as a pending library document (agent:
+    wikipedia) for the superadmin to review before it goes public."""
     import random
 
-    from app.api.v1.endpoints.kudos import simple_summarize
-    from app.models import KudosWebKnowledge
+    from app.core.agent_bridge import store_learned_library_file
+    from app.models import KudosDocument
 
     topics = random.sample(AUTO_LEARN_TOPICS, min(2, len(AUTO_LEARN_TOPICS)))
 
@@ -398,7 +463,7 @@ def _learn_from_wikipedia(db, admin):
             try:
 
                 async def _wiki(topic=topic):
-                    async with httpx.AsyncClient(timeout=10) as client:
+                    async with httpx.AsyncClient(timeout=10, headers=WIKIPEDIA_HEADERS) as client:
                         res = await client.get(
                             "https://en.wikipedia.org/w/api.php",
                             params={
@@ -435,24 +500,51 @@ def _learn_from_wikipedia(db, admin):
                 loop.close()
 
             if title and extract:
-                # Check if already exists
-                existing = db.query(KudosWebKnowledge).filter(KudosWebKnowledge.title.contains(title)).first()
+                existing = (
+                    db.query(KudosDocument)
+                    .filter(KudosDocument.title == title, KudosDocument.tags.like("%kudos-learned%"))
+                    .first()
+                )
                 if existing:
                     continue
 
-                db.add(
-                    KudosWebKnowledge(
-                        url=f"https://en.wikipedia.org/wiki/{title.replace(' ', '_')}",
-                        title=f"[Wikipedia] {title}",
-                        content=extract[:50000],
-                        summary=simple_summarize(extract),
-                        is_approved=True,
-                        learned_by=admin.id,
-                    )
-                )
-                _auto_learner_stats["total_items_learned"] += 1
-                _log("wikipedia", f"Learned: {title}", 1)
+                doc, _created = store_learned_library_file(db, title, extract, agent="wikipedia", actor_id=admin.id)
+                if doc:
+                    _auto_learner_stats["total_items_learned"] += 1
+                    _log("wikipedia", f"Learned (pending review): {title}", 1)
 
+        except Exception:
+            continue
+
+    db.commit()
+
+
+def _learn_from_agents(db, admin):
+    """Ask opencode subagents to research new subjects from the planetary
+    universe. Every finished run becomes a pending library file (agent:<name>)
+    for the superadmin to review before it becomes public to the campus."""
+    import random
+
+    from app.core.agent_bridge import PLANETARY_SUBJECTS, research_with_agent, store_learned_library_file
+    from app.core.config import settings
+
+    if not settings.OPENCODE_AGENT_URL or not settings.LEARN_WITH_AGENTS:
+        return
+
+    per_cycle = max(settings.AGENT_LEARN_PER_CYCLE, 1)
+    subjects = random.sample(PLANETARY_SUBJECTS, min(per_cycle, len(PLANETARY_SUBJECTS)))
+
+    for subject in subjects:
+        try:
+            result = research_with_agent(subject)
+            if not result:
+                continue
+            doc, created = store_learned_library_file(
+                db, subject, result["text"], result["agent"], actor_id=admin.id
+            )
+            if created and doc:
+                _auto_learner_stats["total_items_learned"] += 1
+                _log("agent_learn", f"Agent ({result['agent']}) researched: {subject}", 1)
         except Exception:
             continue
 
@@ -858,6 +950,12 @@ def trigger_learning_cycle() -> dict:
         results.append("social skills learned")
     except Exception as e:
         results.append(f"social error: {str(e)[:50]}")
+
+    try:
+        _learn_from_agents(db, admin)
+        results.append("agent learning done")
+    except Exception as e:
+        results.append(f"agent error: {str(e)[:50]}")
 
     db.close()
     _cycle_active = False

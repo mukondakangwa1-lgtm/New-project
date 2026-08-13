@@ -114,6 +114,13 @@ async def lifespan(app: FastAPI):
             resume_kudos_learner()
         except Exception:
             pass
+    # Wake KUDOS's brain — it self-activates and never shuts down
+    try:
+        from app.core.kudos_brain import resume_brain
+
+        resume_brain()
+    except Exception:
+        pass
     yield
 
 

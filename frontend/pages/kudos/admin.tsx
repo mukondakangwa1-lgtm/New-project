@@ -15,8 +15,12 @@ interface Stats {
 interface PendingDoc {
   id: number;
   title: string;
-  uploaded_by: number;
+  tags: string;
   chunks: number;
+  summary: string;
+  content_preview: string;
+  uploaded_by: number;
+  created_at: string;
 }
 interface PendingWeb {
   id: number;
@@ -80,10 +84,20 @@ export default function KudosAdmin() {
   };
 
   const approveDoc = async (id: number) => {
-    await fetch(`/api/v1/kudos/documents/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json", ...getAuthHeader() },
-      body: JSON.stringify({ is_approved: true }),
+    await fetch(`/api/v1/kudos/admin/review/${id}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded", ...getAuthHeader() },
+      body: new URLSearchParams({ action: "approve" }),
+    });
+    fetchAll();
+  };
+
+  const rejectDoc = async (id: number) => {
+    if (!confirm("Reject this learned file? It will be removed from the review queue.")) return;
+    await fetch(`/api/v1/kudos/admin/review/${id}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded", ...getAuthHeader() },
+      body: new URLSearchParams({ action: "reject" }),
     });
     fetchAll();
   };
@@ -104,6 +118,36 @@ export default function KudosAdmin() {
       headers: getAuthHeader(),
     });
     fetchAll();
+  };
+
+  const [subject, setSubject] = useState("");
+  const [agent, setAgent] = useState("build");
+  const [learning, setLearning] = useState(false);
+  const [expanded, setExpanded] = useState<number | null>(null);
+
+  const learnWithAgent = async () => {
+    if (!subject.trim()) return;
+    setLearning(true);
+    setMessage("");
+    try {
+      const res = await fetch("/api/v1/kudos/admin/agents/learn", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded", ...getAuthHeader() },
+        body: new URLSearchParams({ subject: subject.trim(), agent }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setMessage(`✅ Agent researched "${data.title}" — ${data.chunks} chunks, pending review`);
+        setSubject("");
+      } else {
+        setMessage(`⚠️ ${data.detail || "Agent learning failed"}`);
+      }
+    } catch {
+      setMessage("⚠️ Agent learning failed");
+    } finally {
+      setLearning(false);
+      fetchAll();
+    }
   };
 
   if (!allowed) return null;
@@ -166,6 +210,42 @@ export default function KudosAdmin() {
             </button>
           </div>
 
+          {/* Learn with an opencode subagent */}
+          <div className="bg-white rounded-xl border p-5 mb-8">
+            <h3 className="font-semibold text-lg mb-1">🤖 Learn with an opencode agent</h3>
+            <p className="text-sm text-gray-500 mb-4">
+              Ask a subagent to research any subject right now. The finished file lands here,
+              pending your review — approve it and it becomes public to the whole campus.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <input
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && learnWithAgent()}
+                placeholder="e.g. Ethnobotany, Fluid dynamics, Ancient civilizations…"
+                className="flex-1 border rounded-lg px-4 py-2 text-sm"
+                disabled={learning}
+              />
+              <select
+                value={agent}
+                onChange={(e) => setAgent(e.target.value)}
+                className="border rounded-lg px-3 py-2 text-sm bg-white"
+                disabled={learning}
+              >
+                <option value="build">build</option>
+                <option value="plan">plan</option>
+                <option value="general">general</option>
+              </select>
+              <button
+                onClick={learnWithAgent}
+                disabled={learning || !subject.trim()}
+                className="bg-indigo-600 text-white px-5 py-2 rounded-lg font-medium hover:bg-indigo-700 transition disabled:opacity-50"
+              >
+                {learning ? "Researching…" : "🤖 Research"}
+              </button>
+            </div>
+          </div>
+
           {/* Pending documents */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             <div>
@@ -179,27 +259,41 @@ export default function KudosAdmin() {
               ) : (
                 <div className="space-y-3">
                   {pending.pending_documents.map((doc) => (
-                    <div key={doc.id} className="bg-white rounded-lg border p-4 flex justify-between items-center">
-                      <div>
-                        <p className="font-medium">{doc.title}</p>
-                        <p className="text-xs text-gray-400">
-                          {doc.chunks} chunks • Uploaded by user #{doc.uploaded_by}
-                        </p>
+                    <div key={doc.id} className="bg-white rounded-lg border p-4">
+                      <div className="flex justify-between items-start gap-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium">{doc.title}</p>
+                          <p className="text-xs text-gray-400 mt-0.5">
+                            {doc.chunks} chunks • {doc.tags}
+                          </p>
+                        </div>
+                        <div className="flex gap-2 shrink-0">
+                          <button
+                            onClick={() => setExpanded(expanded === doc.id ? null : doc.id)}
+                            className="text-xs bg-gray-100 text-gray-700 px-3 py-1 rounded hover:bg-gray-200"
+                          >
+                            {expanded === doc.id ? "Hide" : "View"}
+                          </button>
+                          <button
+                            onClick={() => approveDoc(doc.id)}
+                            className="text-xs bg-green-100 text-green-700 px-3 py-1 rounded hover:bg-green-200"
+                          >
+                            Approve
+                          </button>
+                          <button
+                            onClick={() => rejectDoc(doc.id)}
+                            className="text-xs bg-red-100 text-red-700 px-3 py-1 rounded hover:bg-red-200"
+                          >
+                            Reject
+                          </button>
+                        </div>
                       </div>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => approveDoc(doc.id)}
-                          className="text-xs bg-green-100 text-green-700 px-3 py-1 rounded hover:bg-green-200"
-                        >
-                          Approve
-                        </button>
-                        <button
-                          onClick={() => deleteDoc(doc.id)}
-                          className="text-xs bg-red-100 text-red-700 px-3 py-1 rounded hover:bg-red-200"
-                        >
-                          Delete
-                        </button>
-                      </div>
+                      {doc.summary && <p className="text-xs text-gray-500 mt-2 italic">{doc.summary}</p>}
+                      {expanded === doc.id && (
+                        <pre className="mt-3 max-h-72 overflow-y-auto bg-gray-50 border rounded-lg p-3 text-xs whitespace-pre-wrap font-sans text-gray-700">
+                          {doc.content_preview}
+                        </pre>
+                      )}
                     </div>
                   ))}
                 </div>
