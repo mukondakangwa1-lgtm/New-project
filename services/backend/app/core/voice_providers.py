@@ -1,12 +1,13 @@
 """KUDOS Voice Providers — cloning, TTS and voice conversion across backends.
 
-Unifies two cloning-capable backends behind one interface:
+Unifies three cloning-capable backends behind one interface:
   - ElevenLabs   (cloud, needs ELEVENLABS_API_KEY)
   - Coqui XTTS   (local sidecar, needs COQUI_TTS_URL — no API key)
+  - Fish Audio   (cloud, fast TTS + cloning, needs FISH_API_KEY)
 
-The superadmin's signature voice can be cloned by either. Voice ids returned
-by Coqui are namespaced `coqui:<id>` so callers know which provider owns a
-voice (ElevenLabs ids are used bare).
+The superadmin's signature voice can be cloned by any. Voice ids returned
+by Coqui are namespaced `coqui:<id>` and Fish `fish:<id>` so callers know which
+provider owns a voice (ElevenLabs ids are used bare).
 """
 
 from __future__ import annotations
@@ -20,7 +21,9 @@ from app.core.llm_engine import get_api_key
 
 _ELEVEN = "https://api.elevenlabs.io"
 _OPENAI_AUDIO = "https://api.openai.com/v1/audio"
+_FISH = "https://api.fish.audio"
 COQUI_PREFIX = "coqui:"
+FISH_PREFIX = "fish:"
 
 # OpenAI TTS stock voices (fallback voices KUDOS can speak with).
 OPENAI_TTS_VOICES = ["alloy", "ash", "ballad", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer"]
@@ -34,6 +37,14 @@ def coqui_url() -> str:
     return (settings.COQUI_TTS_URL or "").strip().rstrip("/")
 
 
+def fish_key() -> str | None:
+    return (settings.FISH_API_KEY or "").strip() or None
+
+
+def is_fish_voice(voice_id: str) -> bool:
+    return (voice_id or "").startswith(FISH_PREFIX)
+
+
 def is_coqui_voice(voice_id: str) -> bool:
     return (voice_id or "").startswith(COQUI_PREFIX)
 
@@ -42,9 +53,13 @@ def coqui_available() -> bool:
     return bool(coqui_url())
 
 
+def fish_available() -> bool:
+    return bool(fish_key())
+
+
 def clone_provider() -> str:
     """Which provider should clone the signature voice."""
-    prefs = ["elevenlabs", "coqui"]
+    prefs = ["elevenlabs", "coqui", "fish"]
     chosen = (settings.VOICE_CLONE_PROVIDER or "").strip()
     if chosen in prefs:
         # Honour explicit choice only if that provider is actually available.
@@ -52,8 +67,12 @@ def clone_provider() -> str:
             return "elevenlabs"
         if chosen == "coqui" and coqui_available():
             return "coqui"
+        if chosen == "fish" and fish_available():
+            return "fish"
     if eleven_key():
         return "elevenlabs"
+    if fish_available():
+        return "fish"
     if coqui_available():
         return "coqui"
     return ""
@@ -71,12 +90,14 @@ async def clone_voice(samples: list[dict], name: str = "KUDOS") -> dict:
     if not provider:
         return {
             "error": (
-                "No voice-cloning provider available — add ELEVENLABS_API_KEY "
-                "or enable the local Coqui sidecar (COQUI_TTS_URL)"
+                "No voice-cloning provider available — add ELEVENLABS_API_KEY, "
+                "a FISH_API_KEY, or enable the local Coqui sidecar (COQUI_TTS_URL)"
             )
         }
     if provider == "elevenlabs":
         return await _eleven_clone(samples, name)
+    if provider == "fish":
+        return await _fish_clone(samples, name)
     return await _coqui_clone(samples, name)
 
 
@@ -144,6 +165,57 @@ async def _coqui_clone(samples: list[dict], name: str) -> dict:
         return {"error": f"Coqui clone error: {e}"}
 
 
+async def _fish_clone(samples: list[dict], name: str) -> dict:
+    """Clone a voice from reference audio via Fish Audio's cloud (fast + local
+    training modes). Returns a namespaced `fish:<model_id>` voice id."""
+    key = fish_key()
+    if not key:
+        return {"error": "FISH_API_KEY not configured"}
+    files = []
+    texts = []
+    for i, s in enumerate(samples):
+        ext = s.get("mime", "audio/webm").split("/")[-1].split(";")[0] or "wav"
+        files.append(
+            ("voices", (f"ref_{i}.{ext}", s["data"], s.get("mime", "audio/webm")))
+        )
+        if s.get("transcript"):
+            texts.append(s["transcript"])
+    # Fish Audio transcribes the voices itself if `texts` is left out.
+    data = {
+        "type": "tts",
+        "title": name,
+        "train_mode": (settings.FISH_CLONE_TRAIN_MODE or "fast").strip(),
+        "visibility": "private",
+        "enhance_audio_quality": "true",
+        "generate_sample": "false",
+    }
+    if texts:
+        data["texts"] = texts
+    try:
+        async with httpx.AsyncClient(timeout=300) as client:
+            res = await client.post(
+                f"{_FISH}/model",
+                headers={"Authorization": f"Bearer {key}"},
+                data=data,
+                files=files,
+            )
+            if res.status_code in (200, 201):
+                body = res.json()
+                model_id = str(body.get("id") or body.get("_id") or "").strip()
+                if model_id:
+                    return {
+                        "voice_id": f"{FISH_PREFIX}{model_id}",
+                        "name": name,
+                        "provider": "fish",
+                    }
+                return {"error": "Fish Audio did not return a model id"}
+            return {
+                "error": f"Fish Audio clone failed ({res.status_code}): {res.text[:300]}"
+            }
+    except Exception as e:
+        return {"error": f"Fish Audio clone error: {e}"}
+
+
 # ──────────────────────────────────────────────
 # TEXT-TO-SPEECH
 # ──────────────────────────────────────────────
@@ -157,6 +229,8 @@ def tts_provider_preference() -> list[str]:
         order = [chosen]
     if eleven_key():
         order.append("elevenlabs")
+    if fish_available():
+        order.append("fish")
     if coqui_available():
         order.append("coqui")
     if get_api_key("openai"):
@@ -175,14 +249,22 @@ async def synthesize(text: str, voice_id: str = "", default_voice: str = "") -> 
     if not providers:
         return {"error": "No TTS provider configured (ElevenLabs, Coqui or OpenAI key needed)"}
 
-    # If the voice is a Coqui clone, Coqui must be first in line.
-    if voice_id and is_coqui_voice(voice_id) and coqui_available():
+    # If the voice is a Coqui clone, Coqui must be first in line — unless the
+    # operator chose the fast live provider (VOICE_TTS_FORCE_COQUI_CLONE).
+    if (
+        settings.VOICE_TTS_FORCE_COQUI_CLONE
+        and voice_id
+        and is_coqui_voice(voice_id)
+        and coqui_available()
+    ):
         providers = ["coqui"] + [p for p in providers if p != "coqui"]
 
     for p in providers:
         out = {}
         if p == "elevenlabs" and (voice_id or default_voice):
             out = await _eleven_tts(text, voice_id or default_voice)
+        elif p == "fish":
+            out = await _fish_tts(text, voice_id)
         elif p == "coqui" and (voice_id or default_voice):
             out = await _coqui_tts(text, voice_id, default_voice)
         elif p == "openai":
@@ -190,6 +272,38 @@ async def synthesize(text: str, voice_id: str = "", default_voice: str = "") -> 
         if out.get("data"):
             return out
     return {"error": "TTS providers returned no audio"}
+
+
+async def _fish_tts(text: str, reference_id: str) -> dict:
+    """Synthesize via Fish Audio cloud. `reference_id` (a Fish voice model id,
+    optionally namespaced `fish:`) gives the custom cloned voice; when empty,
+    Fish uses its default voice."""
+    key = fish_key()
+    if not key:
+        return {}
+    payload: dict = {"text": text, "format": "mp3", "latency": "balanced"}
+    if reference_id and is_fish_voice(reference_id):
+        payload["reference_id"] = reference_id[len(FISH_PREFIX) :]
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            res = await client.post(
+                f"{_FISH}/v1/tts",
+                headers={
+                    "Authorization": f"Bearer {key}",
+                    "Content-Type": "application/json",
+                    "model": (settings.FISH_TTS_MODEL or "s2.1-pro-free").strip(),
+                },
+                json=payload,
+            )
+            if res.status_code == 200:
+                return {
+                    "mime_type": "audio/mpeg",
+                    "data": base64.b64encode(res.content).decode(),
+                    "provider": "fish",
+                }
+            return {"error": f"Fish Audio TTS failed ({res.status_code}): {res.text[:200]}"}
+    except Exception as e:
+        return {"error": f"Fish Audio TTS error: {e}"}
 
 
 async def _coqui_tts(text: str, voice_id: str = "", default_voice: str = "") -> dict:
@@ -284,12 +398,12 @@ async def _openai_tts(text: str, voice: str) -> dict:
 async def convert_voice(audio_bytes: bytes, mime: str, target_voice_id: str, model: str = "") -> dict:
     """Re-speak any spoken clip in the target voice.
     - ElevenLabs target -> speech-to-speech API.
-    - Coqui target      -> no direct S2S in XTTS; returns an error with a hint
+    - Coqui/Fish target -> no direct S2S; returns an error with a hint
       so the endpoint can fall back to transcribe-and-resynthesize.
     Returns audio base64 or {"error": ...}."""
     if not target_voice_id:
         return {"error": "No target voice — pass a voice_id to convert into"}
-    if is_coqui_voice(target_voice_id):
+    if is_coqui_voice(target_voice_id) or is_fish_voice(target_voice_id):
         return {"error": "coqui_needs_transcribe"}  # endpoint handles fallback
     return await _eleven_convert(audio_bytes, mime, target_voice_id, model)
 
@@ -361,3 +475,11 @@ async def list_coqui_voices() -> list[dict]:
     except Exception:
         pass
     return []
+
+
+async def list_fish_voices() -> list[dict]:
+    """Fish Audio public TTS voices (filtered to the stable default stock set).
+    The signature clone is surfaced separately via the voice profile."""
+    return [
+        {"id": "", "name": "Fish default", "provider": "fish", "kind": "stock"},
+    ]

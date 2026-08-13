@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { getAuthHeader } from "@/lib/api";
 import Layout from "@/components/Layout";
+import KudosMic from "@/components/KudosMic";
 
 interface Room {
   id: number;
@@ -62,6 +63,9 @@ export default function ChatPage() {
   const wsRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [currentUserId, setCurrentUserId] = useState<number>(0);
+  const [speakKudos, setSpeakKudos] = useState(false);
+  const speakKudosRef = useRef(false);
+  speakKudosRef.current = speakKudos;
 
   // Resolve the current user id for offline messages / "me" rendering
   useEffect(() => {
@@ -117,6 +121,9 @@ export default function ChatPage() {
       const data = JSON.parse(event.data);
       if (data.type === "message") {
         setMessages((prev) => [...prev, data]);
+        if (data.is_kudos && speakKudosRef.current && data.content) {
+          speakText(data.content);
+        }
       } else if (data.type === "online") {
         setOnlineUsers(data.user_ids || []);
       }
@@ -169,6 +176,53 @@ export default function ChatPage() {
     }
 
     setInput("");
+  };
+
+  const sendText = (text: string) => {
+    if (!text.trim() || !selectedRoom) return;
+    const content = text.trim();
+    const msg: Message = {
+      room_id: selectedRoom.id,
+      user_id: currentUserId,
+      content,
+      message_type: "text",
+      is_offline: !isConnected,
+      created_at: new Date().toISOString(),
+    };
+    if (wsRef.current && isConnected) {
+      wsRef.current.send(JSON.stringify({ content, message_type: "text" }));
+    } else {
+      addToOfflineQueue(msg);
+      setMessages((prev) => [...prev, { ...msg, user_name: "You (offline)" }]);
+    }
+  };
+
+  const speakText = async (text: string) => {
+    try {
+      const res = await fetch("/api/v1/kudos/voice/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...getAuthHeader() },
+        body: JSON.stringify({ text }),
+      });
+      const d = await res.json();
+      if (d?.audio_b64) playBase64Audio(d.audio_b64, d.mime_type || "audio/mpeg");
+    } catch {
+      /* best-effort */
+    }
+  };
+
+  const playBase64Audio = (b64: string, mime: string) => {
+    try {
+      const binary = atob(b64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const url = URL.createObjectURL(new Blob([bytes], { type: mime || "audio/mpeg" }));
+      const audio = new Audio(url);
+      audio.onended = () => URL.revokeObjectURL(url);
+      audio.play().catch(() => URL.revokeObjectURL(url));
+    } catch {
+      /* best-effort playback */
+    }
   };
 
   const createRoom = async () => {
@@ -329,14 +383,20 @@ export default function ChatPage() {
 
               {/* Input */}
               <div className="p-4 border-t bg-white">
-                <div className="flex gap-2">
+                <div className="flex gap-2 items-center">
+                  <KudosMic
+                    variant="transcribe"
+                    disabled={!isConnected}
+                    onTranscript={(text) => sendText(text)}
+                    onError={(m) => alert(m)}
+                  />
                   <input
                     type="text"
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && sendMessage()}
                     className="flex-1 rounded-lg border px-4 py-2 text-sm focus:ring-2 focus:ring-primary focus:outline-none"
-                    placeholder={isConnected ? "Type a message..." : "Type (will send when online)..."}
+                    placeholder={isConnected ? "Type a message or speak into the mic..." : "Type (will send when online)..."}
                   />
                   <button
                     onClick={sendMessage}
@@ -344,6 +404,15 @@ export default function ChatPage() {
                     className="bg-primary text-white px-6 py-2 rounded-lg font-medium hover:bg-blue-800 disabled:opacity-50"
                   >
                     Send
+                  </button>
+                  <button
+                    onClick={() => setSpeakKudos((v) => !v)}
+                    title={speakKudos ? "KUDOS replies will be spoken out loud" : "Turn on spoken KUDOS replies"}
+                    className={`px-3 py-2 rounded-lg text-sm font-medium border transition ${
+                      speakKudos ? "bg-amber-100 border-amber-400 text-amber-700" : "bg-white border-gray-200 text-gray-500 hover:bg-gray-50"
+                    }`}
+                  >
+                    {speakKudos ? "🔊 ON" : "🔇"}
                   </button>
                 </div>
               </div>

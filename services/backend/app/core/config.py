@@ -116,13 +116,22 @@ class Settings(BaseSettings):
     ELEVENLABS_API_KEY: str = ""
     ELEVENLABS_TTS_MODEL: str = "eleven_multilingual_v2"
     ELEVENLABS_S2S_MODEL: str = "eleven_multilingual_sts_v2"  # voice changer (speech-to-speech)
+    # Fish Audio (cloud, fast TTS + voice cloning — free s2.1-pro tier).
+    FISH_API_KEY: str = ""
+    FISH_TTS_MODEL: str = "s2.1-pro-free"  # s2.1-pro-free | s2-pro | s2.1-pro
+    FISH_CLONE_TRAIN_MODE: str = "fast"  # fast | full
     # Local voice sidecar (Coqui XTTS v2). Empty = feature disabled. When set,
     # KUDOS can clone a signature voice without any API key.
     COQUI_TTS_URL: str = ""
     COQUI_TTS_LANGUAGE: str = "en"
     # Provider preference for cloning/TTS when more than one is available.
-    VOICE_CLONE_PROVIDER: str = "elevenlabs"  # elevenlabs | coqui
-    VOICE_TTS_PROVIDER: str = ""  # elevenlabs | coqui | openai ("" = auto preference)
+    VOICE_CLONE_PROVIDER: str = "elevenlabs"  # elevenlabs | coqui | fish
+    VOICE_TTS_PROVIDER: str = ""  # elevenlabs | coqui | fish | openai ("" = auto preference)
+    # When False, a Coqui clone is not forced to the front of the TTS line even
+    # when a `coqui:<id>` voice is requested — the fast provider (e.g. OpenAI)
+    # is used so the live mic loop stays instant. Set True to always force the
+    # cloned Coqui signature voice regardless of speed.
+    VOICE_TTS_FORCE_COQUI_CLONE: bool = False
     OPENAI_TTS_MODEL: str = "gpt-4o-mini-tts"
     OPENAI_TTS_VOICE: str = "nova"  # fallback voice until the signature voice is cloned
     # Signature voice: minimum clear speech captured before auto-clone on first feed.

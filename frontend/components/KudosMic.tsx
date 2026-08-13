@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getAuthHeader } from "@/lib/api";
 
 interface MicResult {
@@ -8,29 +8,88 @@ interface MicResult {
   mimeType: string;
 }
 
+type MicVariant = "kudos" | "guest" | "transcribe";
+
 interface KudosMicProps {
-  conversationId: number | null;
+  conversationId?: number | null;
+  guestId?: string;
+  variant?: MicVariant;
   disabled?: boolean;
-  onResult: (res: MicResult) => void;
+  greeting?: boolean;
+  onResult?: (res: MicResult) => void;
+  onTranscript?: (text: string) => void;
   onError?: (msg: string) => void;
 }
 
 /**
- * KUDOS mic — hold to talk.
+ * KUDOS mic — tap to toggle.
  *
- * Hold the button and speak; release to send. If you held long enough
- * (>= 600 ms) KUDOS replies OUT LOUD (TTS audio autoplays). A very quick tap
- * is treated as a "waiting" press and shows a hint instead of sending silence.
+ * Tap once to turn the mic ON: KUDOS greets out loud ("Go ahead, I'm
+ * listening") then starts recording. Tap again to STOP and send — KUDOS
+ * transcribes, answers in context of the conversation, and speaks the reply
+ * back (audio autoplays).
+ *
+ * `variant`:
+ *   - "kudos"      -> authenticated /kudos voice loop (POST /voice/chat)
+ *   - "guest"      -> anonymous voice loop (POST /guest/voice/chat)
+ *   - "transcribe" -> transcript-only (POST /voice/transcribe) for room chat
  */
-export default function KudosMic({ conversationId, disabled, onResult, onError }: KudosMicProps) {
+export default function KudosMic({
+  conversationId,
+  guestId,
+  variant = "kudos",
+  disabled,
+  greeting = true,
+  onResult,
+  onTranscript,
+  onError,
+}: KudosMicProps) {
   const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState(false);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
-  const pressedAtRef = useRef(0);
-  const longPressRef = useRef(false);
-  const timerRef = useRef<number | null>(null);
+
+  useEffect(() => () => streamRef.current?.getTracks().forEach((t) => t.stop()), []);
+
+  const playB64 = (b64: string, mime: string) => {
+    try {
+      const binary = atob(b64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const url = URL.createObjectURL(new Blob([bytes], { type: mime || "audio/mpeg" }));
+      const audio = new Audio(url);
+      audio.onended = () => URL.revokeObjectURL(url);
+      audio.play().catch(() => URL.revokeObjectURL(url));
+    } catch {
+      /* best-effort playback */
+    }
+  };
+
+  const headers = () => getAuthHeader();
+
+  const greet = async () => {
+    if (!greeting || typeof window === "undefined") return;
+    try {
+      if (variant === "guest") {
+        const fd = new FormData();
+        fd.append("guest_id", guestId || "");
+        const res = await fetch("/api/v1/kudos/guest/voice/greet", { method: "POST", body: fd });
+        if (res.ok) {
+          const d = await res.json();
+          if (d.audio_b64) playB64(d.audio_b64, d.mime_type);
+        }
+      } else {
+        const res = await fetch("/api/v1/kudos/voice/greet", { method: "POST", headers: headers() });
+        if (res.ok) {
+          const d = await res.json();
+          if (d.audio_b64) playB64(d.audio_b64, d.mime_type);
+        }
+      }
+    } catch {
+      /* greeting is best-effort */
+    }
+  };
 
   const startRecording = async () => {
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -48,30 +107,15 @@ export default function KudosMic({ conversationId, disabled, onResult, onError }
       rec.start();
       recorderRef.current = rec;
       setRecording(true);
+      greet();
     } catch {
-      onError?.("Microphone unavailable — check browser permissions.");
+      onError?.("Microphone unavailable — allow the mic (HTTPS required).");
     }
   };
 
-  const handleDown = () => {
-    if (disabled || busy) return;
-    longPressRef.current = false;
-    pressedAtRef.current = Date.now();
-    timerRef.current = window.setTimeout(() => {
-      longPressRef.current = true;
-    }, 600);
-    startRecording();
-  };
-
-  const handleUp = async () => {
-    if (timerRef.current !== null) {
-      window.clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
+  const stopRecording = async () => {
     const rec = recorderRef.current;
     if (!rec || rec.state !== "recording") return;
-    const duration = Date.now() - pressedAtRef.current;
-
     const audio = await new Promise<Blob>((resolve) => {
       rec.addEventListener("stop", () => resolve(new Blob(chunksRef.current, { type: rec.mimeType || "audio/webm" })), { once: true });
       rec.stop();
@@ -80,31 +124,51 @@ export default function KudosMic({ conversationId, disabled, onResult, onError }
     streamRef.current = null;
     recorderRef.current = null;
     setRecording(false);
-
-    const speak = longPressRef.current;
-    if (duration < 300 && !speak) {
-      onError?.("Hold the mic to talk — or tap when already recording to stop and send.");
-      return;
-    }
     setBusy(true);
     try {
       const form = new FormData();
       form.append("file", audio, "kudos_mic.webm");
-      form.append("conversation_id", String(conversationId || 0));
-      form.append("text", "");
-      const res = await fetch("/api/v1/kudos/voice/chat", {
-        method: "POST",
-        headers: getAuthHeader(),
-        body: form,
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "KUDOS couldn't understand the audio.");
-      onResult({
-        transcript: data.transcript || "",
-        answer: data.answer || "",
-        audioB64: speak ? data.audio_b64 || "" : "",
-        mimeType: data.mime_type || "audio/mpeg",
-      });
+
+      if (variant === "transcribe") {
+        const res = await fetch("/api/v1/kudos/voice/transcribe", {
+          method: "POST",
+          headers: headers(),
+          body: form,
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "KUDOS couldn't understand the audio.");
+        onTranscript?.(data.transcript || "");
+      } else if (variant === "guest") {
+        form.append("guest_id", guestId || "");
+        const res = await fetch("/api/v1/kudos/guest/voice/chat", {
+          method: "POST",
+          body: form,
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "KUDOS couldn't understand the audio.");
+        onResult?.({
+          transcript: data.transcript || "",
+          answer: data.answer || "",
+          audioB64: data.audio_b64 || "",
+          mimeType: data.mime_type || "audio/mpeg",
+        });
+      } else {
+        form.append("conversation_id", String(conversationId || 0));
+        form.append("text", "");
+        const res = await fetch("/api/v1/kudos/voice/chat", {
+          method: "POST",
+          headers: headers(),
+          body: form,
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "KUDOS couldn't understand the audio.");
+        onResult?.({
+          transcript: data.transcript || "",
+          answer: data.answer || "",
+          audioB64: data.audio_b64 || "",
+          mimeType: data.mime_type || "audio/mpeg",
+        });
+      }
     } catch (e: any) {
       onError?.(e.message || "Voice request failed.");
     } finally {
@@ -112,19 +176,21 @@ export default function KudosMic({ conversationId, disabled, onResult, onError }
     }
   };
 
-  const handleLeave = () => {
-    if (recording) handleUp();
+  const toggle = () => {
+    if (disabled || busy) return;
+    if (recording) {
+      stopRecording();
+    } else {
+      startRecording();
+    }
   };
 
   return (
     <button
       type="button"
-      onPointerDown={handleDown}
-      onPointerUp={handleUp}
-      onPointerLeave={handleLeave}
-      onPointerCancel={handleLeave}
+      onClick={toggle}
       disabled={disabled || busy}
-      title={recording ? "Release to send" : "Hold to talk — hold longer for KUDOS to speak back"}
+      title={recording ? "Tap to stop and send" : "Turn the mic on — KUDOS listens and speaks back"}
       className={`rounded-full w-12 h-12 flex items-center justify-center text-xl shrink-0 transition select-none touch-none ${
         busy
           ? "bg-gray-200 text-gray-500"
@@ -133,7 +199,7 @@ export default function KudosMic({ conversationId, disabled, onResult, onError }
             : "bg-amber-600 text-white hover:bg-amber-700"
       } disabled:opacity-50`}
     >
-      {busy ? "…" : "🎤"}
+      {busy ? "…" : recording ? "🔴" : "🎤"}
     </button>
   );
 }

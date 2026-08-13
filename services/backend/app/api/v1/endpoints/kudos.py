@@ -17,6 +17,7 @@ import httpx
 from bs4 import BeautifulSoup
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core import storage
@@ -34,6 +35,7 @@ from app.models import (
     User,
     Visit,
 )
+from app.models_extended import VoiceProfile as KudosVoiceProfile
 from app.schemas import (
     ChatSendResponse,
     GuestAskRequest,
@@ -1150,43 +1152,30 @@ def _get_guest_conversation(db: Session, guest_id: str):
     return conv, True
 
 
-@router.post("/guest/ask", response_model=KudosAskResponse)
-async def guest_ask_kudos(body: GuestAskRequest, db: Session = Depends(get_db)):
-    """Anonymous chat with KUDOS. The browser sends a persistent guest_id
-    (a UUID stored in localStorage) so conversations survive refreshes.
-    Guests get the same knowledge pipeline but no personal memory, persona
-    or terminal access."""
-    if not body.guest_id or len(body.guest_id) < 8:
-        raise HTTPException(status_code=422, detail="guest_id must be at least 8 characters")
-    if not _guest_rate_ok(body.guest_id):
-        raise HTTPException(status_code=429, detail="You're asking a lot — please wait a minute")
-
+async def _run_guest_pipeline(db: Session, guest_id: str, question: str) -> tuple[str, int, list[dict]]:
+    """Shared guest brain: persists the question, answers in the context of the
+    ongoing guest conversation (same guarantee as /guest/ask), stores the reply,
+    and returns (answer, conversation_id, cited_sources)."""
     _get_or_create_guest_user(db)
-    conv, first_chat = _get_guest_conversation(db, body.guest_id)
+    conv, first_chat = _get_guest_conversation(db, guest_id)
     if first_chat:
         db.add(KudosMessage(conversation_id=conv.id, role="kudos", content=_GUEST_WELCOME))
         db.commit()
 
-    db.add(KudosMessage(conversation_id=conv.id, role="user", content=body.question))
+    db.add(KudosMessage(conversation_id=conv.id, role="user", content=question))
     db.flush()
 
     # Fast path for short, casual guest questions.
     from app.core.privacy_guard import scrub_response
     from app.core.quick_answers import get_short_answer, is_short_question
 
-    if is_short_question(body.question):
-        short = await get_short_answer(body.question)
-        short = scrub_response(short, allow_emails=True)
-        try:
-            db.add(KudosMessage(conversation_id=conv.id, role="kudos", content=short, sources="[]"))
-            db.commit()
-        except Exception:
-            db.rollback()
-        return KudosAskResponse(answer=short, sources=[], conversation_id=conv.id, media=[])
+    if is_short_question(question):
+        short = await _guest_short(db, conv, question)
+        return short, conv.id, []
 
     sources = []
     with contextlib.suppress(Exception):
-        sources = search_chunks(db, body.question)
+        sources = search_chunks(db, question)
 
     knowledge_context = ""
     if sources:
@@ -1224,7 +1213,7 @@ async def guest_ask_kudos(body: GuestAskRequest, db: Session = Depends(get_db)):
         except Exception:
             pass
         llm_answer = await get_llm_response(
-            question=body.question,
+            question=question,
             knowledge_context=knowledge_context,
             conversation_history=conv_history,
             user_name="Guest",
@@ -1240,17 +1229,17 @@ async def guest_ask_kudos(body: GuestAskRequest, db: Session = Depends(get_db)):
         if len(answer) <= 10:
             raise ValueError("empty llm answer")
     except Exception:
-        answer = generate_answer(body.question, sources)
+        answer = generate_answer(question, sources)
 
     if not answer or len(answer) < 10:
-        answer = generate_answer(body.question, sources)
+        answer = generate_answer(question, sources)
 
     # Offline brain + hallucination guard for guest chats: guests get the same
     # guarantee — KUDOS never answers from unsupported claims.
     try:
         from app.core.kudos_brain import answer_offline, hallucination_guard
 
-        offline = answer_offline(db, body.question, user_id=None)
+        offline = answer_offline(db, question, user_id=None)
         if settings.KUDOS_GROUNDED_ONLY and sources:
             guard = hallucination_guard(answer, sources, threshold=settings.KUDOS_BRAIN_MIN_SCORE)
             if not guard["passes"]:
@@ -1289,21 +1278,136 @@ async def guest_ask_kudos(body: GuestAskRequest, db: Session = Depends(get_db)):
     except Exception:
         db.rollback()
 
-    return KudosAskResponse(
+    return answer, conv.id, cited
+
+
+async def _guest_short(
+    db: Session, conv, question: str
+) -> str:
+    """Short-answer fast path for guests: persist + return the quick answer."""
+    from app.core.privacy_guard import scrub_response
+    from app.core.quick_answers import get_short_answer, is_short_question
+
+    if not is_short_question(question):
+        return ""
+    short = await get_short_answer(question)
+    short = scrub_response(short, allow_emails=True)
+    try:
+        db.add(KudosMessage(conversation_id=conv.id, role="kudos", content=short, sources="[]"))
+        db.commit()
+    except Exception:
+        db.rollback()
+    return short
+
+
+@router.post("/guest/ask", response_model=KudosAskResponse)
+async def guest_ask_kudos(body: GuestAskRequest, db: Session = Depends(get_db)):
+    """Anonymous chat with KUDOS. The browser sends a persistent guest_id
+    (a UUID stored in localStorage) so conversations survive refreshes.
+    Guests get the same knowledge pipeline but no personal memory, persona
+    or terminal access."""
+    if not body.guest_id or len(body.guest_id) < 8:
+        raise HTTPException(status_code=422, detail="guest_id must be at least 8 characters")
+    if not _guest_rate_ok(body.guest_id):
+        raise HTTPException(status_code=429, detail="You're asking a lot — please wait a minute")
+
+    answer, conv_id, cited = await _run_guest_pipeline(db, body.guest_id, body.question)
+    return KudosAskResponse(answer=answer, sources=cited, conversation_id=conv_id, media=[])
+
+
+class GuestVoiceResult(BaseModel):
+    transcript: str
+    answer: str
+    audio_b64: str = ""
+    mime_type: str = ""
+    conversation_id: int = 0
+
+
+class GuestGreetResult(BaseModel):
+    text: str
+    audio_b64: str = ""
+    mime_type: str = ""
+
+
+def _guest_voice_profile(db: Session) -> KudosVoiceProfile:
+    """Global VoiceProfile row (KUDOS speech is a single global switch)."""
+    from app.models_extended import VoiceProfile
+
+    profile = db.query(VoiceProfile).order_by(VoiceProfile.id.desc()).first()
+    if not profile:
+        profile = VoiceProfile()
+        db.add(profile)
+        db.commit()
+        db.refresh(profile)
+    return profile
+
+
+@router.post("/guest/voice/chat", response_model=GuestVoiceResult)
+async def guest_voice_chat(
+    file: UploadFile = File(...),
+    guest_id: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    """Anonymous voice loop: the visitor speaks, KUDOS transcribes and answers
+    in the context of their guest conversation, then speaks the reply back.
+    No login needed — same knowledge pipeline as /guest/ask."""
+    if not guest_id or len(guest_id) < 8:
+        raise HTTPException(status_code=422, detail="guest_id must be at least 8 characters")
+    if not _guest_rate_ok(guest_id):
+        raise HTTPException(status_code=429, detail="You're asking a lot — please wait a minute")
+
+    from app.core.privacy_guard import scrub_response
+    from app.core.voice import transcribe
+    from app.core.voice_providers import synthesize
+
+    content = await file.read()
+    mime = (file.content_type or "audio/webm").split(";")[0].strip()
+    question = (await transcribe(content, mime) or "").strip()
+    if not question:
+        raise HTTPException(status_code=422, detail="Could not understand the audio — please speak clearly")
+    question = scrub_response(question)
+
+    answer, conv_id, _ = await _run_guest_pipeline(db, guest_id, question)
+    answer = scrub_response(answer, allow_emails=True)
+
+    profile = _guest_voice_profile(db)
+    speech = {"mime_type": "", "audio_b64": ""}
+    if profile.tts_enabled:
+        try:
+            speech = await synthesize(
+                answer,
+                voice_id=profile.cloned_voice_id if profile.signature_active else "",
+                default_voice=profile.default_voice or "",
+            )
+        except Exception:
+            speech = {"mime_type": "", "audio_b64": ""}
+
+    return GuestVoiceResult(
+        transcript=question,
         answer=answer,
-        sources=cited
-        if cited
-        else [
-            {
-                "document_id": s.get("document_id"),
-                "web_id": s.get("web_id"),
-                "title": s.get("title", ""),
-                "preview": s.get("content", "")[:200],
-            }
-            for s in (sources[:3] if sources else [])
-        ],
-        conversation_id=conv.id,
+        audio_b64=speech.get("audio_b64", ""),
+        mime_type=speech.get("mime_type", ""),
+        conversation_id=conv_id,
     )
+
+
+@router.post("/guest/voice/greet", response_model=GuestGreetResult)
+async def guest_voice_greet(guest_id: str = Form(...), db: Session = Depends(get_db)):
+    """Anonymous opening line for the live mic loop."""
+    from app.core.voice_providers import synthesize
+
+    profile = _guest_voice_profile(db)
+    text = "Go ahead — I'm listening."
+    if not profile.tts_enabled:
+        return GuestGreetResult(text=text, audio_b64="", mime_type="")
+    speech = await synthesize(
+        text,
+        voice_id=profile.cloned_voice_id if profile.signature_active else "",
+        default_voice=profile.default_voice or "",
+    )
+    if speech.get("error"):
+        return GuestGreetResult(text=text, audio_b64="", mime_type="")
+    return GuestGreetResult(text=text, audio_b64=speech.get("data", ""), mime_type=speech.get("mime_type", "audio/mpeg"))
 
 
 @router.get("/guest/messages", response_model=list[KudosMessageResponse])

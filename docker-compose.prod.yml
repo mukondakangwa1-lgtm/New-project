@@ -99,6 +99,9 @@ services:
       COQUI_TTS_URL: http://coqui-tts:8082
       VOICE_CLONE_PROVIDER: ${VOICE_CLONE_PROVIDER:-elevenlabs}
       VOICE_TTS_PROVIDER: ${VOICE_TTS_PROVIDER:-}
+      # Fish Audio — fast cloud TTS + voice cloning.
+      FISH_API_KEY: ${FISH_API_KEY:-}
+      FISH_TTS_MODEL: ${FISH_TTS_MODEL:-s2.1-pro-free}
     ports:
       - "127.0.0.1:8000:8000"
     extra_hosts:

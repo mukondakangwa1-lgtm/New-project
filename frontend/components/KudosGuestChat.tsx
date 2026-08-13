@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import Layout from "@/components/Layout";
+import KudosMic from "@/components/KudosMic";
 
 interface GuestMessage {
   id: number;
@@ -29,6 +30,31 @@ export default function KudosGuestChat() {
       window.localStorage.setItem("kudos_guest_id", id);
     }
     return id;
+  };
+
+  // Play KUDOS's spoken answer from the base64 audio payload.
+  const playBase64Audio = (b64: string, mime: string) => {
+    try {
+      const binary = atob(b64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const url = URL.createObjectURL(new Blob([bytes], { type: mime || "audio/mpeg" }));
+      const audio = new Audio(url);
+      audio.onended = () => URL.revokeObjectURL(url);
+      audio.play().catch(() => URL.revokeObjectURL(url));
+    } catch {
+      /* best-effort playback */
+    }
+  };
+
+  // Voice loop result: show the transcript + answer and speak the reply.
+  const handleMicResult = (res: { transcript: string; answer: string; audioB64: string; mimeType: string }) => {
+    const now = new Date().toISOString();
+    if (res.transcript) {
+      setMessages((prev) => [...prev, { id: Date.now(), role: "user", content: res.transcript, created_at: now }]);
+    }
+    setMessages((prev) => [...prev, { id: Date.now() + 1, role: "kudos", content: res.answer, created_at: now }]);
+    if (res.audioB64) playBase64Audio(res.audioB64, res.mimeType);
   };
 
   useEffect(() => {
@@ -127,12 +153,19 @@ export default function KudosGuestChat() {
           {/* Input */}
           <div className="border-t bg-white px-4 py-3">
             {error && <p className="text-xs text-red-500 mb-2">{error}</p>}
-            <div className="flex gap-2">
+            <div className="flex gap-2 items-center">
+              <KudosMic
+                variant="guest"
+                guestId={getGuestId()}
+                disabled={loading}
+                onResult={handleMicResult}
+                onError={(m) => setError(m)}
+              />
               <input
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && send()}
-                placeholder="Ask KUDOS anything…"
+                placeholder="Ask KUDOS anything, or turn the mic on…"
                 className="flex-1 border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
               />
               <button

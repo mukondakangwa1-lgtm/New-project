@@ -18,6 +18,8 @@ Endpoints:
   POST /voice/convert                — voice changer: re-speak any clip in the target voice
   POST /voice/tts                    — text in -> spoken audio (any authenticated user)
   POST /voice/chat                   — audio in -> transcript + answer + spoken reply
+  POST /voice/greet                  — spoken opening line for the live mic loop
+  POST /voice/transcribe             — audio in -> transcript (for room-chat mics)
   POST /voice/session/start          — (admin) KUDOS greets and opens an interactive voice session
   POST /voice/session/turn           — (admin) record a line; KUDOS re-speaks it in the draft voice
   POST /voice/session/finalize       — (admin) finalize the session into the live signature voice
@@ -42,9 +44,11 @@ from app.core.voice_providers import (
     coqui_available,
     clone_voice,
     convert_voice,
+    fish_available,
     is_coqui_voice,
     list_coqui_voices,
     list_eleven_voices,
+    list_fish_voices,
     synthesize,
 )
 
@@ -94,6 +98,7 @@ def _status(profile: VoiceProfile, user: User, db: Session) -> dict:
             "elevenlabs": bool(__import__("app.core.config", fromlist=["settings"]).settings.ELEVENLABS_API_KEY),
             "openai": bool(__import__("app.core.llm_engine", fromlist=["get_api_key"]).get_api_key("openai")),
             "coqui": coqui_available(),
+            "fish": fish_available(),
         },
     }
 
@@ -165,7 +170,7 @@ async def _auto_clone_if_ready(db: Session, profile: VoiceProfile) -> dict:
     Returns a status dict."""
     if profile.signature_active:
         return {"auto_cloned": False, "reason": "already_active"}
-    if not (settings.ELEVENLABS_API_KEY or "").strip() and not coqui_available():
+    if not (settings.ELEVENLABS_API_KEY or "").strip() and not coqui_available() and not fish_available():
         return {"auto_cloned": False, "reason": "no_key"}
     total = _total_sample_seconds(db, profile.id)
     if total < settings.KUDOS_SIGNATURE_MIN_SAMPLE_SECONDS:
@@ -685,6 +690,8 @@ async def list_voices_endpoint(user: User = Depends(get_current_user), db: Sessi
         stock += await list_eleven_voices()
     with contextlib.suppress(Exception):
         voices += await list_coqui_voices()
+    with contextlib.suppress(Exception):
+        voices += await list_fish_voices()
 
     profile = _get_profile(db)
     return {
@@ -801,8 +808,26 @@ async def voice_chat(
     if is_short_question(question):
         answer = await get_short_answer(question, user.full_name.split()[0] if user.full_name else "")
     else:
-        answer = await _full_answer(db, user, question)
+        answer = await _full_answer(db, user, question, conversation_id or 0)
     answer = scrub_response(answer, allow_emails=True)
+
+    # Keep the conversation alive so KUDOS answers in context next turn.
+    if conversation_id:
+        try:
+            from app.models import KudosMessage
+
+            db.add(KudosMessage(conversation_id=conversation_id, role="user", content=question))
+            db.add(
+                KudosMessage(
+                    conversation_id=conversation_id,
+                    role="kudos",
+                    content=answer,
+                    sources="[]",
+                )
+            )
+            db.commit()
+        except Exception:
+            db.rollback()
 
     profile = _get_profile(db)
     speech = {"mime_type": "", "audio_b64": ""}
@@ -825,8 +850,60 @@ async def voice_chat(
     }
 
 
-async def _full_answer(db: Session, user: User, question: str) -> str:
-    """Mirror of the main ask pipeline (knowledge + LLM + fallback)."""
+class TranscribeResponse(BaseModel):
+    transcript: str
+
+
+@router.post("/voice/transcribe")
+async def transcribe_endpoint(
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Transcribe a spoken clip to text without answering — used by the mic in
+    chat rooms, where the transcript is posted into the room so KUDOS replies
+    with full room context."""
+    from app.core.voice import transcribe
+
+    content = await file.read()
+    if len(content) < 4 * 1024:
+        raise HTTPException(status_code=422, detail="Audio is too small — speak for a few seconds")
+    mime = (file.content_type or "audio/webm").split(";")[0].strip()
+    transcript = (await transcribe(content, mime) or "").strip()
+    if not transcript:
+        raise HTTPException(status_code=422, detail="Could not understand the audio — please speak clearly")
+    return TranscribeResponse(transcript=transcript)
+
+
+class GreetResponse(BaseModel):
+    text: str
+    audio_b64: str
+    mime_type: str
+
+
+@router.post("/voice/greet")
+async def greet_endpoint(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """KUDOS speaks the opening line for the live mic loop, then listens."""
+    from app.core.voice_providers import synthesize
+
+    profile = _get_profile(db)
+    first = user.full_name.split()[0] if user.full_name else "friend"
+    text = f"Go ahead, {first} — I'm listening."
+    if not profile.tts_enabled:
+        return GreetResponse(text=text, audio_b64="", mime_type="")
+    speech = await synthesize(
+        text,
+        voice_id=profile.cloned_voice_id if profile.signature_active else "",
+        default_voice=profile.default_voice or "",
+    )
+    if speech.get("error"):
+        return GreetResponse(text=text, audio_b64="", mime_type="")
+    return GreetResponse(text=text, audio_b64=speech.get("data", ""), mime_type=speech.get("mime_type", "audio/mpeg"))
+
+
+async def _full_answer(db: Session, user: User, question: str, conversation_id: int = 0) -> str:
+    """Mirror of the main ask pipeline (knowledge + memory + LLM + fallback),
+    optionally grounded in the ongoing conversation for context."""
     from app.api.v1.endpoints.kudos import search_chunks
     from app.core.llm_engine import get_llm_response
     from app.core.memory_store import build_memory_context
@@ -847,6 +924,22 @@ async def _full_answer(db: Session, user: User, question: str) -> str:
     with contextlib.suppress(Exception):
         persona_instructions = build_persona_instructions(profile_dict(db, user.id))
 
+    conversation_history = []
+    if conversation_id:
+        try:
+            from app.models import KudosMessage
+
+            conv_history = (
+                db.query(KudosMessage)
+                .filter(KudosMessage.conversation_id == conversation_id)
+                .order_by(KudosMessage.created_at.desc())
+                .limit(5)
+                .all()
+            )
+            conversation_history = [{"role": m.role, "content": m.content} for m in reversed(conv_history)]
+        except Exception:
+            conversation_history = []
+
     answer = ""
     try:
         answer = await get_llm_response(
@@ -856,6 +949,7 @@ async def _full_answer(db: Session, user: User, question: str) -> str:
             memory_context=memory_context,
             persona_instructions=persona_instructions,
             soul_context=soul_context,
+            conversation_history=conversation_history,
         )
     except Exception:
         answer = ""
