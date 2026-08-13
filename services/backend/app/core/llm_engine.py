@@ -218,7 +218,7 @@ async def query_openai(prompt: str, system_prompt: str = "", media: list | None 
     return None
 
 
-async def query_groq(prompt: str, system_prompt: str = "") -> str | None:
+async def query_groq(prompt: str, system_prompt: str = "", media: list | None = None) -> str | None:
     """Query Groq API (fast inference)."""
     api_key = get_api_key("groq")
     if not api_key:
@@ -256,7 +256,7 @@ async def query_groq(prompt: str, system_prompt: str = "") -> str | None:
     return None
 
 
-async def query_ollama(prompt: str, system_prompt: str = "") -> str | None:
+async def query_ollama(prompt: str, system_prompt: str = "", media: list | None = None) -> str | None:
     """Query local Ollama instance."""
     try:
         base_url = settings.OLLAMA_BASE_URL.rstrip("/")
