@@ -36,6 +36,7 @@ interface Message {
   message_type: string;
   is_offline: boolean;
   created_at: string;
+  is_kudos?: boolean;
   user?: { id: number; full_name: string; email: string };
 }
 
@@ -82,6 +83,7 @@ export default function Hub() {
   const [onlineUsers, setOnlineUsers] = useState<number[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [newRoomName, setNewRoomName] = useState("");
+  const [newRoomPrivate, setNewRoomPrivate] = useState(false);
   const [showNewRoom, setShowNewRoom] = useState(false);
   const [currentUserId, setCurrentUserId] = useState(0);
   const wsRef = useRef<WebSocket | null>(null);
@@ -193,10 +195,11 @@ export default function Hub() {
     const res = await fetch("/api/v1/chat/rooms", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...getAuthHeader() },
-      body: JSON.stringify({ name: newRoomName, is_group: true }),
+      body: JSON.stringify({ name: newRoomName, is_group: !newRoomPrivate }),
     });
     if (res.ok) {
       setNewRoomName("");
+      setNewRoomPrivate(false);
       setShowNewRoom(false);
       fetchRooms();
     }
@@ -373,6 +376,15 @@ export default function Hub() {
                     className="w-full rounded border px-2 py-1 text-sm mb-2"
                     onKeyDown={(e) => e.key === "Enter" && createRoom()}
                   />
+                  <label className="flex items-center gap-2 text-xs text-gray-600 mb-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={newRoomPrivate}
+                      onChange={(e) => setNewRoomPrivate(e.target.checked)}
+                      className="accent-primary"
+                    />
+                    Private 1:1 with KUDOS (AI replies to every message)
+                  </label>
                   <button
                     onClick={createRoom}
                     className="w-full bg-primary text-white text-sm py-1 rounded hover:bg-blue-800"
@@ -430,19 +442,28 @@ export default function Hub() {
                     )}
                     {messages.map((msg, i) => {
                       const isMe = msg.user_id === currentUserId;
+                      const isKudos = msg.is_kudos || (msg.user_name === "KUDOS" && !isMe);
                       return (
                         <div key={i} className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
                           <div
                             className={`max-w-[70%] rounded-lg px-4 py-2 ${
-                              isMe ? "bg-primary text-white" : "bg-white border shadow-sm"
+                              isMe
+                                ? "bg-primary text-white"
+                                : isKudos
+                                ? "bg-amber-50 border border-amber-300 shadow-sm"
+                                : "bg-white border shadow-sm"
                             } ${msg.is_offline ? "opacity-70" : ""}`}
                           >
                             {!isMe && (
-                              <p className={`text-xs font-semibold mb-1 ${isMe ? "text-blue-200" : "text-primary"}`}>
-                                {msg.user_name || msg.user?.full_name || `User ${msg.user_id}`}
+                              <p
+                                className={`text-xs font-semibold mb-1 ${
+                                  isKudos ? "text-amber-600" : "text-primary"
+                                }`}
+                              >
+                                {isKudos ? "🧠 KUDOS" : msg.user_name || msg.user?.full_name || `User ${msg.user_id}`}
                               </p>
                             )}
-                            <p className="text-sm">{msg.content}</p>
+                            <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
                             <p className={`text-xs mt-1 ${isMe ? "text-blue-200" : "text-gray-400"}`}>
                               {timeStr(msg.created_at)}
                               {msg.is_offline && " 📤"}
@@ -461,7 +482,13 @@ export default function Hub() {
                         onChange={(e) => setInput(e.target.value)}
                         onKeyDown={(e) => e.key === "Enter" && sendMessage()}
                         className="flex-1 rounded-lg border px-4 py-2 text-sm focus:ring-2 focus:ring-primary focus:outline-none"
-                        placeholder={isConnected ? "Type a message..." : "Type (will send when online)..."}
+                        placeholder={
+                          selectedRoom?.is_group
+                            ? "Type a message... (@KUDOS for the AI)"
+                            : isConnected
+                            ? "Type a message..."
+                            : "Type (will send when online)..."
+                        }
                       />
                       <button
                         onClick={sendMessage}

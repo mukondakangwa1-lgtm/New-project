@@ -6,10 +6,10 @@ External storage linking, public posts, preview cache, comments, reactions.
 from collections import OrderedDict
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
 
-from app.core.database import get_db
+from app.core.database import SessionLocal, get_db
 from app.core.deps import get_current_user
 from app.models import Comment, Post, Reaction, User
 from app.schemas import (
@@ -244,6 +244,7 @@ def list_comments(
 def add_comment(
     post_id: int,
     body: CommentCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -260,7 +261,44 @@ def add_comment(
     db.add(comment)
     db.commit()
     db.refresh(comment)
+
+    # KUDOS intelligence on the public feed: when a comment summons KUDOS
+    # with @KUDOS, the same brain that powers the /kudos page replies here.
+    if post.is_public and ("@kudos" in body.content.lower() or "!kudos" in body.content.lower()):
+        background_tasks.add_task(_kudos_feed_reply, post_id, current_user.id, body.content)
+
     return comment
+
+
+async def _kudos_feed_reply(post_id: int, sender_user_id: int, content: str) -> None:
+    """Background task: generate a KUDOS reply comment and persist it."""
+    from app.core.chat_ai import (
+        KUDOS_EMAIL,
+        KUDOS_NAME,
+        generate_room_reply,
+        get_kudos_bot,
+    )
+    from app.models import Post
+
+    db = SessionLocal()
+    try:
+        post = db.query(Post).filter(Post.id == post_id).first()
+        if not post or not post.is_public:
+            return
+        bot = get_kudos_bot(db)
+        if not bot:
+            return
+        question = content.replace("@kudos", "").replace("!kudos", "").strip()
+        reply = await generate_room_reply(db, 0, sender_user_id, question or content)
+        if not reply:
+            return
+        kudos_comment = Comment(post_id=post_id, user_id=bot.id, content=reply)
+        db.add(kudos_comment)
+        db.commit()
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()
 
 
 # ──────────────────────────────────────────────

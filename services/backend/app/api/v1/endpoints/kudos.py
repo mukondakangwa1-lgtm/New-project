@@ -687,8 +687,12 @@ async def ask_kudos(
         # KUDOS Terminal: when the question looks like code to write or test,
         # auto-open a session so KUDOS can act like an agent. The session id
         # is added to the prompt so the LLM knows its terminal is available.
+        # By default only the superadmin gets this; enable ALL_USERS to give
+        # every user's KUDOS the same agent capability. Legal execution still
+        # requires an OTP/approval flow — see core/terminal.
         terminal_context = ""
-        if settings.KUDOS_TERMINAL_AUTO_OPEN and current_user.is_admin:
+        terminal_allowed = current_user.is_admin or settings.KUDOS_TERMINAL_ALL_USERS
+        if settings.KUDOS_TERMINAL_AUTO_OPEN and terminal_allowed:
             with contextlib.suppress(Exception):
                 terminal_context = _open_terminal_for_question(db, current_user, body.question)
 

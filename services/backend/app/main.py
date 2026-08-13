@@ -121,6 +121,18 @@ async def lifespan(app: FastAPI):
         resume_brain()
     except Exception:
         pass
+    # Ensure the KUDOS bot user exists so chat rooms can host KUDOS itself.
+    try:
+        from app.core.chat_ai import get_kudos_bot
+        from app.core.database import SessionLocal
+
+        seed_db = SessionLocal()
+        try:
+            get_kudos_bot(seed_db)
+        finally:
+            seed_db.close()
+    except Exception:
+        pass
     yield
 
 

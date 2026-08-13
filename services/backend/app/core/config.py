@@ -157,8 +157,10 @@ class Settings(BaseSettings):
 
     # KUDOS Terminal: auto-open a session during ask when the question looks
     # like code KUDOS should test. Agent shell commands always require
-    # superadmin approval regardless of this flag.
+    # superadmin approval regardless of this flag. When ALL_USERS is enabled
+    # every user's KUDOS gets the same agent capability as the superadmin's.
     KUDOS_TERMINAL_AUTO_OPEN: bool = True
+    KUDOS_TERMINAL_ALL_USERS: bool = False
     KUDOS_TERMINAL_WORKSPACE_ROOT: str = ""
 
     # KUDOS continuous learning: the first site visit starts the never-ending

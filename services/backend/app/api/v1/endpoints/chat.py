@@ -65,6 +65,46 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
+async def _post_kudos_reply(room_id: int, kudos_bot_id: int, sender_user_id: int, content: str):
+    """Background task: generate a KUDOS reply and broadcast it to the room."""
+    from app.core.chat_ai import KUDOS_NAME, generate_room_reply
+
+    db = SessionLocal()
+    try:
+        reply = await generate_room_reply(db, room_id, sender_user_id, content)
+        if not reply:
+            return
+        kudos_msg = ChatMessage(
+            room_id=room_id,
+            user_id=kudos_bot_id,
+            content=reply,
+            message_type="text",
+            is_offline=False,
+        )
+        db.add(kudos_msg)
+        db.commit()
+        db.refresh(kudos_msg)
+        await manager.broadcast(
+            room_id,
+            {
+                "type": "message",
+                "id": kudos_msg.id,
+                "room_id": room_id,
+                "user_id": kudos_bot_id,
+                "user_name": KUDOS_NAME,
+                "content": reply,
+                "message_type": "text",
+                "is_offline": False,
+                "created_at": kudos_msg.created_at.isoformat(),
+                "is_kudos": True,
+            },
+        )
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()
+
+
 def _authenticate_ws_token(token: str, cookie: str = "") -> User | None:
     """Validate JWT from WebSocket query param or session cookie."""
     db = SessionLocal()
@@ -368,6 +408,36 @@ async def websocket_chat(websocket: WebSocket, room_id: int, token: str = ""):
                     "created_at": msg_created,
                 },
             )
+
+            # KUDOS intelligence: bring the same brain that powers /kudos into
+            # every chat room. Private 1:1 chats: KUDOS answers every message.
+            # Public/group chats: KUDOS answers when summoned with @KUDOS.
+            try:
+                from app.core.chat_ai import (
+                    KUDOS_EMAIL,
+                    get_kudos_bot,
+                    should_kudos_reply,
+                )
+
+                db = SessionLocal()
+                try:
+                    room = db.query(ChatRoom).filter(ChatRoom.id == room_id).first()
+                    kudos_bot = get_kudos_bot(db)
+                    if (
+                        room
+                        and kudos_bot
+                        and user.email != KUDOS_EMAIL
+                        and should_kudos_reply(db, room, content)
+                    ):
+                        import asyncio
+
+                        asyncio.create_task(
+                            _post_kudos_reply(room_id, kudos_bot.id, user.id, content)
+                        )
+                finally:
+                    db.close()
+            except Exception:
+                pass
 
     except WebSocketDisconnect:
         manager.disconnect(room_id, user.id)
