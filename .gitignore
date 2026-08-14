@@ -35,3 +35,6 @@ backups/
 # Agent task workspaces (git worktrees managed by KUDOS)
 .kudos_workspaces/
 
+
+# Private environment backups
+services/backend/.env.before-*

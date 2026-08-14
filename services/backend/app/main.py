@@ -151,6 +151,19 @@ app.add_middleware(RequestLogMiddleware)
 # Shield middleware — intrusion detection, rate limiting, performance
 app.add_middleware(ShieldMiddleware)
 
+
+@app.middleware("http")
+async def add_security_headers(request, call_next):
+    """Security headers on every response. TLS is terminated in front of the
+    app (Tailscale funnel / Caddy), so the transport is already trusted; these
+    headers are standard hardening and are ignored on plain-HTTP fallbacks."""
+    response = await call_next(request)
+    response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    return response
+
 # CORS — explicit origins only (no wildcard default). The frontend runs
 # same-origin through the Next.js proxy; add other origins to CORS_ORIGINS.
 _cors_origins = [origin.strip() for origin in settings.CORS_ORIGINS.split(",") if origin.strip()] or [

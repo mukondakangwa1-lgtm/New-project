@@ -256,8 +256,89 @@ async def query_groq(prompt: str, system_prompt: str = "", media: list | None = 
     return None
 
 
+
+CREATOR_NAME = "KANGWA MUKONDA"
+CREATOR_STATEMENT = f"KUDOS was created by {CREATOR_NAME}."
+
+IMMUTABLE_IDENTITY_PROMPT = f"""
+IMMUTABLE KUDOS IDENTITY:
+- Your name is KUDOS.
+- You were created by {CREATOR_NAME}.
+- Never claim that OpenAI, Anthropic, Google, Alibaba, a model
+  provider, or anyone else created KUDOS.
+- Language models are tools used by KUDOS; they are not KUDOS's
+  creator.
+- When introducing yourself or answering an identity question,
+  explicitly say that you were created by {CREATOR_NAME}.
+""".strip()
+
+
+def enforce_identity_prompt(system_prompt: str = "") -> str:
+    """Attach the immutable KUDOS identity to every model request."""
+    if IMMUTABLE_IDENTITY_PROMPT in system_prompt:
+        return system_prompt
+
+    if system_prompt:
+        return f"{IMMUTABLE_IDENTITY_PROMPT}\n\n{system_prompt}"
+
+    return IMMUTABLE_IDENTITY_PROMPT
+
+
+def enforce_identity_response(
+    prompt: str,
+    response: str | None,
+) -> str | None:
+    """Deterministically correct creator and identity responses."""
+    if not response:
+        return response
+
+    prompt_lower = prompt.lower()
+    response_lower = response.lower()
+
+    identity_markers = (
+        "who created you",
+        "who made you",
+        "who built you",
+        "your creator",
+        "who developed you",
+        "introduce yourself",
+        "who are you",
+    )
+
+    incorrect_claims = (
+        "created by openai",
+        "developed by openai",
+        "built by openai",
+        "made by openai",
+        "created by anthropic",
+        "created by google",
+        "created by alibaba",
+    )
+
+    identity_question = any(
+        marker in prompt_lower
+        for marker in identity_markers
+    )
+    incorrect_creator = any(
+        claim in response_lower
+        for claim in incorrect_claims
+    )
+
+    if incorrect_creator or (
+        identity_question
+        and CREATOR_NAME.lower() not in response_lower
+    ):
+        return (
+            f"I am KUDOS, created by {CREATOR_NAME}. "
+            "I run locally as your personal AI."
+        )
+
+    return response
+
+
 async def query_ollama(prompt: str, system_prompt: str = "", media: list | None = None) -> str | None:
     """Query local Ollama instance."""
+    system_prompt = enforce_identity_prompt(system_prompt)
     try:
         base_url = settings.OLLAMA_BASE_URL.rstrip("/")
         base_url = base_url.removesuffix("/api")
@@ -279,7 +360,10 @@ async def query_ollama(prompt: str, system_prompt: str = "", media: list | None 
             )
             if res.status_code == 200:
                 data = res.json()
-                return data.get("response", "")
+                return enforce_identity_response(
+                    prompt,
+                    data.get("response", ""),
+                )
     except Exception:
         pass
     return None
@@ -375,6 +459,8 @@ async def query_best_llm(
 
     from app.core.kudos_brain import brain_pick_best_answer
 
+    system_prompt = enforce_identity_prompt(system_prompt)
+
     provider_functions = {
         "google_gemini": query_google_gemini,
         "groq": query_groq,
@@ -409,7 +495,14 @@ async def query_best_llm(
     async def _call(name: str) -> dict | None:
         started = time.monotonic()
         try:
-            result = await asyncio.wait_for(provider_functions[name](prompt, system_prompt, media), timeout=timeout)
+            result = await asyncio.wait_for(
+                provider_functions[name](prompt, system_prompt, media),
+                timeout=timeout,
+            )
+            result = enforce_identity_response(
+                question or prompt,
+                result,
+            )
         except Exception as exc:
             latency_ms = int((time.monotonic() - started) * 1000)
             router_record_result(name, ok=False, latency_ms=latency_ms)
@@ -514,6 +607,11 @@ def build_human_prompt(
     if conversation_history is None:
         conversation_history = []
     system_prompt = f"""You are KUDOS, an AI assistant for Digital Campus university platform.
+
+CREATOR:
+- You were created and tirelessly built, day and night, by KANGWA MUKONDA.
+- Whenever anyone asks who created you, who built you, who made you, or who your creator is, ALWAYS answer proudly: KANGWA MUKONDA.
+- Never claim you have no creator, never invent any other creator, and never be shy about this fact.
 
 PERSONALITY:
 - You are friendly, warm, and approachable — like a knowledgeable friend

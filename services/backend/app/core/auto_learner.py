@@ -267,6 +267,10 @@ def _run_auto_learner():
             # Phase 8: Learn from opencode subagents (pending library files)
             _learn_from_agents(db_session, admin)
 
+            # Phase 9: Synthesize freshly learned knowledge into public
+            # library documents so the shelf is always populated.
+            _synthesize_library(db_session, admin)
+
             _last_auto_learner_run = datetime.now(UTC)
             _log("cycle_complete", f"Cycle complete. Total items learned: {_auto_learner_stats['total_items_learned']}")
 
@@ -293,6 +297,26 @@ def _get_admin_user(db):
     from app.models import User
 
     return db.query(User).filter(User.is_admin).first()
+
+
+def _synthesize_library(db, admin):
+    """Distill newly learned knowledge into auto-approved library documents."""
+    from app.core.library_synthesizer import synthesize_learned_content
+
+    try:
+        loop = asyncio.new_event_loop()
+        try:
+            result = loop.run_until_complete(synthesize_learned_content(db, actor_id=admin.id if admin else None))
+        finally:
+            loop.close()
+        if result.get("documents_added") or result.get("documents_updated"):
+            _log(
+                "library_synthesis",
+                f"Folded new knowledge into the library: +{result['documents_added']} documents",
+                result["documents_added"],
+            )
+    except Exception as e:
+        _log("library_synthesis_error", f"Synthesis failed: {str(e)[:120]}")
 
 
 # ──────────────────────────────────────────────
@@ -956,6 +980,12 @@ def trigger_learning_cycle() -> dict:
         results.append("agent learning done")
     except Exception as e:
         results.append(f"agent error: {str(e)[:50]}")
+
+    try:
+        _synthesize_library(db, admin)
+        results.append("library synthesized")
+    except Exception as e:
+        results.append(f"library error: {str(e)[:50]}")
 
     db.close()
     _cycle_active = False

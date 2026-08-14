@@ -1,7 +1,10 @@
 # Digital Campus — public entry point (single URL, HTTP on :80).
 # Proxies the Next.js frontend; the frontend internally rewrites /api/* to the
 # backend container, so users only ever need this one URL.
-# Upgrade to a domain + `:80`/`:443` snapshot pair for automatic TLS.
+# NOTE: Tailscale Funnel bypasses Caddy entirely (tailscale `serve` proxies
+# straight to frontend:3000 and terminates TLS at Tailscale's edge), so the
+# trusted HTTPS URL is https://digital-campus.tail021d82.ts.net. This :80 block
+# is the fallback entry point for direct LAN/IP access.
 :80 {
 	encode gzip
 

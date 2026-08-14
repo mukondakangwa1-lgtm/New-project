@@ -124,6 +124,15 @@ class Settings(BaseSettings):
     # KUDOS can clone a signature voice without any API key.
     COQUI_TTS_URL: str = ""
     COQUI_TTS_LANGUAGE: str = "en"
+    # Local speech-to-text sidecar (faster-whisper). Empty = feature disabled.
+    # When set, KUDOS hears users locally first (no API credits needed), with
+    # the cloud Whisper/Gemini paths as fallback providers.
+    WHISPER_ASR_URL: str = ""
+    WHISPER_ASR_MODEL: str = "small"
+    WHISPER_ASR_LANGUAGE: str = "en"
+    # Preferred speech-to-text provider: local | whisper | gemini | auto.
+    # "local" prefers the sidecar; "auto" tries local then the cloud providers.
+    STT_PROVIDER: str = "local"
     # Provider preference for cloning/TTS when more than one is available.
     VOICE_CLONE_PROVIDER: str = "elevenlabs"  # elevenlabs | coqui | fish
     VOICE_TTS_PROVIDER: str = ""  # elevenlabs | coqui | fish | openai ("" = auto preference)

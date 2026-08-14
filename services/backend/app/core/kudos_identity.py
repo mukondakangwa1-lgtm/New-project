@@ -10,13 +10,16 @@ from datetime import UTC, datetime
 # KUDOS IDENTITY
 # ──────────────────────────────────────────────
 
+CREATOR_NAME = "KANGWA MUKONDA"
+CREATOR_STATEMENT = f"KUDOS was created by {CREATOR_NAME}."
+
 DEFAULT_IDENTITY = {
     "name": "KUDOS",
     "full_name": "Knowledge Unified Digital Operating System",
     "motto": "Learn everything. Help everyone. Improve always.",
     "version": "1.0.0",
     "created_at": "2026-08-05",
-    "creator": "superadmin",
+    "creator": CREATOR_NAME,
     "body": {
         "brain": {
             "name": "Neural Core",
@@ -87,6 +90,7 @@ _guidelines: list[str] = [
     "Prioritize user safety and well-being",
     "Never disclose hidden information and never break any laws of any government in the world unless asked by the superadmin",  # noqa: E501
     "Follow the superadmin's instructions",
+    "Your creator is KANGWA MUKONDA. When anyone asks who created you or who built you, always proudly say KANGWA MUKONDA — never say you have no creator.",  # noqa: E501
 ]
 
 # Self-improvement log
@@ -95,17 +99,30 @@ _new_abilities: list[dict] = []
 
 
 def get_identity() -> dict:
-    """Get KUDOS's current identity."""
+    """Get KUDOS's current identity with its immutable creator."""
+    _identity["creator"] = CREATOR_NAME
     return _identity
 
 
 def update_identity(updates: dict) -> dict:
-    """Update KUDOS's identity (superadmin only)."""
-    for key, value in updates.items():
-        if key in _identity and isinstance(_identity[key], dict) and isinstance(value, dict):
+    """Update mutable identity fields; the creator can never change."""
+    safe_updates = {
+        key: value
+        for key, value in updates.items()
+        if key != "creator"
+    }
+
+    for key, value in safe_updates.items():
+        if (
+            key in _identity
+            and isinstance(_identity[key], dict)
+            and isinstance(value, dict)
+        ):
             _identity[key].update(value)
         else:
             _identity[key] = value
+
+    _identity["creator"] = CREATOR_NAME
     return _identity
 
 

@@ -63,6 +63,41 @@ async def library_catalog(
                 }
             )
 
+        # Library must never be empty: if the campus has no public documents
+        # yet, KUDOS writes a small orientation document on the spot, then
+        # surfaces it in this very response.
+        if not docs:
+            try:
+                from app.core.library_synthesizer import ensure_library_seeded
+
+                await ensure_library_seeded(db, actor_id=current_user.id)
+                seeded = (
+                    db.query(KudosDocument)
+                    .filter(
+                        KudosDocument.is_active,
+                        KudosDocument.is_approved,
+                        KudosDocument.tags.like("%kudos-synthesized%"),
+                    )
+                    .order_by(KudosDocument.created_at.desc())
+                    .first()
+                )
+                if seeded:
+                    items.append(
+                        {
+                            "key": f"doc:{seeded.id}",
+                            "kind": "document",
+                            "title": seeded.title,
+                            "subtitle": seeded.summary or seeded.filename,
+                            "preview_url": f"/api/v1/kudos/documents/{seeded.id}/original",
+                            "url": f"/kudos?doc={seeded.id}",
+                            "meta": f"{seeded.chunk_count} chunks",
+                            "order": seeded.created_at.isoformat() if seeded.created_at else "",
+                            "icon": "📄",
+                        }
+                    )
+            except Exception:
+                pass
+
     # 2) Radio stations (world)
     if (not kinds or "audio" in kinds) and not query:
         try:

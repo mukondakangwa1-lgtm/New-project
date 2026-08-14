@@ -595,12 +595,13 @@ async def ask_kudos(
                 body.question, current_user.full_name.split()[0] if current_user.full_name else ""
             )
             short = scrub_response(short, allow_emails=True)
-            try:
-                db.add(KudosMessage(conversation_id=conv.id, role="kudos", content=short, sources="[]"))
-                db.commit()
-            except Exception:
-                db.rollback()
-            return KudosAskResponse(answer=short, sources=[], conversation_id=conv.id, media=[])
+            if short:
+                try:
+                    db.add(KudosMessage(conversation_id=conv.id, role="kudos", content=short, sources="[]"))
+                    db.commit()
+                except Exception:
+                    db.rollback()
+                return KudosAskResponse(answer=short, sources=[], conversation_id=conv.id, media=[])
 
         # Search knowledge base
         sources = []
@@ -1165,13 +1166,14 @@ async def _run_guest_pipeline(db: Session, guest_id: str, question: str) -> tupl
     db.add(KudosMessage(conversation_id=conv.id, role="user", content=question))
     db.flush()
 
-    # Fast path for short, casual guest questions.
-    from app.core.privacy_guard import scrub_response
-    from app.core.quick_answers import get_short_answer, is_short_question
+    # Fast path for short, casual guest questions. Escalates to the full
+    # pipeline when the quick answer can't be produced.
+    from app.core.quick_answers import is_short_question
 
     if is_short_question(question):
         short = await _guest_short(db, conv, question)
-        return short, conv.id, []
+        if short:
+            return short, conv.id, []
 
     sources = []
     with contextlib.suppress(Exception):
@@ -1195,6 +1197,51 @@ async def _run_guest_pipeline(db: Session, guest_id: str, question: str) -> tupl
         self_knowledge = build_sandbox_knowledge_context(db)
     except Exception:
         pass
+    try:
+        from app.core.radio_garden import overview as radio_overview
+
+        ro = radio_overview(db)
+        if ro and ro.get("total_places"):
+            self_knowledge = (
+                f"{self_knowledge}\n- You can navigate the whole world through live radio. You know "
+                f"{ro['total_places']} places across {len(ro.get('continents') or [])} continents with "
+                f"{ro['total_stations']} live radio towers."
+            )
+    except Exception:
+        pass
+    try:
+        from app.core.world_map import maps_knowledge_context
+
+        geo_note = maps_knowledge_context(db, question)
+        if geo_note:
+            self_knowledge = f"{self_knowledge}\n{geo_note}"
+    except Exception:
+        pass
+    try:
+        from app.core.network_mesh import network_note
+
+        net_note = network_note(db, _get_or_create_guest_user(db))
+        if net_note:
+            self_knowledge = f"{self_knowledge}\n{net_note}"
+    except Exception:
+        pass
+    with contextlib.suppress(Exception):
+        self_knowledge = f"{self_knowledge}\n{_connectors_note()}"
+
+    if settings.MCP_ENABLED:
+        try:
+            from app.core.mcp_client import search_mcp_sources
+
+            mcp_sources = await search_mcp_sources(question)
+            sources = mcp_sources + sources
+        except Exception:
+            pass
+
+        knowledge_context = ""
+        if sources:
+            knowledge_context = "\n".join(
+                f"[{i}] {s.get('content', '')[:300]}" for i, s in enumerate(sources[:3], start=1)
+            )
 
     answer = ""
     try:
@@ -1787,19 +1834,30 @@ async def chat_send(
         from app.core.quick_answers import get_short_answer, is_short_question
 
         if is_short_question(message):
-            short = await get_short_answer(message, current_user.full_name.split()[0] if current_user.full_name else "")
+            short = await get_short_answer(
+                message, current_user.full_name.split()[0] if current_user.full_name else ""
+            )
             short = scrub_response(short, allow_emails=True)
-            try:
-                db.add(KudosMessage(conversation_id=conv.id, role="kudos", content=short, sources="[]"))
-                db.commit()
-            except Exception:
-                db.rollback()
-            return ChatSendResponse(answer=short, conversation_id=conv.id, learned=[], media=[])
+            if short:
+                try:
+                    db.add(KudosMessage(conversation_id=conv.id, role="kudos", content=short, sources="[]"))
+                    db.commit()
+                except Exception:
+                    db.rollback()
+                return ChatSendResponse(answer=short, conversation_id=conv.id, learned=[], media=[])
 
     # Build knowledge context from what was just learned + retrieval.
     sources = []
     with contextlib.suppress(Exception):
         sources = search_chunks(db, message or " ".join(item.get("description", "") for item in learned))
+    if settings.MCP_ENABLED:
+        try:
+            from app.core.mcp_client import search_mcp_sources
+
+            mcp_sources = await search_mcp_sources(message or "")
+            sources = mcp_sources + sources
+        except Exception:
+            pass
     knowledge_context = "\n".join(f"[{i}] {s.get('content', '')[:300]}" for i, s in enumerate(sources[:3], start=1))
     if learned:
         learned_note = "\n".join(
@@ -1834,6 +1892,28 @@ async def chat_send(
         from app.core.sandbox import build_sandbox_knowledge_context
 
         self_knowledge = build_sandbox_knowledge_context(db)
+    except Exception:
+        pass
+    try:
+        radio_note = _radio_context(db)
+        if radio_note:
+            self_knowledge = f"{self_knowledge}\n{radio_note}"
+    except Exception:
+        pass
+    try:
+        from app.core.world_map import maps_knowledge_context
+
+        geo_note = maps_knowledge_context(db, message or "")
+        if geo_note:
+            self_knowledge = f"{self_knowledge}\n{geo_note}"
+    except Exception:
+        pass
+    try:
+        from app.core.network_mesh import network_note
+
+        net_note = network_note(db, current_user)
+        if net_note:
+            self_knowledge = f"{self_knowledge}\n{net_note}"
     except Exception:
         pass
     with contextlib.suppress(Exception):

@@ -145,16 +145,14 @@ async def get_short_answer(question: str, user_name: str = "") -> str:
     try:
         result = await query_best_llm(user, system)
         reply = (result.get("response") or "").strip()
-        if 3 <= len(reply) <= 300:
+        if 3 <= len(reply) <= 300 and not reply.startswith("Short answer:"):
             return reply
     except Exception:
         pass
 
-    # Fallback: a neutral, helpful short answer.
-    return (
-        f"Short answer: {question.strip().rstrip('?.')}. "
-        "Happy to go deeper — just ask and I'll pull up everything I know! 🙂"
-    )
+    # No canned filler: return an empty string so callers escalate to the full
+    # retrieval + grounded pipeline instead of answering from a template.
+    return ""
 
 
 # ──────────────────────────────────────────────
