@@ -693,9 +693,18 @@ async def list_voices_endpoint(user: User = Depends(get_current_user), db: Sessi
     with contextlib.suppress(Exception):
         voices += await list_fish_voices()
 
+    # Normalize every provider response to the public voice schema.
+    # Some external providers return ``voice_id`` or only ``id``.
+    all_voices = voices + stock
+    for voice in all_voices:
+        voice.setdefault(
+            "provider_voice_id",
+            voice.get("voice_id", voice.get("id", "")),
+        )
+
     profile = _get_profile(db)
     return {
-        "voices": voices + stock,
+        "voices": all_voices,
         "signature": _signature_voice(db, profile),
         "signature_state": profile.signature_state or "none",
     }

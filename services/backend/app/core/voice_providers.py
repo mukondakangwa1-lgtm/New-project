@@ -90,7 +90,7 @@ async def clone_voice(samples: list[dict], name: str = "KUDOS") -> dict:
     if not provider:
         return {
             "error": (
-                "No voice-cloning provider available — add ELEVENLABS_API_KEY, "
+                "No voice-cloning provider available — add ElevenLabs (ELEVENLABS_API_KEY), "
                 "a FISH_API_KEY, or enable the local Coqui sidecar (COQUI_TTS_URL)"
             )
         }

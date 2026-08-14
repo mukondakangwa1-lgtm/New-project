@@ -20,6 +20,34 @@ def clean_router(monkeypatch):
     llm_engine.ROUTER_HEALTH.clear()
 
 
+@pytest.fixture(autouse=True)
+def isolate_unmocked_providers(monkeypatch):
+    """Router unit tests must never contact live model providers."""
+
+    async def unavailable(
+        prompt,
+        system_prompt="",
+        media=None,
+    ):
+        return None
+
+    llm_engine.ROUTER_HEALTH.clear()
+    monkeypatch.setattr(
+        llm_engine,
+        "query_groq",
+        unavailable,
+    )
+    monkeypatch.setattr(
+        llm_engine,
+        "query_ollama",
+        unavailable,
+    )
+
+    yield
+
+    llm_engine.ROUTER_HEALTH.clear()
+
+
 async def test_brain_mode_queries_all_providers(monkeypatch):
     """Default mode asks EVERY configured LLM at once and returns the best."""
     calls = []
