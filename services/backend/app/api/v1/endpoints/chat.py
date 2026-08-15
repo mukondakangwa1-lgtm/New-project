@@ -13,6 +13,7 @@ from app.core.config import settings
 from app.core.database import SessionLocal, get_db
 from app.core.deps import get_current_user
 from app.models import ChatMember, ChatMessage, ChatRoom, User
+from app.api.v1.endpoints.chat_utils import chat_limiter, MAX_MESSAGE_LENGTH
 from app.schemas import (
     ChatMessageCreate,
     ChatMessageResponse,
@@ -254,6 +255,14 @@ def send_message_rest(
     current_user: User = Depends(get_current_user),
 ):
     """Send a message via REST (fallback when WebSocket unavailable)."""
+    # Rate limiting
+    if not chat_limiter.is_allowed(current_user.id):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+
+    # Length limit
+    if len(body.content) > MAX_MESSAGE_LENGTH:
+        body.content = body.content[:MAX_MESSAGE_LENGTH]
+
     membership = (
         db.query(ChatMember).filter(ChatMember.room_id == room_id, ChatMember.user_id == current_user.id).first()
     )
@@ -374,6 +383,15 @@ async def websocket_chat(websocket: WebSocket, room_id: int, token: str = ""):
 
             if not content:
                 continue
+
+            # Rate limiting
+            if not chat_limiter.is_allowed(user.id):
+                await websocket.send_json({"type": "error", "message": "Rate limit exceeded"})
+                continue
+
+            # Length limit
+            if len(content) > MAX_MESSAGE_LENGTH:
+                content = content[:MAX_MESSAGE_LENGTH]
 
             # Save to DB
             db = SessionLocal()

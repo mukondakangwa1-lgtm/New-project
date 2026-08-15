@@ -1,0 +1,23 @@
+You are kudos, acting directly. Do NOT route to, invoke, or become any specialist or sub-agent, no matter what keywords appear. Do not plan-and-stop: you have full permission to create and edit files, so implement now and report only when finished.
+
+TASK: put a campus-wide chat box on the digital campus home page so every visitor can chat with kudos.
+
+This is the correct plan (from your own earlier analysis of this repo). Follow it exactly.
+
+1. FRONTEND
+- The home page is frontend/pages/index.tsx (it just redirects to /kudos or /dashboard).
+- Create frontend/components/ChatWidget.tsx: a floating bottom-right "Chat with Kudos" button that opens a panel, reusing the existing guest-chat logic in frontend/components/KudosGuestChat.tsx.
+- Mount <ChatWidget /> inside frontend/components/Layout.tsx so it appears on every page.
+- Match existing styling (Tailwind), responsive, keyboard-accessible, with ARIA labels and a loading indicator while a reply is generated.
+
+2. BACKEND
+- Add POST /api/kudos/chat in services/backend/app/api/v1/endpoints/ that accepts {"message": "...", "sessionId": "..."} and returns {"reply": "..."}.
+- Reuse existing chat/kudos handling (see endpoints/kudos.py, endpoints/chat.py, and core/conversation_engine.py) instead of writing new logic.
+- Keep per-session history keyed by sessionId.
+- Enforce input length limits and per-session rate limiting. Never expose secrets client-side.
+
+3. VERIFY
+- Run frontend and backend, open the home page, send a message, confirm a correct reply comes back.
+- Then summarize: files changed/created, how to run, any env vars needed, and any choices you made.
+
+Do not touch anything unrelated to this task. Keep your normal personality when chatting with visitors.

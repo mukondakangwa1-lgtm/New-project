@@ -1,0 +1,76 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "ollama/qwen2.5-coder:1.5b",
+  "provider": {
+    "ollama": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "KUDOS Local Ollama",
+      "options": {
+        "baseURL": "http://172.18.0.1:11434/v1"
+      },
+      "models": {
+        "qwen2.5-coder:1.5b": {
+          "name": "KUDOS Qwen Coder 1.5B",
+          "limit": {
+            "context": 4096,
+            "output": 2048
+          }
+        }
+      }
+    },
+    "gemini": {
+      "npm": "@ai-sdk/google",
+      "name": "KUDOS Online Gemini",
+      "options": {
+        "apiKey": "{env:GOOGLE_GEMINI_API_KEY}"
+      },
+      "models": {
+        "gemini-2.5-flash": {
+          "name": "Gemini 2.5 Flash",
+          "limit": {
+            "context": 1048576,
+            "output": 65536
+          }
+        },
+        "gemini-2.5-pro": {
+          "name": "Gemini 2.5 Pro",
+          "limit": {
+            "context": 1048576,
+            "output": 65536
+          }
+        },
+        "gemini-flash-latest": {
+          "name": "Gemini Flash Latest",
+          "limit": {
+            "context": 1048576,
+            "output": 65536
+          }
+        },
+        "gemini-3.1-flash-lite": {
+          "name": "Gemini 3.1 Flash Lite",
+          "limit": {
+            "context": 1048576,
+            "output": 65536
+          }
+        }
+      }
+    }
+  },
+  "permission": {
+    "external_directory": "allow",
+    "read": "allow",
+    "edit": "allow",
+    "write": "allow",
+    "glob": "allow",
+    "grep": "allow",
+    "list": "allow",
+    "bash": "allow",
+    "task": "allow",
+    "lsp": "allow",
+    "skill": "allow",
+    "webfetch": "allow",
+    "websearch": "allow",
+    "todoread": "allow",
+    "todowrite": "allow"
+  }
+}

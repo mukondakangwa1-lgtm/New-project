@@ -1,5 +1,6 @@
 import React from "react";
 import Link from "next/link";
+import ChatWidget from "./ChatWidget";
 import { signOut } from "@/lib/api";
 import { useRole, Role } from "@/lib/roles";
 
@@ -137,6 +138,7 @@ export default function Layout({ children }: LayoutProps) {
 
       <main className="max-w-7xl mx-auto px-3 md:px-4 py-4 md:py-8">{loading ? null : children}</main>
 
+      <ChatWidget />
       <footer className="text-center text-xs text-gray-400 py-4 md:py-6 border-t">
         © 2026 Digital Campus • Powered by KUDOS AI
       </footer>

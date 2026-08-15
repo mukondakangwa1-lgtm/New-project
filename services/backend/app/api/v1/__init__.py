@@ -58,6 +58,7 @@ api_router.include_router(timetable.router, prefix="/register", tags=["Register 
 api_router.include_router(social.router, prefix="/social", tags=["Social Hub"])
 api_router.include_router(chat.router, prefix="/chat", tags=["Chat"])
 api_router.include_router(kudos.router, prefix="/kudos", tags=["KUDOS AI"])
+api_router.add_api_route("/kudos/chat", kudos.kudos_chat_authenticated, methods=["POST"], tags=["KUDOS AI"])
 api_router.include_router(connectors.router, prefix="/kudos/connectors", tags=["KUDOS Connectors"])
 api_router.include_router(guardian.router, prefix="/kudos/guardian", tags=["KUDOS Guardian"])
 api_router.include_router(search_connectors.router, prefix="/kudos/search", tags=["KUDOS Search"])

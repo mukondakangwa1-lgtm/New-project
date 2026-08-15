@@ -1106,7 +1106,67 @@ async def learn_with_agent(
 # ──────────────────────────────────────────────────────────────
 # PUBLIC GUEST CHAT — anonymous visitors, no login required
 # ──────────────────────────────────────────────────────────────
-_GUEST_EMAIL = "guest@campus.local"
+
+from pydantic import Field
+
+class ChatRequest(BaseModel):
+    message: str = Field(..., max_length=1000)
+    sessionId: str
+
+_GUEST_EMAIL = "guest@digitalcampus.local"
+
+_CHAT_RATE_LIMIT = 50  # asks per user per minute
+_CHAT_RATE_WINDOW = 60  # seconds
+_chat_ask_times: dict[str, list[float]] = {}
+
+
+def _chat_rate_ok(user_id: str) -> bool:
+    """Simple in-memory rate limit per user id."""
+    now = time.time()
+    recent = [t for t in _chat_ask_times.get(user_id, []) if now - t < _CHAT_RATE_WINDOW]
+    if len(recent) >= _CHAT_RATE_LIMIT:
+        _chat_ask_times[user_id] = recent
+        return False
+    recent.append(now)
+    _chat_ask_times[user_id] = recent
+    return True
+
+
+@router.post("/kudos/chat")
+async def kudos_chat_authenticated(body: ChatRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Authenticated chat endpoint for the ChatWidget component."""
+    # Rate limit per user
+    if not _chat_rate_ok(str(current_user.id)):
+        raise HTTPException(status_code=429, detail="Too many requests.")
+
+    # Use authenticated user's session
+    conv, _ = _get_guest_conversation(db, body.sessionId)
+    # Actually, we should make sure this conversation belongs to the user,
+    # but _get_guest_conversation uses guest_key.
+    # The authenticated user should have their own conversation.
+    
+    # Let's fix _get_guest_conversation to support authenticated user
+    conv = db.query(KudosConversation).filter(KudosConversation.user_id == current_user.id, KudosConversation.guest_key == body.sessionId).first()
+    if not conv:
+        conv = KudosConversation(user_id=current_user.id, title="Chat", guest_key=body.sessionId)
+        db.add(conv)
+        db.commit()
+        db.refresh(conv)
+
+    # Re-use conversation logic
+    # For now, manually persist user message and reuse pipeline logic
+    db.add(KudosMessage(conversation_id=conv.id, role="user", content=body.message))
+    db.flush()
+    
+    # We can reuse the internal logic of _run_guest_pipeline but pass user info if needed
+    # Actually, the logic in _run_guest_pipeline is already mostly generic.
+    # It takes guest_id, but it uses it for lookup.
+    
+    # Let's call the pipeline
+    answer, conv_id, cited = await _run_guest_pipeline(db, body.sessionId, body.message)
+    
+    return {"reply": answer}
+
 _GUEST_WELCOME = (
     "Hi 👋 Welcome to Digital Campus — I'm KUDOS, your AI assistant. "
     "Ask me anything about courses, assignments, campus life or your studies. "
