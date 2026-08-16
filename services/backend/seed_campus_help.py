@@ -71,9 +71,12 @@ Hub (social):
 - React to posts from the feed
 
 KUDOS campus guide:
-- Open KUDOS and ask how to use any page
+- Open KUDOS and ask anything — campus how-tos or general questions
+- Guests can chat with no login
+- After two guest messages, KUDOS reminds them to register for the full experience
+- Registered users get saved conversations, courses, attendance, Chat, and Hub
 - Example questions: How do I take attendance? How do I join a course? Where is Chat?
-- Upload Doc / Teach Web / Connectors are optional extras
+- Upload Doc / Teach Web / Connectors stay for signed-in users
 - Campus KUDOS does not run the 270 local agents and does not spend HQ quota by default
 
 Studio and Media are not available to normal users. They stay on the Superadmin dashboard.

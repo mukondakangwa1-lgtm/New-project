@@ -35,9 +35,15 @@ export default function KudosChat() {
   const [lastSources, setLastSources] = useState<Source[]>([]);
   const [arenaMode, setArenaMode] = useState("directchat");
   const [arenaResult, setArenaResult] = useState<any>(null);
+  const [isGuest, setIsGuest] = useState(true);
+  const [guestTurns, setGuestTurns] = useState(0);
+  const [showRegisterNudge, setShowRegisterNudge] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    setIsGuest(!token);
+    if (!token) return;
     fetch("/api/v1/kudos/conversations", { headers: getAuthHeader() })
       .then((r) => r.json())
       .then((d) => Array.isArray(d) && setConversations(d))
@@ -45,17 +51,14 @@ export default function KudosChat() {
   }, []);
 
   useEffect(() => {
-    if (currentConvId) {
-      fetch(`/api/v1/kudos/conversations/${currentConvId}/messages`, {
-        headers: getAuthHeader(),
-      })
-        .then((r) => r.json())
-        .then((d) => Array.isArray(d) && setMessages(d))
-        .catch(() => {});
-    } else {
-      setMessages([]);
-    }
-  }, [currentConvId]);
+    if (isGuest || !currentConvId || currentConvId < 1) return;
+    fetch(`/api/v1/kudos/conversations/${currentConvId}/messages`, {
+      headers: getAuthHeader(),
+    })
+      .then((r) => r.json())
+      .then((d) => Array.isArray(d) && setMessages(d))
+      .catch(() => {});
+  }, [currentConvId, isGuest]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -82,10 +85,13 @@ export default function KudosChat() {
     ]);
 
     try {
-      // Use direct ask endpoint for speed
-      const endpoint = arenaMode === "directchat"
-        ? "/api/v1/kudos/ask"
-        : `/api/v1/kudos/arena/query?mode=${arenaMode}`;
+      const nextGuestTurns = isGuest ? guestTurns + 1 : guestTurns;
+      if (isGuest) setGuestTurns(nextGuestTurns);
+
+      // Guests always use public /ask so they can talk without an account.
+      const endpoint = !isGuest && arenaMode !== "directchat"
+        ? `/api/v1/kudos/arena/query?mode=${arenaMode}`
+        : "/api/v1/kudos/ask";
 
       const res = await fetch(endpoint, {
         method: "POST",
@@ -93,14 +99,16 @@ export default function KudosChat() {
         body: JSON.stringify({
           question,
           conversation_id: currentConvId,
+          guest_turns: nextGuestTurns,
         }),
       });
 
       if (res.ok) {
         const data = await res.json();
         setCurrentConvId(data.conversation_id);
-        setLastSources(data.alternatives || []);
+        setLastSources(data.alternatives || data.sources || []);
         setArenaResult(data);
+        if (data.remind_register || nextGuestTurns >= 2) setShowRegisterNudge(true);
 
         setMessages((prev) => [
           ...prev,
@@ -108,16 +116,28 @@ export default function KudosChat() {
             id: Date.now() + 1,
             role: "kudos",
             content: data.answer,
-            sources: JSON.stringify(data.alternatives || []),
+            sources: JSON.stringify(data.alternatives || data.sources || []),
             created_at: new Date().toISOString(),
           },
         ]);
 
-        // Refresh conversations list
-        const convRes = await fetch("/api/v1/kudos/conversations", {
-          headers: getAuthHeader(),
-        });
-        if (convRes.ok) setConversations(await convRes.json());
+        if (!isGuest) {
+          const convRes = await fetch("/api/v1/kudos/conversations", {
+            headers: getAuthHeader(),
+          });
+          if (convRes.ok) setConversations(await convRes.json());
+        }
+      } else {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: Date.now() + 1,
+            role: "kudos",
+            content: "I couldn't reach the campus guide just now. Try again in a moment.",
+            sources: "",
+            created_at: new Date().toISOString(),
+          },
+        ]);
       }
     } catch (e) {
       setMessages((prev) => [
@@ -155,11 +175,23 @@ export default function KudosChat() {
         <div>
           <h2 className="text-3xl font-bold">🧠 KUDOS</h2>
           <p className="text-gray-600">
-            Campus guide — ask how to use Digital Campus. Login, courses, attendance,
-            assignments, exams, chat, hub, and more.
+            Ask me anything — campus how-tos, study questions, or general help.
+            {isGuest ? " No login needed to start chatting." : ""}
           </p>
         </div>
         <div className="flex gap-2">
+          {isGuest && (
+            <>
+              <a href="/register" className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-800 transition">
+                Create account
+              </a>
+              <a href="/login" className="bg-white border px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition">
+                Login
+              </a>
+            </>
+          )}
+          {!isGuest && (
+          <>
           <a
             href="/kudos/upload"
             className="bg-white border px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition"
@@ -214,6 +246,8 @@ export default function KudosChat() {
           >
             🚀 Auto-Learn
           </a>
+          </>
+          )}
         </div>
       </div>
 
@@ -267,8 +301,8 @@ export default function KudosChat() {
                   Hi! I&apos;m KUDOS
                 </h3>
                 <p className="text-gray-500 max-w-md mx-auto mb-6">
-                  Your AI knowledge assistant. I learn from documents you upload and
-                  web pages you teach me. Ask me anything!
+                  Public campus guide. Ask me anything about Digital Campus or any other
+                  question. Guests can chat right away — register after two messages for the full experience.
                 </p>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3 max-w-lg mx-auto text-left">
                   <button
@@ -291,8 +325,8 @@ export default function KudosChat() {
                   </button>
                 </div>
 
-                {/* Quick actions */}
-                <div className="flex flex-wrap gap-2 justify-center mt-4">
+                {/* Quick actions — signed-in extras */}
+                <div className={`flex flex-wrap gap-2 justify-center mt-4 ${isGuest ? "hidden" : ""}`}>
                   <button
                     onClick={async () => {
                       const q = prompt("What do you want me to search Google for?");
@@ -456,10 +490,20 @@ export default function KudosChat() {
             <div ref={messagesEndRef} />
           </div>
 
+          {showRegisterNudge && isGuest && (
+            <div className="mx-4 mb-2 rounded-xl border border-purple-200 bg-purple-50 px-4 py-3 text-sm text-purple-800 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <p>Ready for the full campus? Register to save this chat, enroll in courses, and use Chat and Hub.</p>
+              <div className="flex gap-2 shrink-0">
+                <a href="/register" className="bg-purple-600 text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-purple-700">Register</a>
+                <a href="/login" className="bg-white border border-purple-200 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-purple-100">Login</a>
+              </div>
+            </div>
+          )}
+
           {/* Input */}
           <div className="p-4 border-t bg-gray-50">
-            {/* Arena Mode Selector */}
-            <div className="flex gap-1 mb-2">
+            {/* Arena Mode Selector — registered users only */}
+            <div className={`flex gap-1 mb-2 ${isGuest ? "hidden" : ""}`}>
               {[{ id: "battlemode", icon: "⚔️", label: "Battle" }, { id: "agent", icon: "🤖", label: "Agent" }, { id: "sidebyside", icon: "📊", label: "Compare" }, { id: "directchat", icon: "💬", label: "Direct" }].map((m) => (
                 <button
                   key={m.id}

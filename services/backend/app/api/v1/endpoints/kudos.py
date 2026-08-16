@@ -16,7 +16,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.database import get_db
-from app.core.deps import get_current_user, require_admin
+from app.core.deps import get_current_user, get_optional_user, require_admin
 from app.core.kudos_guardian import self_improver
 from app.models import (
     KudosChunk, KudosConversation, KudosDocument, KudosMessage, KudosWebKnowledge, User,
@@ -266,70 +266,81 @@ def update_web_knowledge(item_id: int, body: KudosDocumentUpdate, db: Session = 
 
 
 @router.post("/ask", response_model=KudosAskResponse)
-async def ask_kudos(body: KudosAskRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    """Ask KUDOS — always returns an answer, never crashes."""
+async def ask_kudos(
+    body: KudosAskRequest,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_user),
+):
+    """Public KUDOS — answers anyone. Guests are reminded to register after two texts."""
     try:
-        # Get or create conversation
         conv = None
-        if body.conversation_id:
-            try:
-                conv = db.query(KudosConversation).filter(
-                    KudosConversation.id == body.conversation_id,
-                    KudosConversation.user_id == current_user.id,
-                ).first()
-            except Exception:
-                conv = None
-        if not conv:
-            conv = KudosConversation(user_id=current_user.id, title=body.question[:100])
-            db.add(conv)
-            db.flush()
+        conv_id = body.conversation_id or 0
+        registered = current_user is not None
 
-        # Save user message
-        db.add(KudosMessage(conversation_id=conv.id, role="user", content=body.question))
+        if current_user:
+            if body.conversation_id:
+                try:
+                    conv = db.query(KudosConversation).filter(
+                        KudosConversation.id == body.conversation_id,
+                        KudosConversation.user_id == current_user.id,
+                    ).first()
+                except Exception:
+                    conv = None
+            if not conv:
+                conv = KudosConversation(user_id=current_user.id, title=body.question[:100])
+                db.add(conv)
+                db.flush()
+            conv_id = conv.id
+            db.add(KudosMessage(conversation_id=conv.id, role="user", content=body.question))
+        elif not conv_id:
+            conv_id = -abs(hash(body.question + str(datetime.now(timezone.utc)))) % 2_000_000_000
 
-        # Search knowledge base
         sources = []
         try:
             sources = search_chunks(db, body.question)
         except Exception:
             pass
 
-        # Build knowledge context from sources
         knowledge_context = ""
         if sources:
             knowledge_context = "\n".join(s.get("content", "")[:300] for s in sources[:3])
 
-        # Try LLM first (human-like response)
         answer = ""
         try:
             from app.core.llm_engine import get_llm_response
             conv_history = []
-            try:
-                conv_history = db.query(KudosMessage).filter(
-                    KudosMessage.conversation_id == conv.id
-                ).order_by(KudosMessage.created_at.desc()).limit(5).all()
-                conv_history = [{"role": m.role, "content": m.content} for m in conv_history]
-            except Exception:
-                pass
+            if conv:
+                try:
+                    conv_history = db.query(KudosMessage).filter(
+                        KudosMessage.conversation_id == conv.id
+                    ).order_by(KudosMessage.created_at.desc()).limit(5).all()
+                    conv_history = [{"role": m.role, "content": m.content} for m in conv_history]
+                except Exception:
+                    pass
 
+            user_name = ""
+            if current_user and current_user.full_name:
+                user_name = current_user.full_name.split()[0]
             llm_answer = await get_llm_response(
                 question=body.question,
                 knowledge_context=knowledge_context,
                 conversation_history=conv_history,
-                user_name=current_user.full_name.split()[0] if current_user.full_name else "",
+                user_name=user_name,
             )
             if llm_answer and len(llm_answer) > 10:
                 answer = llm_answer
         except Exception:
             pass
 
-        # Fallback to internal engine
         if not answer or len(answer) < 10:
             try:
                 from app.core.conversation_engine import generate_human_response
+                user_name = None
+                if current_user and current_user.full_name:
+                    user_name = current_user.full_name.split()[0]
                 answer = generate_human_response(
-                    query=body.question, sources=sources, conv_id=conv.id,
-                    user_name=current_user.full_name.split()[0] if current_user.full_name else None,
+                    query=body.question, sources=sources, conv_id=conv_id,
+                    user_name=user_name,
                 )
             except Exception:
                 answer = generate_answer(body.question, sources)
@@ -337,21 +348,25 @@ async def ask_kudos(body: KudosAskRequest, db: Session = Depends(get_db), curren
         if not answer or len(answer) < 10:
             answer = generate_answer(body.question, sources)
 
-        # Self-improvement logging
-        try:
-            self_improver.log_question(current_user.id, body.question, had_sources=bool(sources))
-        except Exception:
-            pass
+        remind_register = False
+        if not registered:
+            _, remind_register = guest_should_remind(conv_id, body.guest_turns)
+            if remind_register and "Register for the full Digital Campus" not in answer:
+                answer = answer.rstrip() + GUEST_REGISTER_REMINDER
 
-        # Save KUDOS response
-        try:
-            db.add(KudosMessage(
-                conversation_id=conv.id, role="kudos", content=answer,
-                sources=json.dumps(sources[:3]) if sources else "[]",
-            ))
-            db.commit()
-        except Exception:
-            db.rollback()
+        if current_user:
+            try:
+                self_improver.log_question(current_user.id, body.question, had_sources=bool(sources))
+            except Exception:
+                pass
+            try:
+                db.add(KudosMessage(
+                    conversation_id=conv.id, role="kudos", content=answer,
+                    sources=json.dumps(sources[:3]) if sources else "[]",
+                ))
+                db.commit()
+            except Exception:
+                db.rollback()
 
         return KudosAskResponse(
             answer=answer,
@@ -359,7 +374,9 @@ async def ask_kudos(body: KudosAskRequest, db: Session = Depends(get_db), curren
                 {"document_id": s.get("document_id"), "web_id": s.get("web_id"), "title": s.get("title", ""), "preview": s.get("content", "")[:200]}
                 for s in (sources[:3] if sources else [])
             ],
-            conversation_id=conv.id,
+            conversation_id=conv_id,
+            registered=registered,
+            remind_register=remind_register,
         )
 
     except Exception as e:
@@ -370,6 +387,7 @@ async def ask_kudos(body: KudosAskRequest, db: Session = Depends(get_db), curren
         return KudosAskResponse(
             answer=f"I had trouble processing that. Please try again. ({str(e)[:100]})",
             sources=[], conversation_id=body.conversation_id or 0,
+            registered=current_user is not None, remind_register=False,
         )
 
 
