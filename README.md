@@ -44,12 +44,6 @@
 - **RSS Feeds** — Hacker News, Python Blog, GitHub Trending
 - **Social** — Reddit, social skills, emotional intelligence
 
-### 🎙️ Studio
-- **Speaking Practice** — 4 difficulty levels, timer, self-rating
-- **Live Broadcasting** — Radio-style broadcasts with Radio Garden
-- **Video Calls** — P2P & group calls with canvas whiteboard
-- **Journalist Page** — Multi-platform dashboard (embed YouTube, Twitter, etc.)
-
 ### 💬 Communication
 - **Real-time Chat** — WebSocket-based, offline support
 - **Social Hub** — Posts, comments, reactions, external storage links
@@ -69,7 +63,8 @@ New-project/
 │   │   ├── login.tsx            # Authentication
 │   │   ├── register.tsx         # User registration
 │   │   ├── chat/index.tsx       # Real-time chat
-│   │   ├── studio/              # Speaking, broadcast, video calls
+│   │   ├── studio/              # Superadmin only — speaking, broadcast, calls
+│   │   ├── media.tsx            # Superadmin only — media hub
 │   │   ├── kudos/               # KUDOS AI pages
 │   │   │   ├── index.tsx        # KUDOS chat
 │   │   │   ├── connect.tsx      # Connectors management
@@ -227,7 +222,8 @@ After starting the backend, visit:
 | `/api/v1/kudos/search` | Search & social learning |
 | `/api/v1/kudos/social` | Social learning |
 | `/api/v1/kudos/guardian` | Security & integrity |
-| `/api/v1/studio` | Speaking, broadcast, video calls |
+| `/api/v1/studio` | Superadmin only — speaking, broadcast, video calls |
+| `/api/v1/media` | Superadmin only — media hub |
 | `/api/v1/superadmin` | Superadmin dashboard |
 | `/api/v1/root` | Root terminal |
 | `/api/v1/shield` | Self-protection |

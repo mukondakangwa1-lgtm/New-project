@@ -4,7 +4,7 @@ This is the launch plan. Every method below is **$0**. The split is intentional:
 
 | Piece | Where it lives | Why |
 | --- | --- | --- |
-| Digital Campus (courses, attendance, assignments, exams, chat, hub, studio) | Public cloud | The world can reach it |
+| Digital Campus (courses, attendance, assignments, exams, chat, hub) | Public cloud | The world can reach it |
 | KUDOS **on campus** | Same public app, `/kudos` | In-app guide for how to use the site |
 | Superadmin | Same public app, `/admin/dashboard` | Unchanged. Admin-only. |
 | KUDOS **HQ** (270 agents) | Your 4GB PC | Too heavy and quota-hungry for free cloud |
@@ -198,9 +198,9 @@ Do **not** give this URL to students. A 4GB box already running 270 agents canno
 
 - Home, register, login, dashboard, courses
 - Attendance, timetable, reports
-- Assignments, exams, chat, hub, studio, media
+- Assignments, exams, chat, hub
 - `/kudos` as the how-to-use-the-app guide
-- Superadmin at `/admin/dashboard` — same screens, same commands
+- Superadmin at `/admin/dashboard` — same screens, same commands, plus Studio and Media
 
 **On your PC**
 

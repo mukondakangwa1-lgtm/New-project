@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import Layout from "@/components/Layout";
+import AdminOnly from "@/components/AdminOnly";
 
 interface Source {
   name: string;
@@ -34,7 +35,7 @@ export default function MediaHub() {
   const [searching, setSearching] = useState(false);
 
   useEffect(() => {
-    fetch("/api/v1/media/sources")
+    fetch("/api/v1/media/sources", { headers: getAuthHeader() })
       .then((r) => r.json())
       .then((d) => setSources(d.sources || {}))
       .catch(() => {});
@@ -46,8 +47,8 @@ export default function MediaHub() {
     setSearching(true);
     try {
       const [mediaRes, fmhyRes] = await Promise.all([
-        fetch(`/api/v1/media/search?query=${encodeURIComponent(searchQuery)}`),
-        fetch(`/api/v1/media/fmhy?query=${encodeURIComponent(searchQuery)}`),
+        fetch(`/api/v1/media/search?query=${encodeURIComponent(searchQuery)}`, { headers: getAuthHeader() }),
+        fetch(`/api/v1/media/fmhy?query=${encodeURIComponent(searchQuery)}`, { headers: getAuthHeader() }),
       ]);
       const results: SearchResult[] = [];
       if (mediaRes.ok) {
@@ -84,12 +85,13 @@ export default function MediaHub() {
   ];
 
   return (
+    <AdminOnly title="Media Hub">
     <Layout>
       <div className="flex justify-between items-center mb-6">
         <div>
           <h2 className="text-2xl md:text-3xl font-bold">🎬 Media Hub</h2>
           <p className="text-gray-600 text-sm">
-            Free movies, TV, music & more — powered by FMHY & 1flex
+            Superadmin only — free movies, TV, music & more
           </p>
         </div>
       </div>
@@ -351,5 +353,6 @@ export default function MediaHub() {
         </div>
       )}
     </Layout>
+    </AdminOnly>
   );
 }

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -6,6 +6,18 @@ interface LayoutProps {
 
 export default function Layout({ children }: LayoutProps) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (!token) return;
+    fetch("/api/v1/users/me", { headers: { Authorization: `Bearer ${token}` } })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((user) => {
+        if (user?.is_admin) setIsAdmin(true);
+      })
+      .catch(() => {});
+  }, []);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -15,22 +27,24 @@ export default function Layout({ children }: LayoutProps) {
             🎓 Digital Campus
           </a>
 
-          {/* Desktop nav */}
           <ul className="hidden md:flex gap-4 lg:gap-6 text-sm font-medium text-gray-600">
             <li><a href="/" className="hover:text-primary transition">Home</a></li>
             <li><a href="/courses" className="hover:text-primary transition">Courses</a></li>
             <li><a href="/register/attendance" className="hover:text-primary transition">Register</a></li>
-            <li><a href="/media" className="hover:text-primary transition">🎬 Media</a></li>
-            <li><a href="/studio" className="hover:text-primary transition">🎙️ Studio</a></li>
             <li><a href="/hub/feed" className="hover:text-primary transition">Hub</a></li>
             <li><a href="/chat" className="hover:text-primary transition">Chat</a></li>
             <li><a href="/kudos" className="hover:text-purple-600 transition font-bold text-purple-700">🧠 KUDOS</a></li>
-            <li><a href="/admin/dashboard" className="hover:text-yellow-600 transition text-yellow-600">👑</a></li>
+            {isAdmin && (
+              <>
+                <li><a href="/studio" className="hover:text-primary transition">🎙️ Studio</a></li>
+                <li><a href="/media" className="hover:text-primary transition">🎬 Media</a></li>
+                <li><a href="/admin/dashboard" className="hover:text-yellow-600 transition text-yellow-600">👑</a></li>
+              </>
+            )}
             <li><a href="/dashboard" className="hover:text-primary transition">Dashboard</a></li>
             <li><a href="/login" className="hover:text-primary transition">Login</a></li>
           </ul>
 
-          {/* Mobile hamburger */}
           <button
             className="md:hidden p-2 rounded-lg hover:bg-gray-100"
             onClick={() => setMenuOpen(!menuOpen)}
@@ -46,7 +60,6 @@ export default function Layout({ children }: LayoutProps) {
           </button>
         </div>
 
-        {/* Mobile menu */}
         {menuOpen && (
           <div className="md:hidden bg-white border-t border-gray-100 px-4 py-3 shadow-lg">
             <ul className="space-y-2">
@@ -54,14 +67,16 @@ export default function Layout({ children }: LayoutProps) {
                 { href: "/", label: "🏠 Home" },
                 { href: "/courses", label: "📚 Courses" },
                 { href: "/register/attendance", label: "📋 Register" },
-                { href: "/studio", label: "🎙️ Studio" },
-                { href: "/media", label: "🎬 Media" },
                 { href: "/hub/feed", label: "🌐 Hub" },
                 { href: "/chat", label: "💬 Chat" },
                 { href: "/kudos", label: "🧠 KUDOS" },
-                { href: "/kudos/connect", label: "🔌 Connectors" },
-                { href: "/kudos/autolearn", label: "🚀 Auto-Learn" },
-                { href: "/admin/dashboard", label: "👑 Superadmin" },
+                ...(isAdmin
+                  ? [
+                      { href: "/studio", label: "🎙️ Studio" },
+                      { href: "/media", label: "🎬 Media" },
+                      { href: "/admin/dashboard", label: "👑 Superadmin" },
+                    ]
+                  : []),
                 { href: "/dashboard", label: "📊 Dashboard" },
                 { href: "/login", label: "🔑 Login" },
               ].map((item) => (

@@ -279,6 +279,8 @@ export default function SuperadminDashboard() {
             { href: "/kudos/llm", icon: "✨", label: "LLM Config" },
             { href: "/kudos/connect", icon: "🔌", label: "Connectors" },
             { href: "/kudos/archive", icon: "🕰️", label: "Archive" },
+            { href: "/studio", icon: "🎙️", label: "Studio" },
+            { href: "/media", icon: "🎬", label: "Media Hub" },
             { href: "/admin/analytics/overview", icon: "📊", label: "Analytics" },
             { href: "/root", icon: "👑", label: "Root Terminal" },
           ].map((link) => (

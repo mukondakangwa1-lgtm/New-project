@@ -30,7 +30,7 @@ Create an account:
 1. Open Register
 2. Enter your name, email, and a password
 3. Submit, then go to Login
-4. After login you can open Dashboard, Courses, Register, Chat, Hub, Studio, and KUDOS
+4. After login you can open Dashboard, Courses, Register, Chat, Hub, and KUDOS
 
 Login:
 - Use the email and password you registered with
@@ -70,20 +70,18 @@ Hub (social):
 - Create a post from Hub → New
 - React to posts from the feed
 
-Studio:
-- Speaking practice with difficulty levels and a timer
-- Live broadcast and video-call rooms
-- Journalist page for embedding public media
-
 KUDOS campus guide:
 - Open KUDOS and ask how to use any page
-- Example questions: How do I take attendance? How do I join a course? Where is Studio?
+- Example questions: How do I take attendance? How do I join a course? Where is Chat?
 - Upload Doc / Teach Web / Connectors are optional extras
 - Campus KUDOS does not run the 270 local agents and does not spend HQ quota by default
+
+Studio and Media are not available to normal users. They stay on the Superadmin dashboard.
 
 Superadmin (unchanged):
 - Only admin@campus.edu (or another admin account) can open Superadmin
 - Superadmin dashboard, root terminal, guardian, code agent, auto-learn, and LLM config stay as they are
+- Studio (speaking, broadcast, video calls, journal) and Media Hub stay on Superadmin only
 - Change the default password immediately: Superadmin chat → change password YOUR_NEW_PASSWORD
 - Do not share superadmin credentials
 
@@ -112,8 +110,6 @@ Public / student pages:
 - /chat Real-time rooms
 - /hub/feed Campus social feed
 - /hub/new New social post
-- /studio Speaking, broadcast, calls, journalist
-- /media Media search
 - /kudos Campus KUDOS guide
 
 KUDOS extra pages (still on campus, optional):
@@ -130,6 +126,8 @@ KUDOS extra pages (still on campus, optional):
 Superadmin only (unchanged):
 - /admin/dashboard Superadmin control room
 - /root Root terminal
+- /studio Speaking, broadcast, calls, journalist
+- /media Media Hub
 
 Mobile: use the hamburger menu. Desktop: use the top nav. The purple KUDOS link is the help desk.
 """,
@@ -165,21 +163,29 @@ count = 0
 for doc_data in HELP_DOCS:
     existing = db.query(KudosDocument).filter(KudosDocument.title == doc_data["title"]).first()
     if existing:
-        print(f"• already present: {doc_data['title']}")
-        continue
-    doc = KudosDocument(
-        uploaded_by=admin.id,
-        title=doc_data["title"],
-        filename=doc_data["filename"],
-        file_type="txt",
-        content=doc_data["content"],
-        summary=doc_data["content"][:300].strip(),
-        tags=doc_data["tags"],
-        is_approved=True,
-        is_active=True,
-    )
-    db.add(doc)
-    db.flush()
+        db.query(KudosChunk).filter(KudosChunk.document_id == existing.id).delete()
+        existing.content = doc_data["content"]
+        existing.summary = doc_data["content"][:300].strip()
+        existing.tags = doc_data["tags"]
+        existing.is_approved = True
+        existing.is_active = True
+        doc = existing
+        print(f"↻ updated: {doc_data['title']}")
+    else:
+        doc = KudosDocument(
+            uploaded_by=admin.id,
+            title=doc_data["title"],
+            filename=doc_data["filename"],
+            file_type="txt",
+            content=doc_data["content"],
+            summary=doc_data["content"][:300].strip(),
+            tags=doc_data["tags"],
+            is_approved=True,
+            is_active=True,
+        )
+        db.add(doc)
+        db.flush()
+        print(f"✅ {doc_data['title']}")
     chunks = _chunk(doc_data["content"])
     for index, content in enumerate(chunks):
         db.add(
@@ -193,7 +199,6 @@ for doc_data in HELP_DOCS:
         )
     doc.chunk_count = len(chunks)
     count += 1
-    print(f"✅ {doc_data['title']} ({len(chunks)} chunks)")
 
 db.commit()
 db.close()

@@ -121,7 +121,7 @@ def _greeting_response(query: str, ctx: dict) -> str:
             "Ask me how to:\n"
             "• Create an account and log in\n"
             "• Browse courses, take attendance, submit assignments, sit exams\n"
-            "• Use Chat, Hub, Studio, and your dashboard\n"
+            "• Use Chat, Hub, and your dashboard\n"
             "• Find the Superadmin tools (admins only)\n\n"
             "The 270-agent KUDOS HQ stays on the superadmin's PC and is not public. "
             "Just ask how to use Digital Campus and I'll walk you through it. 😊"
