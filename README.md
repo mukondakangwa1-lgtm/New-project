@@ -165,10 +165,34 @@ Open **http://localhost:3000**
 
 ---
 
+## 🌍 Launch today (free, worldwide)
+
+Public Digital Campus goes on free cloud. Campus KUDOS stays on the site as the how-to-use guide. Superadmin stays as-is. The 270-agent KUDOS HQ stays on your 4GB PC so quota is not burned.
+
+**Recommended free stack:** Vercel (UI) + Render (API) + Neon (Postgres).
+
+Full methods, env vars, and the launch checklist: **[LAUNCH.md](LAUNCH.md)**
+
+```bash
+# Public API (Render / Oracle / any host)
+bash services/backend/start.sh
+
+# Local HQ on the PC only
+# KUDOS_MODE=hq QUOTA_SAFE=true
+```
+
 ## 🐳 Docker
+
+Dev stack (Postgres + Redis + Celery — too heavy for the 4GB PC and for free cloud):
 
 ```bash
 docker-compose up -d
+```
+
+Public launch stack (campus + superadmin only, no agents):
+
+```bash
+docker compose -f docker-compose.launch.yml up -d --build
 ```
 
 ---

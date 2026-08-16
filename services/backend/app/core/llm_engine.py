@@ -240,7 +240,6 @@ async def query_best_llm(prompt: str, system_prompt: str = "") -> dict:
     if not providers:
         return {"response": None, "provider": "none", "message": "No LLM configured. Set an API key in the admin panel."}
 
-    # Query all available LLMs in parallel
     async def _query(name, func):
         try:
             result = await asyncio.wait_for(func(prompt, system_prompt), timeout=30)
@@ -248,10 +247,25 @@ async def query_best_llm(prompt: str, system_prompt: str = "") -> dict:
         except (asyncio.TimeoutError, Exception):
             return None
 
+    # Quota-safe default: try one provider at a time and stop on first success.
+    # Parallel fan-out is only for local KUDOS HQ when QUOTA_SAFE=false.
+    quota_safe = True
+    try:
+        from app.core.config import settings
+        quota_safe = bool(getattr(settings, "QUOTA_SAFE", True))
+    except Exception:
+        quota_safe = True
+
+    if quota_safe:
+        for name, func in providers:
+            result = await _query(name, func)
+            if isinstance(result, dict) and result.get("response"):
+                return result
+        return {"response": None, "provider": "none", "message": "All LLMs failed to respond."}
+
     tasks = [_query(name, func) for name, func in providers]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
-    # Get first successful response
     for r in results:
         if isinstance(r, dict) and r.get("response"):
             return r
@@ -273,7 +287,24 @@ def build_human_prompt(
     Build a prompt that makes the LLM respond like a human.
     Returns (user_prompt, system_prompt).
     """
-    system_prompt = f"""You are KUDOS, an AI assistant for Digital Campus university platform.
+    campus_help = True
+    try:
+        from app.core.config import settings
+        campus_help = getattr(settings, "KUDOS_MODE", "campus_help") != "hq"
+    except Exception:
+        campus_help = True
+
+    role = (
+        "You are KUDOS, the in-app guide for Digital Campus. "
+        "Your job is to help students and staff use the platform: login, courses, "
+        "attendance, assignments, exams, chat, studio, hub, and the dashboard. "
+        "You are NOT the 270-agent KUDOS HQ that runs on the superadmin PC. "
+        "Do not claim to control the local agent farm. Keep answers practical and short."
+        if campus_help
+        else "You are KUDOS, an AI assistant for Digital Campus university platform."
+    )
+
+    system_prompt = f"""{role}
 
 PERSONALITY:
 - You are friendly, warm, and approachable — like a knowledgeable friend
@@ -291,6 +322,7 @@ RULES:
 - If the user shares good news, congratulate them
 - If the user seems stressed, be supportive
 - Always end with a helpful follow-up question or suggestion
+- Prefer Digital Campus how-to answers when the question is about using the app
 
 {f"The user's name is {user_name}. Use it occasionally." if user_name else ""}
 """

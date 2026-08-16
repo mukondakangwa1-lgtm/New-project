@@ -34,6 +34,10 @@ lint: ## Lint backend (ruff) and frontend (eslint)
 test: ## Run backend tests
 	cd services/backend && .venv/bin/pytest tests/ -v
 
+# --------------- Launch ---------------
+launch-api: ## Start the public campus API (help-mode KUDOS, no 270-agent HQ)
+	cd services/backend && KUDOS_MODE=campus_help QUOTA_SAFE=true bash start.sh
+
 # --------------- Clean ---------------
 clean: ## Remove caches and build artifacts
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true

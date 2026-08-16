@@ -155,7 +155,8 @@ export default function KudosChat() {
         <div>
           <h2 className="text-3xl font-bold">🧠 KUDOS</h2>
           <p className="text-gray-600">
-            Your AI knowledge assistant — ask questions, upload documents, teach it web pages
+            Campus guide — ask how to use Digital Campus. Login, courses, attendance,
+            assignments, exams, chat, studio, and more.
           </p>
         </div>
         <div className="flex gap-2">

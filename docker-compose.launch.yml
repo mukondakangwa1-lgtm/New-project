@@ -1,0 +1,39 @@
+# Lightweight public launch stack — no Redis, no Celery, no 270-agent HQ.
+# Use this on Oracle Cloud Always Free (or any small VPS).
+# Your 4GB PC should keep running local KUDOS HQ only.
+
+services:
+  backend:
+    build: ./services/backend
+    ports:
+      - "8000:8000"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8000
+      DEBUG: "false"
+      KUDOS_MODE: campus_help
+      QUOTA_SAFE: "true"
+      SECRET_KEY: ${SECRET_KEY:-change-me-in-production-use-a-long-random-string}
+      DATABASE_URL: ${DATABASE_URL:-sqlite:////data/digital_campus.db}
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+    volumes:
+      - campus-data:/data
+    command: bash start.sh
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        BACKEND_URL: ${PUBLIC_BACKEND_URL:-http://backend:8000}
+    ports:
+      - "3000:3000"
+    environment:
+      BACKEND_URL: http://backend:8000
+      NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-}
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  campus-data:

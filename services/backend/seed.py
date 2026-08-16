@@ -20,12 +20,12 @@ admin_password = "superadmin123"
 
 existing = db.query(User).filter(User.email == admin_email).first()
 if existing:
-    # Update password if superadmin exists
-    existing.hashed_password = get_password_hash(admin_password)
+    # Never reset a live password on deploy — only ensure admin flag stays on.
     existing.is_admin = True
-    existing.full_name = "Superadmin"
+    if not existing.full_name:
+        existing.full_name = "Superadmin"
     db.commit()
-    print(f"✅ Superadmin updated: {admin_email}")
+    print(f"✅ Superadmin already exists: {admin_email} (password unchanged)")
 else:
     admin = User(
         email=admin_email,
