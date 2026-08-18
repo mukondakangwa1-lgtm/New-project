@@ -113,3 +113,15 @@ def login_for_swagger(
 def logout(response: Response):
     """Clear the session cookie."""
     clear_auth_cookie(response)
+
+
+@router.post("/forgot-password", status_code=200)
+def forgot_password(data: dict, db: Session = Depends(get_db)):
+    """Simulate password reset by sending a link to the user's email."""
+    email = data.get("email")
+    user = db.query(User).filter(User.email == email).first()
+    if user:
+        # In a real system, we would generate a token and send an email here.
+        # For this setup, we just log it.
+        print(f"Password reset requested for {email}")
+    return {"message": "If an account exists, a reset link has been sent"}

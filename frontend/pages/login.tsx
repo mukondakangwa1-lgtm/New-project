@@ -71,14 +71,15 @@ export default function Login() {
                 required
               />
             </div>
-            <div>
+            <div className="flex justify-between items-center text-sm">
               <label className="block text-sm font-medium mb-1">Password</label>
-              <PasswordInput
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete="current-password"
-              />
+              <Link href="/forgot-password" className="text-primary underline">Forgot password?</Link>
             </div>
+            <PasswordInput
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="current-password"
+            />
             <button
               type="submit"
               disabled={loading}
