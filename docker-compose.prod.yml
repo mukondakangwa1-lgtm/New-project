@@ -167,7 +167,7 @@ services:
       RUN_TIMEOUT_MS: "480000"
       OPENCODE_MODEL: ${OPENCODE_MODEL:-}
     volumes:
-      - ${OPENCODE_AUTH_FILE:-${HOME}/.local/share/opencode/auth.json}:/home/opencode/.local/share/opencode/auth.json:ro
+      - opencode_auth:/home/opencode/.local/share/opencode/auth.json:ro
     expose:
       - "8090"
     restart: unless-stopped
@@ -274,3 +274,4 @@ volumes:
   kudos_state:
   coqui_data:
   coqui_voices:
+  opencode_auth:

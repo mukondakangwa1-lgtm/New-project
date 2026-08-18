@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+LOCK="$HOME/.config/kudos/voice-lock.json"
+[[ -f "$LOCK" ]] || { echo "KUDOS voice lock is missing." >&2; exit 1; }
+grep -q '"locked": true' "$LOCK" || { echo "KUDOS voice is not locked." >&2; exit 1; }
+
+FISH_VOICE="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); v=d.get("voices",{}); print(v.get("fish") or d.get("provider_voice_id",""))' "$LOCK")"
+COQUI_VOICE="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); v=d.get("voices",{}); print(v.get("coqui",""))' "$LOCK")"
+
+if [[ $# -gt 0 ]]; then TEXT="$*"; else read -r TEXT; fi
+[[ -n "$TEXT" ]] || { echo 'Usage: kudos-speak "text"' >&2; exit 2; }
+
+BACKEND="$(sudo docker ps -q --filter label=com.docker.compose.project=new-project --filter label=com.docker.compose.service=backend | head -n1)"
+[[ -n "$BACKEND" ]] || { echo "KUDOS backend is not running." >&2; exit 1; }
+
+# Pull provider config from the backend .env so we do NOT depend on a
+# container recreate (which docker-compose v1 is currently unable to do).
+ENVFILE="$HOME/New-project/services/backend/.env"
+COQUI_URL="$(grep -E '^COQUI_TTS_URL=' "$ENVFILE" 2>/dev/null | head -n1 | cut -d= -f2- || true)"
+FISH_KEY="$(grep -E '^FISH_API_KEY=' "$ENVFILE" 2>/dev/null | head -n1 | cut -d= -f2- || true)"
+
+TEXT_B64="$(printf '%s' "$TEXT" | base64 -w0)"
+RESULT="$(mktemp /tmp/kudos-tts-result.XXXXXX.json)"
+AUDIO="$(mktemp --suffix=.mp3 /tmp/kudos-voice.XXXXXX)"
+trap 'rm -f "$RESULT" "$AUDIO"' EXIT
+
+for VOICE in "$FISH_VOICE" "$COQUI_VOICE"; do
+  [[ -n "$VOICE" ]] || continue
+  sudo docker exec \
+    -e KUDOS_TEXT_B64="$TEXT_B64" \
+    -e KUDOS_LOCKED_VOICE="$VOICE" \
+    -e COQUI_TTS_URL="${COQUI_URL:-http://coqui-tts:8082}" \
+    -e FISH_API_KEY="${FISH_KEY:-}" \
+    "$BACKEND" \
+    python -c 'import asyncio,base64,json,os; from app.core.voice_providers import synthesize; text=base64.b64decode(os.environ["KUDOS_TEXT_B64"]).decode(); print(json.dumps(asyncio.run(synthesize(text, voice_id=os.environ["KUDOS_LOCKED_VOICE"]))))' \
+    > "$RESULT"
+  OK="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print("yes" if d.get("data") else "no")' "$RESULT")"
+  if [[ "$OK" == "yes" ]]; then
+    PROVIDER="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("provider",""))' "$RESULT")"
+    python3 -c 'import base64,json,sys; d=json.load(open(sys.argv[1])); open(sys.argv[2],"wb").write(base64.b64decode(d["data"]))' "$RESULT" "$AUDIO"
+    echo "Speaking with protected KUDOS voice ($PROVIDER)..."
+    ffplay -nodisp -autoexit -loglevel error "$AUDIO"
+    exit 0
+  fi
+done
+
+echo "All TTS providers returned no audio." >&2
+cat "$RESULT" >&2
+exit 1

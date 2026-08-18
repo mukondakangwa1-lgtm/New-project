@@ -1,27 +1,31 @@
 #!/usr/bin/env python3
 """kudos — persistent, context-aware REPL for the KUDOS Agency.
 
-Two modes:
+NEW — "never worry about quota":
+  - Detects Gemini quota / rate-limit errors in agent output.
+  - Automatically re-runs the SAME request on your local Ollama model.
+  - Offline (Ollama) mode can now edit files too — no more "advisory only".
 
-1) One-shot (unchanged):   kudos "your request" [flags]
-2) Interactive REPL:       kudos
-       - stays OPEN until you type:  stop  (or /stop, exit, quit)
-       - remembers the whole conversation (context is passed each turn)
-       - routes to a specialist, OR pins one so "kudos controls his agents"
-       - built-in commands for committing & deploying so you SEE changes
+Modes:
+  1) One-shot:   kudos "your request" [flags]
+  2) Interactive REPL:  kudos        (stays open until you type: stop)
 
 Interactive commands:
     /help                 show help
     /agent <slug>         pin a specialist (default: agents-orchestrator)
     /agent none           go back to auto-routing
-    /status               git status
-    /diff                 git diff (unstaged)
+    /status /diff         git status / git diff
     /commit <msg>         git add -A && commit
     /push                 git push
-    /deploy               run $KUDOS_DEPLOY_CMD (see below)
+    /deploy               run $KUDOS_DEPLOY_CMD
     /auto                 toggle auto-commit after each turn
-    /clear                clear the on-screen transcript
+    /clear                clear the screen
     stop | /stop | exit   end the session
+
+Configuration (env vars, optional):
+    KUDOS_LOCAL_MODEL      Ollama model used for offline/fallback
+                           (default: whatever opencode.json points at)
+    KUDOS_DEPLOY_CMD       command /deploy runs
 """
 
 import argparse
@@ -80,6 +84,18 @@ ALLOW_ALL_PERMISSION = {
     "todoread": "allow", "todowrite": "allow",
 }
 
+# Patterns that mean "the cloud model is rate-limited / out of quota".
+QUOTA_PATTERNS = [
+    r"exceeded your current quota",
+    r"quota exceeded",
+    r"resource_?exhausted",
+    r"rate.?limit",
+    r"\b429\b",
+    r"too many requests",
+    r"generate_content_free_tier_requests",
+    r"you have been rate limited",
+]
+
 
 def tokenize(text: str) -> set[str]:
     words = set(re.findall(r"[a-z0-9]+", text.lower())) - STOP_WORDS
@@ -135,7 +151,6 @@ def route(request: str, agents: dict[str, str]):
 
 
 def transcribe_voice() -> str:
-    # (unchanged from the original script)
     lock_path = Path.home() / ".config/kudos/voice-lock.json"
     if not lock_path.exists():
         raise RuntimeError("KUDOS voice lock is missing.")
@@ -182,18 +197,79 @@ def transcribe_voice() -> str:
 
 
 # --------------------------------------------------------------------------
-# Running an agent (shared by one-shot and REPL)
+# Running an agent — with automatic quota fallback
 # --------------------------------------------------------------------------
 
-def run_agent(agent: str, task: str, online: bool = True) -> int:
+def _looks_like_quota(output: str) -> bool:
+    low = output.lower()
+    return any(re.search(p, low) for p in QUOTA_PATTERNS)
+
+
+def run_agent(agent: str, task: str, online: bool = True, allow_fallback: bool = True):
+    """Run an agent. Returns (returncode, output_text). If online mode hits a
+    Gemini quota/rate-limit error, automatically retry on local Ollama."""
     os.environ["OPENCODE_PERMISSION"] = json.dumps(ALLOW_ALL_PERMISSION)
+
     runner = "agency-offline" if not online else "agency-online"
     command = [runner]
     if not online and PROJECT.exists():
         command.append("--project")
     command.extend([agent, task])
-    print(f"\nLaunching {agent}...")
-    return subprocess.run(command, cwd=PROJECT, check=False).returncode
+
+    mode_label = "online" if online else "offline"
+    print(f"\nLaunching {agent} ({mode_label})...")
+
+    result = subprocess.run(
+        command,
+        cwd=PROJECT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    if result.stdout:
+        print(result.stdout, end="" if result.stdout.endswith("\n") else "\n")
+    if result.stderr:
+        print(result.stderr, end="" if result.stderr.endswith("\n") else "\n", file=sys.stderr)
+
+    combined = (result.stdout or "") + "\n" + (result.stderr or "")
+
+    # Automatic fallback: Gemini quota/rate-limit -> local Ollama.
+    if online and allow_fallback and _looks_like_quota(combined):
+        print("\n⚠️  Gemini quota / rate-limit detected — falling back to local Ollama...")
+        return run_agent(agent, task, online=False, allow_fallback=False)
+
+    return result.returncode, (result.stdout or "")
+
+
+# --------------------------------------------------------------------------
+# Speaking (text-to-speech output via `kudos-speak`)
+# --------------------------------------------------------------------------
+
+def extract_spoken(text: str) -> str:
+    """Pull the spoken summary (or last few clean lines) out of agent output."""
+    marker = "SPOKEN SUMMARY:"
+    if marker in text:
+        spoken = text.rsplit(marker, 1)[1].strip()
+    else:
+        clean_lines = [
+            line.strip()
+            for line in text.splitlines()
+            if line.strip()
+            and not line.lstrip().startswith((">", "$", "✱", "→", "#"))
+        ]
+        spoken = " ".join(clean_lines[-6:]).strip()
+    spoken = re.sub(r"\x1b\[[0-9;]*m", "", spoken)
+    return spoken[:1800].strip()
+
+
+def speak_text(text: str) -> None:
+    spoken = extract_spoken(text)
+    if not spoken:
+        print("(nothing to speak)")
+        return
+    print(f"\n🔊 Speaking…")
+    subprocess.run(["kudos-speak", spoken], check=False)
 
 
 # --------------------------------------------------------------------------
@@ -230,8 +306,7 @@ def deploy() -> None:
     else:
         print("No KUDOS_DEPLOY_CMD set.")
         print("Set it to however you deploy, e.g.:")
-        print("  export KUDOS_DEPLOY_CMD='docker compose up -d --build'")
-        print("  export KUDOS_DEPLOY_CMD='cd frontend && npm run dev'")
+        print("  export KUDOS_DEPLOY_CMD='docker compose -f docker-compose.prod.yml up -d --build frontend backend'")
 
 
 # --------------------------------------------------------------------------
@@ -239,13 +314,18 @@ def deploy() -> None:
 # --------------------------------------------------------------------------
 
 def repl(agents: dict[str, str], online: bool = True) -> int:
-    transcript: list[tuple[str, str]] = []  # (role, text)
-    pinned = "agents-orchestrator"          # "kudos controls his agents"
+    transcript: list[tuple[str, str]] = []
+    pinned = "agents-orchestrator"
     auto_commit = False
+    speak = False
 
     def show_help():
         print("""\nKUDOS interactive session (stays open until you type: stop)
-  normal text          -> sent to kudos; it routes to a specialist and remembers context
+  normal text          -> sent to kudos; routes to a specialist, remembers context
+                          (auto-falls back to local Ollama if Gemini quota is hit)
+  /offline             -> switch to local Ollama (no Gemini quota)
+  /online              -> switch back to Gemini
+  /speak               -> toggle speaking replies aloud (kudos-speak)
   /agent <slug>        -> pin a specialist (or 'none' to auto-route)
   /status /diff        -> git status / git diff
   /commit <msg>        -> git add -A && git commit -m <msg>
@@ -255,8 +335,12 @@ def repl(agents: dict[str, str], online: bool = True) -> int:
   /clear               -> clear on-screen transcript (context kept)
   /help  stop  exit    -> help / end session""")
 
+    def banner():
+        print(f"Agent: {pinned}   ·   mode: {'online' if online else 'offline (local)'}   ·   speak: {'on' if speak else 'off'}   ·   auto-commit: {'on' if auto_commit else 'off'}")
+
     print("\nKUDOS is listening. Type normally, or /help. Say 'stop' to end.")
-    print(f"Agent: {pinned}   ·   auto-commit: {'on' if auto_commit else 'off'}\n")
+    banner()
+    print("Quota fallback: on (Gemini -> local Ollama)\n")
 
     while True:
         try:
@@ -280,6 +364,18 @@ def repl(agents: dict[str, str], online: bool = True) -> int:
 
             if verb == "/help":
                 show_help()
+            elif verb == "/offline":
+                online = False
+                print("Switched to offline (local Ollama).")
+                banner()
+            elif verb == "/online":
+                online = True
+                print("Switched to online (Gemini).")
+                banner()
+            elif verb == "/speak":
+                speak = not speak
+                print(f"Speaking replies: {'on' if speak else 'off'}")
+                banner()
             elif verb == "/agent":
                 if arg in ("none", ""):
                     pinned = None
@@ -308,12 +404,10 @@ def repl(agents: dict[str, str], online: bool = True) -> int:
                 print(f"Unknown command: {verb} (try /help)")
             continue
 
-        # --- route & build context ---------------------------------------
         target = pinned
         if target is None:
             target = route(line, agents)[0][1]
 
-        # carry conversation context (last ~10 turns, ~5000 chars max)
         if transcript:
             recent = transcript[-10:]
             ctx = "\n".join(f"{r}: {t}" for r, t in recent)
@@ -330,12 +424,15 @@ def repl(agents: dict[str, str], online: bool = True) -> int:
             task = f"You may edit files. {line}"
 
         print(f"[routing -> {target}]")
-        rc = run_agent(target, task, online=online)
+        rc, out = run_agent(target, task, online=online)
 
         transcript.append(("user", line))
         if rc != 0:
             print("(agent exited with an error)")
             transcript.append(("kudos", "[agent error]"))
+
+        if speak:
+            speak_text(out)
 
         if auto_commit:
             git_commit(f"kudos: {line[:60]}")
@@ -366,11 +463,9 @@ def main() -> int:
     request = " ".join(args.request).strip()
     online = not args.offline
 
-    # No request at all -> interactive REPL (persistent, context-aware)
     if not request:
         return repl(agents, online=online)
 
-    # --- one-shot mode (original behavior, plus --yes) -------------------
     if args.voice:
         try:
             request = " ".join(p for p in (request, transcribe_voice()) if p).strip()
@@ -393,8 +488,6 @@ def main() -> int:
     wants_github = "github" in local_request or "repository" in local_request or "repo" in local_request
     wants_campus = "digital campus" in local_request or "campus app" in local_request
 
-    # Only trigger the browser shortcut for *pure* open requests,
-    # not for meta-commands like "open a new session".
     if wants_open and wants_github and "session" not in local_request:
         subprocess.Popen(["xdg-open", "https://github.com/mukondakangwa1-lgtm/New-project"],
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -433,9 +526,6 @@ def main() -> int:
         return 0
 
     if can_edit:
-        if not online:
-            print("Offline specialists are advisory only; file editing requires online mode.", file=sys.stderr)
-            return 2
         if not args.yes:
             confirmation = input("Type APPLY to allow repository edits: ")
             if confirmation != "APPLY":
@@ -457,7 +547,10 @@ def main() -> int:
         task += "\n\nEnd your response with the exact heading 'SPOKEN SUMMARY:' followed by a concise plain-English summary of no more than three sentences."
 
     print()
-    return run_agent(selected, task, online=online)
+    rc, out = run_agent(selected, task, online=online)
+    if args.speak:
+        speak_text(out)
+    return rc
 
 
 if __name__ == "__main__":

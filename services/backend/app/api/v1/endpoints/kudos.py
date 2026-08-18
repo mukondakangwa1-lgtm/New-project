@@ -17,7 +17,8 @@ import httpx
 from bs4 import BeautifulSoup
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core import storage
@@ -53,6 +54,8 @@ from app.schemas import (
     ToolCallRequest,
     ToolRegisterRequest,
 )
+from app.schemas.kudos_chat import KudosChatRequest
+from app.core.chat_ai import KUDOS_NAME, generate_room_reply
 
 router = APIRouter()
 
@@ -1107,15 +1110,13 @@ async def learn_with_agent(
 # PUBLIC GUEST CHAT — anonymous visitors, no login required
 # ──────────────────────────────────────────────────────────────
 
-from pydantic import Field
-
 class ChatRequest(BaseModel):
     message: str = Field(..., max_length=1000)
     sessionId: str
 
 _GUEST_EMAIL = "guest@digitalcampus.local"
 
-_CHAT_RATE_LIMIT = 50  # asks per user per minute
+_CHAT_RATE_LIMIT = 500  # asks per user per minute
 _CHAT_RATE_WINDOW = 60  # seconds
 _chat_ask_times: dict[str, list[float]] = {}
 
@@ -1133,39 +1134,47 @@ def _chat_rate_ok(user_id: str) -> bool:
 
 
 @router.post("/kudos/chat")
-async def kudos_chat_authenticated(body: ChatRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def kudos_chat_authenticated(
+    body: KudosChatRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """Authenticated chat endpoint for the ChatWidget component."""
-    # Rate limit per user
-    if not _chat_rate_ok(str(current_user.id)):
+    # Rate limit (if sessionID provided, use it for tracking; otherwise user_id)
+    rate_id = body.sessionId or str(current_user.id)
+    if not _chat_rate_ok(rate_id):
         raise HTTPException(status_code=429, detail="Too many requests.")
-
-    # Use authenticated user's session
-    conv, _ = _get_guest_conversation(db, body.sessionId)
-    # Actually, we should make sure this conversation belongs to the user,
-    # but _get_guest_conversation uses guest_key.
-    # The authenticated user should have their own conversation.
     
-    # Let's fix _get_guest_conversation to support authenticated user
-    conv = db.query(KudosConversation).filter(KudosConversation.user_id == current_user.id, KudosConversation.guest_key == body.sessionId).first()
+    # Length limit
+    message = body.message[:2000] if len(body.message) > 2000 else body.message
+
+    # Conversation (find by user and session, or create)
+    conv = (
+        db.query(KudosConversation)
+        .filter(
+            KudosConversation.user_id == current_user.id,
+            KudosConversation.guest_key == body.sessionId,
+        )
+        .first()
+    )
     if not conv:
         conv = KudosConversation(user_id=current_user.id, title="Chat", guest_key=body.sessionId)
         db.add(conv)
         db.commit()
         db.refresh(conv)
 
-    # Re-use conversation logic
-    # For now, manually persist user message and reuse pipeline logic
-    db.add(KudosMessage(conversation_id=conv.id, role="user", content=body.message))
-    db.flush()
+    # Reuse pipeline logic
+    db.add(KudosMessage(conversation_id=conv.id, role="user", content=message))
+    reply = await generate_room_reply(db, conv.id, current_user.id, message)
     
-    # We can reuse the internal logic of _run_guest_pipeline but pass user info if needed
-    # Actually, the logic in _run_guest_pipeline is already mostly generic.
-    # It takes guest_id, but it uses it for lookup.
-    
-    # Let's call the pipeline
-    answer, conv_id, cited = await _run_guest_pipeline(db, body.sessionId, body.message)
-    
-    return {"reply": answer}
+    if not reply:
+        reply = "I'm not sure how to respond to that."
+
+    db.add(KudosMessage(conversation_id=conv.id, role="kudos", content=reply))
+    db.commit()
+
+    return {"reply": reply}
+
 
 _GUEST_WELCOME = (
     "Hi 👋 Welcome to Digital Campus — I'm KUDOS, your AI assistant. "
@@ -1173,7 +1182,7 @@ _GUEST_WELCOME = (
     "No account needed to chat; sign in (top right) to keep your history forever. \n\n"
     "What can I help you with?"
 )
-_GUEST_RATE_LIMIT = 15  # asks per guest per minute
+_GUEST_RATE_LIMIT = 500  # asks per guest per minute
 _GUEST_RATE_WINDOW = 60  # seconds
 _guest_ask_times: dict[str, list[float]] = {}
 
@@ -1514,7 +1523,11 @@ async def guest_voice_greet(guest_id: str = Form(...), db: Session = Depends(get
     )
     if speech.get("error"):
         return GuestGreetResult(text=text, audio_b64="", mime_type="")
-    return GuestGreetResult(text=text, audio_b64=speech.get("data", ""), mime_type=speech.get("mime_type", "audio/mpeg"))
+    return GuestGreetResult(
+        text=text,
+        audio_b64=speech.get("data", ""),
+        mime_type=speech.get("mime_type", "audio/mpeg"),
+    )
 
 
 @router.get("/guest/messages", response_model=list[KudosMessageResponse])
