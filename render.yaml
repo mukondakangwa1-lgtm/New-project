@@ -1,0 +1,29 @@
+# Digital Campus — Render Blueprint (free web service)
+# Superadmin stays as-is. Campus KUDOS is help-only. No Celery/Redis/270-agent HQ.
+# Create a free Neon Postgres database first, then paste DATABASE_URL in the Render dashboard.
+# https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: digital-campus-api
+    runtime: python
+    plan: free
+    region: oregon
+    buildCommand: pip install -r services/backend/requirements.txt
+    startCommand: bash services/backend/start.sh
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DEBUG
+        value: "false"
+      - key: KUDOS_MODE
+        value: campus_help
+      - key: QUOTA_SAFE
+        value: "true"
+      - key: CORS_ORIGINS
+        value: "*"
+      - key: DATABASE_URL
+        sync: false

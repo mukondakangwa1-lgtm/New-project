@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import Layout from "@/components/Layout";
+import AdminOnly from "@/components/AdminOnly";
 
 function getAuthHeader(): Record<string, string> {
   if (typeof window === "undefined") return {};
@@ -21,7 +22,7 @@ function SpeakingPractice() {
   const intervalRef = useRef<any>(null);
 
   const getPrompt = async () => {
-    const res = await fetch(`/api/v1/studio/speaking/random-prompt?difficulty=${difficulty}`);
+    const res = await fetch(`/api/v1/studio/speaking/random-prompt?difficulty=${difficulty}`, { headers: getAuthHeader() });
     if (res.ok) {
       const data = await res.json();
       setPrompt(data.prompt);
@@ -249,7 +250,7 @@ function VideoCalls() {
   }, []);
 
   const fetchCalls = async () => {
-    const res = await fetch("/api/v1/studio/calls/active");
+    const res = await fetch("/api/v1/studio/calls/active", { headers: getAuthHeader() });
     if (res.ok) {
       const data = await res.json();
       setCalls(data.calls || []);
@@ -520,9 +521,10 @@ export default function Studio() {
   const [activeTab, setActiveTab] = useState<"speaking" | "broadcast" | "calls" | "journal">("speaking");
 
   return (
+    <AdminOnly title="Studio">
     <Layout>
       <h2 className="text-3xl font-bold mb-2">🎙️ Studio</h2>
-      <p className="text-gray-600 mb-6">Practice speaking, broadcast live, video calls with whiteboard, and journalist pages</p>
+      <p className="text-gray-600 mb-6">Superadmin only — speaking practice, live broadcast, video calls, and journalist pages</p>
 
       <div className="flex gap-2 mb-6 flex-wrap">
         {[
@@ -543,5 +545,6 @@ export default function Studio() {
       {activeTab === "calls" && <VideoCalls />}
       {activeTab === "journal" && <JournalPage />}
     </Layout>
+    </AdminOnly>
   );
 }

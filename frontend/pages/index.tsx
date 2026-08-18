@@ -56,6 +56,16 @@ export default function Home() {
             <p className="text-gray-500">View and enroll in courses</p>
           </a>
         </div>
+
+        <a
+          href="/kudos"
+          className="mt-10 inline-block rounded-xl bg-purple-50 border border-purple-200 px-8 py-5 hover:bg-purple-100 transition"
+        >
+          <p className="text-lg font-semibold text-purple-800">Ask KUDOS anything — no login needed</p>
+          <p className="text-sm text-purple-700 mt-1">
+            The campus guide answers your questions. After two messages, guests are invited to register for the full experience.
+          </p>
+        </a>
       </div>
     </Layout>
   );

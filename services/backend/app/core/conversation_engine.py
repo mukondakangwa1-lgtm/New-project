@@ -117,13 +117,13 @@ def _greeting_response(query: str, ctx: dict) -> str:
 
     if re.search(r"who are you|what are you|tell me about yourself", q):
         return (
-            "I'm KUDOS 🧠 — your AI knowledge assistant for Digital Campus!\n\n"
-            "Here's what I can do:\n"
-            "• Answer questions from my knowledge base (documents, web pages, connectors)\n"
-            "• Help you study, find information, and learn new topics\n"
-            "• Search the web and Wikipedia for answers\n"
-            "• Chat naturally — I understand context and emotions\n\n"
-            "Just ask me anything! I learn from every conversation. 😊"
+            "I'm KUDOS 🧠 — the public Digital Campus guide. Ask me anything.\n\n"
+            "I can help with:\n"
+            "• How to use Digital Campus (courses, attendance, chat, hub)\n"
+            "• Study questions, explanations, and general knowledge\n"
+            "• Creating an account so you get the full campus\n\n"
+            "Guests can chat with me right away. Register to save conversations, "
+            "enroll in courses, take attendance, and use Chat and Hub. 😊"
         )
 
     if re.search(r"thanks|thank you|thx|cheers", q):

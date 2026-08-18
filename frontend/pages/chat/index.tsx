@@ -112,11 +112,11 @@ export default function ChatPage() {
 
     // Connect WebSocket
     const token = getToken();
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const host = window.location.host;
-    const ws = new WebSocket(
-      `${protocol}//${host}/api/v1/chat/ws/${selectedRoom.id}?token=${token}`
-    );
+    const direct = process.env.NEXT_PUBLIC_WS_URL;
+    const wsUrl = direct
+      ? `${direct.replace(/\/$/, "")}/api/v1/chat/ws/${selectedRoom.id}?token=${token}`
+      : `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/api/v1/chat/ws/${selectedRoom.id}?token=${token}`;
+    const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
       setIsConnected(true);

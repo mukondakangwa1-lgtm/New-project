@@ -1,6 +1,8 @@
 """
 Digital Campus - Shared Dependencies
 """
+from typing import Optional
+
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
@@ -12,6 +14,7 @@ from app.models import User
 from app.schemas import TokenData
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token")
+oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token", auto_error=False)
 
 
 def get_current_user(
@@ -38,6 +41,23 @@ def get_current_user(
     if user is None:
         raise credentials_exception
     return user
+
+
+def get_optional_user(
+    token: Optional[str] = Depends(oauth2_scheme_optional),
+    db: Session = Depends(get_db),
+) -> Optional[User]:
+    """Return the current user when a valid token is present, otherwise None."""
+    if not token:
+        return None
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        email: Optional[str] = payload.get("sub")
+        if not email:
+            return None
+    except JWTError:
+        return None
+    return db.query(User).filter(User.email == email).first()
 
 
 def require_admin(current_user: User = Depends(get_current_user)) -> User:

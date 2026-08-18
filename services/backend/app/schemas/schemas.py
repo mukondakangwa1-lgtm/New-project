@@ -382,12 +382,15 @@ class KudosWebKnowledgeResponse(BaseModel):
 class KudosAskRequest(BaseModel):
     question: str
     conversation_id: Optional[int] = None
+    guest_turns: int = 0
 
 
 class KudosAskResponse(BaseModel):
     answer: str
     sources: list[dict] = []  # [{document_id, title, chunk_preview}]
     conversation_id: int
+    registered: bool = True
+    remind_register: bool = False
 
 
 class KudosConversationResponse(BaseModel):

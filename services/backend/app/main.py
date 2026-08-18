@@ -87,11 +87,12 @@ app = FastAPI(
 # Shield middleware — intrusion detection, rate limiting, performance
 app.add_middleware(ShieldMiddleware)
 
-# CORS — allow frontend dev server on any localhost port
+# CORS — * for launch, or a comma-separated allowlist via CORS_ORIGINS
+_cors_origins = settings.cors_origins_list()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=_cors_origins,
+    allow_credentials=_cors_origins != ["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
