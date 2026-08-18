@@ -682,58 +682,6 @@ def seed_connectors():
     return count
 
 
-if __name__ == "__main__":
-    print("🧠 Seeding KUDOS knowledge base (final version)...\n")
-    doc_count = seed_documents()
-    # Also seed advanced knowledge
-    for doc_data in DEPLOYMENT_KNOWLEDGE:
-        existing = db.query(KudosDocument).filter(KudosDocument.title == doc_data["title"]).first()
-        if not existing:
-            doc = KudosDocument(
-                uploaded_by=admin.id, title=doc_data["title"],
-                filename=doc_data["filename"], file_type="txt",
-                content=doc_data["content"], summary=doc_data["content"][:300].strip(),
-                tags=doc_data["tags"], is_approved=True,
-            )
-            db.add(doc)
-            doc_count += 1
-            print(f"✅ {doc_data['title']}")
-    # Also seed advanced knowledge
-    for doc_data in ADVANCED_KNOWLEDGE:
-        existing = db.query(KudosDocument).filter(KudosDocument.title == doc_data["title"]).first()
-        if not existing:
-            doc = KudosDocument(
-                uploaded_by=admin.id, title=doc_data["title"],
-                filename=doc_data["filename"], file_type="txt",
-                content=doc_data["content"], summary=doc_data["content"][:300].strip(),
-                tags=doc_data["tags"], is_approved=True,
-            )
-            db.add(doc)
-            doc_count += 1
-            print(f"✅ {doc_data['title']}")
-    # Also seed ML knowledge
-    for doc_data in ML_KNOWLEDGE:
-        existing = db.query(KudosDocument).filter(KudosDocument.title == doc_data["title"]).first()
-        if not existing:
-            doc = KudosDocument(
-                uploaded_by=admin.id, title=doc_data["title"],
-                filename=doc_data["filename"], file_type="txt",
-                content=doc_data["content"], summary=doc_data["content"][:300].strip(),
-                tags=doc_data["tags"], is_approved=True,
-            )
-            db.add(doc)
-            doc_count += 1
-            print(f"✅ {doc_data['title']}")
-    conn_count = seed_connectors()
-    db.commit()
-    db.close()
-    print(f"\n🎉 KUDOS knowledge seeded!")
-    print(f"   📄 {doc_count} knowledge documents")
-    print(f"   🔌 {conn_count} connectors")
-    print(f"\n   Topics: Internet, Networks, Systems, Cybersecurity,")
-    print(f"           Self-Recreation, Python, JavaScript, Databases, Docker")
-
-
 # Additional deployment knowledge
 DEPLOYMENT_KNOWLEDGE = [
     {
@@ -1599,3 +1547,26 @@ Best Practices:
 """,
     },
 ]
+
+
+if __name__ == "__main__":
+    print("🧠 Seeding KUDOS knowledge base (final version)...\n")
+    doc_count = seed_documents()
+    for pack in (DEPLOYMENT_KNOWLEDGE, ADVANCED_KNOWLEDGE, ML_KNOWLEDGE):
+        for doc_data in pack:
+            existing = db.query(KudosDocument).filter(KudosDocument.title == doc_data["title"]).first()
+            if not existing:
+                db.add(KudosDocument(
+                    uploaded_by=admin.id, title=doc_data["title"],
+                    filename=doc_data["filename"], file_type="txt",
+                    content=doc_data["content"], summary=doc_data["content"][:300].strip(),
+                    tags=doc_data["tags"], is_approved=True,
+                ))
+                doc_count += 1
+                print(f"✅ {doc_data['title']}")
+    conn_count = seed_connectors()
+    db.commit()
+    db.close()
+    print(f"\n🎉 KUDOS knowledge seeded!")
+    print(f"   📄 {doc_count} knowledge documents")
+    print(f"   🔌 {conn_count} connectors")
